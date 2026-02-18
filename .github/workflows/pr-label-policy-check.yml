@@ -4,12 +4,12 @@ on:
     pull_request:
         paths:
             - ".github/label-policy.json"
-            - ".github/workflows/labeler.yml"
+            - ".github/workflows/pr-labeler.yml"
             - ".github/workflows/auto-response.yml"
     push:
         paths:
             - ".github/label-policy.json"
-            - ".github/workflows/labeler.yml"
+            - ".github/workflows/pr-labeler.yml"
             - ".github/workflows/auto-response.yml"
 
 concurrency:
@@ -60,7 +60,7 @@ jobs:
                     prev_min = min_merged
 
                   workflow_paths = [
-                    Path('.github/workflows/labeler.yml'),
+                    Path('.github/workflows/pr-labeler.yml'),
                     Path('.github/workflows/auto-response.yml'),
                   ]
                   for workflow in workflow_paths:

@@ -2,6 +2,8 @@
 
 This document explains what each GitHub workflow does, when it runs, and whether it should block merges.
 
+For event-by-event delivery behavior across PR, merge, push, and release, see [`docs/main-branch-flow.md`](main-branch-flow.md).
+
 ## Merge-Blocking vs Optional
 
 Merge-blocking checks should stay small and deterministic. Optional checks are useful for automation and maintenance, but should not block normal development.
@@ -34,7 +36,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 ### Optional Repository Automation
 
-- `.github/workflows/labeler.yml` (`PR Labeler`)
+- `.github/workflows/pr-labeler.yml` (`PR Labeler`)
     - Purpose: scope/path labels + size/risk labels + fine-grained module labels (`<module>: <component>`)
     - Additional behavior: label descriptions are auto-managed as hover tooltips to explain each auto-judgment rule
     - Additional behavior: provider-related keywords in provider/config/onboard/integration changes are promoted to `provider:*` labels (for example `provider:kimi`, `provider:deepseek`)
@@ -67,7 +69,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `Security Audit`: push to `main`, PRs to `main`, weekly schedule
 - `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
 - `PR Intake Sanity`: `pull_request_target` on opened/reopened/synchronize/edited/ready_for_review
-- `Label Policy Sanity`: PR/push when `.github/label-policy.json`, `.github/workflows/labeler.yml`, or `.github/workflows/auto-response.yml` changes
+- `Label Policy Sanity`: PR/push when `.github/label-policy.json`, `.github/workflows/pr-labeler.yml`, or `.github/workflows/auto-response.yml` changes
 - `PR Labeler`: `pull_request_target` lifecycle events
 - `PR Auto Responder`: issue opened/labeled, `pull_request_target` opened/labeled
 - `Stale`: daily schedule, manual dispatch
