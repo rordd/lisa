@@ -32,5 +32,5 @@
 
 ## Επόμενα Βήματα
 
-Runtime operations: ../operations/README.md
-Reference catalogs: ../reference/README.md
+- Runtime operations: [../operations/README.md](../operations/README.md)
+- Reference catalogs: [../reference/README.md](../reference/README.md)
