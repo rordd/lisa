@@ -1257,20 +1257,15 @@ Allowlist Telegram username (without '@') or numeric user ID.",
     /// Telegram HTML supports: <b>, <i>, <u>, <s>, <code>, <pre>, <a href="...">
     /// This mirrors OpenClaw's markdownToTelegramHtml approach.
     fn markdown_to_telegram_html(text: &str) -> String {
-        let lines: Vec<&str> = text.split('\n').collect();
-        let mut result_lines: Vec<String> = Vec::new();
-
-        for line in &lines {
+        let render_inline_markdown = |line: &str| -> String {
             let mut line_out = String::new();
 
-            // Handle code blocks (``` ... ```) - handled at text level below
             // Handle headers: ## Title → <b>Title</b>
             let stripped = line.trim_start_matches('#');
             let header_level = line.len() - stripped.len();
             if header_level > 0 && line.starts_with('#') && stripped.starts_with(' ') {
                 let title = Self::escape_html(stripped.trim());
-                result_lines.push(format!("<b>{title}</b>"));
-                continue;
+                return format!("<b>{title}</b>");
             }
 
             // Inline formatting
@@ -1357,41 +1352,42 @@ Allowlist Telegram username (without '@') or numeric user ID.",
                 }
                 i += ch.len_utf8();
             }
-            result_lines.push(line_out);
-        }
+            line_out
+        };
 
-        // Second pass: handle ``` code blocks across lines
-        let joined = result_lines.join("\n");
-        let mut final_out = String::with_capacity(joined.len());
+        // Parse fenced code blocks from raw input before inline markdown transforms.
+        // This avoids malformed output when fence metadata contains adversarial text.
+        let mut final_out = String::with_capacity(text.len());
         let mut in_code_block = false;
         let mut code_buf = String::new();
 
-        for line in joined.split('\n') {
+        for line in text.split('\n') {
             let trimmed = line.trim();
             if trimmed.starts_with("```") {
-                if !in_code_block {
-                    in_code_block = true;
-                    code_buf.clear();
-                } else {
+                if in_code_block {
                     in_code_block = false;
-                    let escaped = code_buf.trim_end_matches('\n');
+                    let escaped = Self::escape_html(code_buf.trim_end_matches('\n'));
                     // Telegram HTML parse mode supports <pre> and <code>, but not class attributes.
                     final_out.push_str(&format!("<pre><code>{escaped}</code></pre>\n"));
                     code_buf.clear();
+                } else {
+                    in_code_block = true;
+                    code_buf.clear();
                 }
-            } else if in_code_block {
+                continue;
+            }
+
+            if in_code_block {
                 code_buf.push_str(line);
                 code_buf.push('\n');
             } else {
-                final_out.push_str(line);
+                final_out.push_str(&render_inline_markdown(line));
                 final_out.push('\n');
             }
         }
         if in_code_block && !code_buf.is_empty() {
-            final_out.push_str(&format!(
-                "<pre><code>{}</code></pre>\n",
-                code_buf.trim_end()
-            ));
+            let escaped = Self::escape_html(code_buf.trim_end());
+            final_out.push_str(&format!("<pre><code>{escaped}</code></pre>\n",));
         }
 
         final_out.trim_end_matches('\n').to_string()
