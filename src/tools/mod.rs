@@ -52,6 +52,9 @@ pub mod schema;
 pub mod screenshot;
 pub mod shell;
 pub mod traits;
+pub mod url_validation;
+#[cfg(feature = "web-fetch")]
+pub mod web_fetch;
 pub mod web_search_tool;
 
 pub use browser::{BrowserTool, ComputerUseConfig};
@@ -93,6 +96,8 @@ pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
+#[cfg(feature = "web-fetch")]
+pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
 
 use crate::config::{Config, DelegateAgentConfig};
@@ -269,6 +274,7 @@ pub fn all_tools_with_runtime(
             http_config.allowed_domains.clone(),
             http_config.max_response_size,
             http_config.timeout_secs,
+            http_config.user_agent.clone(),
         )));
     }
 
@@ -277,8 +283,25 @@ pub fn all_tools_with_runtime(
         tool_arcs.push(Arc::new(WebSearchTool::new(
             root_config.web_search.provider.clone(),
             root_config.web_search.brave_api_key.clone(),
+            root_config.web_search.firecrawl_api_key.clone(),
+            root_config.web_search.firecrawl_api_url.clone(),
             root_config.web_search.max_results,
             root_config.web_search.timeout_secs,
+            root_config.web_search.user_agent.clone(),
+        )));
+    }
+
+    #[cfg(feature = "web-fetch")]
+    if root_config.web_fetch.enabled {
+        tool_arcs.push(Arc::new(WebFetchTool::new(
+            security.clone(),
+            root_config.web_fetch.provider.clone(),
+            root_config.web_fetch.firecrawl_api_key.clone(),
+            root_config.web_fetch.firecrawl_api_url.clone(),
+            root_config.web_fetch.allowed_domains.clone(),
+            root_config.web_fetch.max_response_size,
+            root_config.web_fetch.timeout_secs,
+            root_config.web_fetch.user_agent.clone(),
         )));
     }
 
