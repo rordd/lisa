@@ -1,8 +1,3 @@
-//! Thread-safe sub-agent session registry.
-//!
-//! Provides [`SubAgentRegistry`] for tracking background sub-agent sessions
-//! with status lifecycle management, concurrent access, and automatic cleanup.
-
 use crate::tools::traits::ToolResult;
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
@@ -23,7 +18,6 @@ pub enum SubAgentStatus {
 }
 
 impl SubAgentStatus {
-    /// pub fn as_str.
     pub fn as_str(&self) -> &'static str {
         match self {
             SubAgentStatus::Running => "running",
@@ -41,7 +35,6 @@ impl std::fmt::Display for SubAgentStatus {
 }
 
 /// A single sub-agent session tracked by the registry.
-/// pub struct SubAgentSession.
 pub struct SubAgentSession {
     pub id: String,
     pub agent_name: String,
@@ -56,13 +49,11 @@ pub struct SubAgentSession {
 
 /// Thread-safe registry for tracking background sub-agent sessions.
 #[derive(Clone)]
-/// pub struct SubAgentRegistry.
 pub struct SubAgentRegistry {
     sessions: Arc<RwLock<HashMap<String, SubAgentSession>>>,
 }
 
 impl SubAgentRegistry {
-    /// pub fn new.
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
@@ -75,23 +66,7 @@ impl SubAgentRegistry {
         sessions.insert(session.id.clone(), session);
     }
 
-    /// Atomically check the concurrent session limit and insert if under the cap.
-    /// Returns `Ok(())` if inserted, `Err(running_count)` if at capacity.
-    pub fn try_insert(&self, session: SubAgentSession, max_concurrent: usize) -> Result<(), usize> {
-        let mut sessions = self.sessions.write();
-        let running = sessions
-            .values()
-            .filter(|s| matches!(s.status, SubAgentStatus::Running))
-            .count();
-        if running >= max_concurrent {
-            return Err(running);
-        }
-        sessions.insert(session.id.clone(), session);
-        Ok(())
-    }
-
     /// Set the tokio task handle for a session (used to enable cancellation).
-    /// pub fn set_handle.
     pub fn set_handle(&self, session_id: &str, handle: JoinHandle<()>) {
         let mut sessions = self.sessions.write();
         if let Some(session) = sessions.get_mut(session_id) {
@@ -100,7 +75,6 @@ impl SubAgentRegistry {
     }
 
     /// Mark a session as completed with a result.
-    /// pub fn complete.
     pub fn complete(&self, session_id: &str, result: ToolResult) {
         let mut sessions = self.sessions.write();
         if let Some(session) = sessions.get_mut(session_id) {
@@ -112,7 +86,6 @@ impl SubAgentRegistry {
     }
 
     /// Mark a session as failed with an error result.
-    /// pub fn fail.
     pub fn fail(&self, session_id: &str, error: String) {
         let mut sessions = self.sessions.write();
         if let Some(session) = sessions.get_mut(session_id) {
@@ -129,7 +102,6 @@ impl SubAgentRegistry {
 
     /// Kill a running session by aborting its tokio task.
     /// Returns `true` if the session was found and killed, `false` otherwise.
-    /// pub fn kill.
     pub fn kill(&self, session_id: &str) -> bool {
         let mut sessions = self.sessions.write();
         if let Some(session) = sessions.get_mut(session_id) {
@@ -153,7 +125,6 @@ impl SubAgentRegistry {
     }
 
     /// Get the status and optional result for a session.
-    /// pub fn get_status.
     pub fn get_status(&self, session_id: &str) -> Option<SubAgentStatusSnapshot> {
         let sessions = self.sessions.read();
         sessions.get(session_id).map(|s| SubAgentStatusSnapshot {
@@ -168,7 +139,6 @@ impl SubAgentRegistry {
 
     /// List sessions, optionally filtered by status.
     /// Also performs lazy cleanup of old completed sessions.
-    /// pub fn list.
     pub fn list(&self, status_filter: Option<&str>) -> Vec<SubAgentSessionInfo> {
         self.cleanup_old_sessions();
 
@@ -184,7 +154,10 @@ impl SubAgentRegistry {
             })
             .map(|s| {
                 let duration_ms = s.completed_at.map(|end| {
-                    u64::try_from((end - s.started_at).num_milliseconds()).unwrap_or_default()
+                    (end - s.started_at)
+                        .num_milliseconds()
+                        .max(0)
+                        .cast_unsigned()
                 });
                 SubAgentSessionInfo {
                     session_id: s.id.clone(),
@@ -215,13 +188,11 @@ impl SubAgentRegistry {
     }
 
     /// Check if a session exists.
-    /// pub fn exists.
     pub fn exists(&self, session_id: &str) -> bool {
         self.sessions.read().contains_key(session_id)
     }
 
     /// Get the number of currently running sessions.
-    /// pub fn running_count.
     pub fn running_count(&self) -> usize {
         self.sessions
             .read()
@@ -239,7 +210,6 @@ impl Default for SubAgentRegistry {
 
 /// Snapshot of a session's status returned by `get_status`.
 #[derive(Debug, Clone)]
-/// pub struct SubAgentStatusSnapshot.
 pub struct SubAgentStatusSnapshot {
     pub status: SubAgentStatus,
     pub agent_name: String,
@@ -251,7 +221,6 @@ pub struct SubAgentStatusSnapshot {
 
 /// Serializable session info for list output.
 #[derive(Debug, Clone, serde::Serialize)]
-/// pub struct SubAgentSessionInfo.
 pub struct SubAgentSessionInfo {
     pub session_id: String,
     pub agent: String,
@@ -263,15 +232,10 @@ pub struct SubAgentSessionInfo {
 }
 
 fn truncate_task(task: &str, max_len: usize) -> String {
-    if task.chars().count() <= max_len {
+    if task.len() <= max_len {
         task.to_string()
     } else {
-        let byte_idx = task
-            .char_indices()
-            .nth(max_len)
-            .map(|(i, _)| i)
-            .unwrap_or(task.len());
-        format!("{}...", &task[..byte_idx])
+        format!("{}...", &task[..max_len])
     }
 }
 
@@ -475,17 +439,8 @@ mod tests {
     fn truncate_task_long() {
         let long = "a".repeat(150);
         let truncated = truncate_task(&long, 100);
+        assert_eq!(truncated.len(), 103); // 100 + "..."
         assert!(truncated.ends_with("..."));
-        assert_eq!(truncated.chars().count(), 103); // 100 chars + "..."
-    }
-
-    #[test]
-    fn truncate_task_multibyte_safe() {
-        // Each emoji is 4 bytes. 10 emojis = 40 bytes but 10 chars.
-        let emojis = "🦀".repeat(10);
-        let truncated = truncate_task(&emojis, 5);
-        assert!(truncated.ends_with("..."));
-        assert_eq!(truncated.chars().count(), 8); // 5 emojis + "..."
     }
 
     #[test]

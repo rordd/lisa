@@ -1,9 +1,3 @@
-//! Sub-agent spawn tool for background execution.
-//!
-//! Implements the `subagent_spawn` tool that launches delegate agents
-//! asynchronously via `tokio::spawn`, returning a session ID immediately.
-//! See `AGENTS.md` §7.3 for the tool change playbook.
-
 use super::subagent_registry::{SubAgentRegistry, SubAgentSession, SubAgentStatus};
 use super::traits::{Tool, ToolResult};
 use crate::config::DelegateAgentConfig;
@@ -170,6 +164,18 @@ impl Tool for SubAgentSpawnTool {
             }
         };
 
+        // Check concurrent limit
+        if self.registry.running_count() >= MAX_CONCURRENT_SUBAGENTS {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Maximum concurrent sub-agents reached ({MAX_CONCURRENT_SUBAGENTS}). \
+                     Wait for running agents to complete or kill some."
+                )),
+            });
+        }
+
         // Create provider for this agent
         let provider_credential_owned = agent_config
             .api_key
@@ -212,7 +218,7 @@ impl Tool for SubAgentSpawnTool {
         let parent_tools = self.parent_tools.clone();
         let multimodal_config = self.multimodal_config.clone();
 
-        // Atomically check concurrent limit and register session to prevent race conditions.
+        // Register session
         let session = SubAgentSession {
             id: session_id.clone(),
             agent_name: agent_name_owned.clone(),
@@ -223,16 +229,7 @@ impl Tool for SubAgentSpawnTool {
             result: None,
             handle: None,
         };
-        if let Err(_running) = self.registry.try_insert(session, MAX_CONCURRENT_SUBAGENTS) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "Maximum concurrent sub-agents reached ({MAX_CONCURRENT_SUBAGENTS}). \
-                     Wait for running agents to complete or kill some."
-                )),
-            });
-        }
+        self.registry.insert(session);
 
         // Clone what we need for the spawned task
         let registry = self.registry.clone();

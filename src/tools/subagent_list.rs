@@ -1,8 +1,3 @@
-//! Sub-agent listing tool.
-//!
-//! Implements the `subagent_list` tool for querying running and completed
-//! sub-agent sessions with optional status filtering.
-
 use super::subagent_registry::SubAgentRegistry;
 use super::traits::{Tool, ToolResult};
 use async_trait::async_trait;
@@ -17,7 +12,6 @@ pub struct SubAgentListTool {
 }
 
 impl SubAgentListTool {
-    /// pub fn new.
     pub fn new(registry: Arc<SubAgentRegistry>) -> Self {
         Self { registry }
     }

@@ -58,7 +58,6 @@ pub mod subagent_list;
 pub mod subagent_manage;
 pub mod subagent_registry;
 pub mod subagent_spawn;
-pub mod task_plan;
 pub mod traits;
 pub mod url_validation;
 pub mod wasm_module;
@@ -107,7 +106,6 @@ pub use subagent_list::SubAgentListTool;
 pub use subagent_manage::SubAgentManageTool;
 pub use subagent_registry::SubAgentRegistry;
 pub use subagent_spawn::SubAgentSpawnTool;
-pub use task_plan::TaskPlanTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
@@ -408,22 +406,15 @@ pub fn all_tools_with_runtime(
         });
         let provider_runtime_options = crate::providers::ProviderRuntimeOptions {
             auth_profile_override: None,
-            provider_api_url: root_config.api_url.clone(),
             zeroclaw_dir: root_config
                 .config_path
                 .parent()
                 .map(std::path::PathBuf::from),
             secrets_encrypt: root_config.secrets.encrypt,
             reasoning_enabled: root_config.runtime.reasoning_enabled,
-            reasoning_level: root_config.effective_provider_reasoning_level(),
-            custom_provider_api_mode: root_config
-                .provider_api
-                .map(|mode| mode.as_compatible_mode()),
-            max_tokens_override: None,
-            model_support_vision: root_config.model_support_vision,
         };
         let parent_tools = Arc::new(tool_arcs.clone());
-        let mut delegate_tool = DelegateTool::new_with_options(
+        let delegate_tool = DelegateTool::new_with_options(
             delegate_agents.clone(),
             delegate_fallback_credential.clone(),
             security.clone(),
@@ -431,51 +422,9 @@ pub fn all_tools_with_runtime(
         )
         .with_parent_tools(parent_tools.clone())
         .with_multimodal_config(root_config.multimodal.clone());
+        tool_arcs.push(Arc::new(delegate_tool));
 
-        if root_config.coordination.enabled {
-            let coordination_lead_agent = {
-                let value = root_config.coordination.lead_agent.trim();
-                if value.is_empty() {
-                    "delegate-lead".to_string()
-                } else {
-                    value.to_string()
-                }
-            };
-            let coordination_bus = crate::coordination::InMemoryMessageBus::with_limits(
-                crate::coordination::InMemoryMessageBusLimits {
-                    max_inbox_messages_per_agent: root_config
-                        .coordination
-                        .max_inbox_messages_per_agent,
-                    max_dead_letters: root_config.coordination.max_dead_letters,
-                    max_context_entries: root_config.coordination.max_context_entries,
-                    max_seen_message_ids: root_config.coordination.max_seen_message_ids,
-                },
-            );
-            if let Err(error) = coordination_bus.register_agent(coordination_lead_agent.clone()) {
-                tracing::warn!(
-                    "delegate coordination: failed to register lead agent '{coordination_lead_agent}': {error}"
-                );
-            }
-            for agent_name in agents.keys() {
-                if let Err(error) = coordination_bus.register_agent(agent_name.clone()) {
-                    tracing::warn!(
-                        "delegate coordination: failed to register agent '{agent_name}': {error}"
-                    );
-                }
-            }
-
-            delegate_tool = delegate_tool
-                .with_coordination_bus(coordination_bus.clone(), coordination_lead_agent);
-            tool_arcs.push(Arc::new(delegate_tool));
-            tool_arcs.push(Arc::new(DelegateCoordinationStatusTool::new(
-                coordination_bus,
-                security.clone(),
-            )));
-        } else {
-            delegate_tool = delegate_tool.with_coordination_disabled();
-            tool_arcs.push(Arc::new(delegate_tool));
-        }
-
+        // Sub-agent orchestration tools (background spawn/list/manage)
         let subagent_registry = Arc::new(SubAgentRegistry::new());
         tool_arcs.push(Arc::new(SubAgentSpawnTool::new(
             delegate_agents,
@@ -491,29 +440,6 @@ pub fn all_tools_with_runtime(
             subagent_registry,
             security.clone(),
         )));
-    }
-
-    // Inter-process agent communication (opt-in)
-    if root_config.agents_ipc.enabled {
-        match agents_ipc::IpcDb::open(workspace_dir, &root_config.agents_ipc) {
-            Ok(ipc_db) => {
-                let ipc_db = Arc::new(ipc_db);
-                tool_arcs.push(Arc::new(agents_ipc::AgentsListTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::AgentsSendTool::new(
-                    ipc_db.clone(),
-                    security.clone(),
-                )));
-                tool_arcs.push(Arc::new(agents_ipc::AgentsInboxTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::StateGetTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::StateSetTool::new(
-                    ipc_db,
-                    security.clone(),
-                )));
-            }
-            Err(e) => {
-                tracing::warn!("agents_ipc: failed to open IPC database: {e}");
-            }
-        }
     }
 
     boxed_registry_from_arcs(tool_arcs)

@@ -1,8 +1,3 @@
-//! Sub-agent management tool (status and kill).
-//!
-//! Implements the `subagent_manage` tool for querying individual session
-//! status and killing running sub-agents via cancellation tokens.
-
 use super::subagent_registry::SubAgentRegistry;
 use super::traits::{Tool, ToolResult};
 use crate::security::policy::ToolOperation;
@@ -18,7 +13,6 @@ pub struct SubAgentManageTool {
 }
 
 impl SubAgentManageTool {
-    /// pub fn new.
     pub fn new(registry: Arc<SubAgentRegistry>, security: Arc<SecurityPolicy>) -> Self {
         Self { registry, security }
     }
@@ -105,7 +99,10 @@ impl SubAgentManageTool {
         match self.registry.get_status(session_id) {
             Some(snap) => {
                 let duration_ms = snap.completed_at.map(|end| {
-                    u64::try_from((end - snap.started_at).num_milliseconds()).unwrap_or_default()
+                    (end - snap.started_at)
+                        .num_milliseconds()
+                        .max(0)
+                        .cast_unsigned()
                 });
 
                 let mut output = json!({
@@ -125,7 +122,7 @@ impl SubAgentManageTool {
                     output["result"] = json!({
                         "success": r.success,
                         "output": if r.output.len() > 500 {
-                            { let trunc_idx = r.output.char_indices().nth(500).map(|(i, _)| i).unwrap_or(r.output.len()); format!("{}... (truncated)", &r.output[..trunc_idx]) }
+                            format!("{}... (truncated)", &r.output[..500])
                         } else {
                             r.output.clone()
                         },
