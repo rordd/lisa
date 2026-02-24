@@ -94,5 +94,6 @@ Localized hubs: [简体中文](i18n/zh-CN/README.md) · [日本語](i18n/ja/READ
 - i18n docs index: [i18n/README.md](i18n/README.md)
 - i18n coverage map: [i18n-coverage.md](i18n-coverage.md)
 - i18n completion guide: [i18n-guide.md](i18n-guide.md)
+- i18n gap backlog: [i18n-gap-backlog.md](i18n-gap-backlog.md)
 - Docs audit snapshot (2026-02-24): [docs-audit-2026-02-24.md](docs-audit-2026-02-24.md)
 - Project triage snapshot: [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)

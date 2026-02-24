@@ -24,6 +24,7 @@ Last refreshed: **February 18, 2026**.
 - i18n Docs Index: [i18n/README.md](i18n/README.md)
 - i18n Coverage Map: [i18n-coverage.md](i18n-coverage.md)
 - i18n Completion Guide: [i18n-guide.md](i18n-guide.md)
+- i18n Gap Backlog: [i18n-gap-backlog.md](i18n-gap-backlog.md)
 
 ## Collections
 
@@ -103,4 +104,5 @@ Last refreshed: **February 18, 2026**.
 - [project/README.md](project/README.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
 - [docs-audit-2026-02-24.md](docs-audit-2026-02-24.md)
+- [i18n-gap-backlog.md](i18n-gap-backlog.md)
 - [docs-inventory.md](docs-inventory.md)

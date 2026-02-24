@@ -81,4 +81,5 @@ Use compatibility paths for backward links only. New localized edits should targ
 - i18n docs index: [../i18n/README.md](../i18n/README.md)
 - i18n coverage matrix: [../i18n-coverage.md](../i18n-coverage.md)
 - i18n completion checklist: [../i18n-guide.md](../i18n-guide.md)
+- i18n gap backlog: [../i18n-gap-backlog.md](../i18n-gap-backlog.md)
 - docs inventory/classification: [../docs-inventory.md](../docs-inventory.md)

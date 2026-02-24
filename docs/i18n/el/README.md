@@ -17,7 +17,10 @@
 | Διαμόρφωση προσαρμοσμένων παρόχων και άκρων (endpoints) | [custom-providers.md](custom-providers.md) |
 | Ρύθμιση παρόχου Z.AI / GLM | [zai-glm-setup.md](zai-glm-setup.md) |
 | Χρήση προτύπων ενσωμάτωσης LangGraph | [langgraph-integration.md](langgraph-integration.md) |
+| Ρύθμιση Nextcloud Talk | [nextcloud-talk-setup.md](nextcloud-talk-setup.md) |
+| Ασφαλής διαχείριση proxy scopes | [proxy-agent-playbook.md](proxy-agent-playbook.md) |
 | Διαχείριση περιβάλλοντος εκτέλεσης (Day-2 Runbook) | [operations-runbook.md](operations-runbook.md) |
+| Λειτουργία probes συνδεσιμότητας provider στο CI | [operations/connectivity-probes-runbook.md](operations/connectivity-probes-runbook.md) |
 | Αντιμετώπιση προβλημάτων εγκατάστασης και καναλιών | [troubleshooting.md](troubleshooting.md) |
 | Οδηγός κρυπτογραφημένων δωματίων Matrix | [matrix-e2ee-guide.md](matrix-e2ee-guide.md) |
 | Περιήγηση στα έγγραφα ανά κατηγορία | [SUMMARY.md](SUMMARY.md) |
@@ -85,6 +88,10 @@
 - Κατάλογος και ταξινόμηση εγγράφων: [docs-inventory.md](docs-inventory.md)
 - Ευρετήριο μεταφράσεων i18n: [../README.md](../README.md)
 - Κατάσταση κάλυψης i18n: [../../i18n-coverage.md](../../i18n-coverage.md)
+- Οδηγός ολοκλήρωσης i18n: [i18n-guide.md](i18n-guide.md)
+- Χάρτης κάλυψης i18n (Ελληνικά): [i18n-coverage.md](i18n-coverage.md)
+- Backlog κενών i18n: [i18n-gap-backlog.md](i18n-gap-backlog.md)
+- Snapshot ελέγχου τεκμηρίωσης (2026-02-24): [docs-audit-2026-02-24.md](docs-audit-2026-02-24.md)
 - Στιγμιότυπο διαχείρισης έργου: [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
 
 ## Άλλες γλώσσες

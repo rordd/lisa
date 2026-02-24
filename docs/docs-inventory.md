@@ -122,6 +122,7 @@ These are valuable context, but **not strict runtime contracts**.
 |---|---|
 | `docs/project-triage-snapshot-2026-02-18.md` | Snapshot |
 | `docs/docs-audit-2026-02-24.md` | Snapshot (docs architecture audit) |
+| `docs/i18n-gap-backlog.md` | Snapshot (i18n depth gap tracking) |
 
 ## Maintenance Contract
 

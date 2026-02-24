@@ -48,6 +48,7 @@
 
 - [operations/README.md](operations/README.md)
 - [operations-runbook.md](operations-runbook.md)
+- [operations/connectivity-probes-runbook.md](operations/connectivity-probes-runbook.md)
 - [release-process.md](release-process.md)
 - [troubleshooting.md](troubleshooting.md)
 - [network-deployment.md](network-deployment.md)
@@ -61,6 +62,7 @@
 - [sandboxing.md](sandboxing.md)
 - [resource-limits.md](resource-limits.md)
 - [audit-logging.md](audit-logging.md)
+- [audit-event-schema.md](audit-event-schema.md)
 - [security-roadmap.md](security-roadmap.md)
 
 ### 5) Υλικό και Περιφερειακές Συσκευές
@@ -103,7 +105,11 @@
 
 - [project/README.md](project/README.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
+- [docs-audit-2026-02-24.md](docs-audit-2026-02-24.md)
 - [docs-inventory.md](docs-inventory.md)
 - [cargo-slicer-speedup.md](cargo-slicer-speedup.md)
 - [matrix-e2ee-guide.md](matrix-e2ee-guide.md)
 - [doc-template.md](doc-template.md)
+- [i18n-guide.md](i18n-guide.md)
+- [i18n-coverage.md](i18n-coverage.md)
+- [i18n-gap-backlog.md](i18n-gap-backlog.md)

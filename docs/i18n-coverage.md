@@ -5,6 +5,7 @@ This document defines the localization structure for ZeroClaw docs and tracks cu
 Last refreshed: **February 24, 2026**.
 
 Execution guide: [i18n-guide.md](i18n-guide.md)
+Gap backlog: [i18n-gap-backlog.md](i18n-gap-backlog.md)
 
 ## Canonical Layout
 

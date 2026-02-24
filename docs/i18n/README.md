@@ -24,4 +24,5 @@ Canonical localized documentation trees live here.
 - Compatibility hubs at docs root (`docs/README.<locale>.md`) remain available during migration.
 
 See overall coverage and conventions in [../i18n-coverage.md](../i18n-coverage.md).
+See remaining localization depth gaps in [../i18n-gap-backlog.md](../i18n-gap-backlog.md).
 For required execution steps, use [../i18n-guide.md](../i18n-guide.md).

@@ -86,3 +86,14 @@ These are structural/content-depth gaps, not integrity failures:
 - `git diff --check`: clean.
 
 This snapshot is immutable context for the 2026-02-24 docs restructuring pass.
+
+## Addendum (Phase-2 Deep Completion)
+
+After the initial restructuring pass, a second completion wave was applied in the same date scope:
+
+- Added localized bridge coverage so `docs/i18n/vi/` and `docs/i18n/el/` reach full top-level docs parity (against `docs/*.md` baseline).
+- Added explicit i18n gap backlog tracker: [i18n-gap-backlog.md](i18n-gap-backlog.md).
+- Added localized references for i18n governance docs (`i18n-guide`, `i18n-coverage`) and latest docs audit snapshot under `vi` and `el`.
+- Updated localized hubs and summaries (`docs/i18n/vi/*`, `docs/i18n/el/*`) to expose newly added docs and governance links.
+
+Current depth asymmetry remains for `zh-CN` / `ja` / `ru` / `fr` by design (hub-level scaffolds), now explicitly tracked with counts and wave plans in the backlog.

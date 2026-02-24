@@ -84,6 +84,11 @@ When an agent touches docs IA or shared docs wording, the agent must:
 2. Update `docs/i18n-coverage.md` and `docs/i18n/README.md` when locale topology changes.
 3. Include i18n completion notes in PR summary (what was synced, what was deferred, why).
 
+## Gap Tracking
+
+- Track remaining locale-depth gaps in [i18n-gap-backlog.md](i18n-gap-backlog.md).
+- Update [i18n-coverage.md](i18n-coverage.md) and backlog counts after each localization wave.
+
 ## Quick Validation Commands
 
 Examples:
@@ -94,6 +99,17 @@ rg -n "README\.el\.md|i18n/el/README\.md|i18n/vi/README\.md" README*.md docs/REA
 
 # check changed markdown files for obvious link breaks
 git status --short
+
+# quick parity count against top-level docs baseline
+base=$(find docs -maxdepth 1 -type f -name '*.md' | sed 's#^docs/##' | \
+  rg -v '^(README(\..+)?\.md|SUMMARY(\..+)?\.md|commands-reference\.vi\.md|config-reference\.vi\.md|one-click-bootstrap\.vi\.md|troubleshooting\.vi\.md)$' | sort)
+for loc in zh-CN ja ru fr vi el; do
+  c=0
+  while IFS= read -r f; do
+    [ -f "docs/i18n/$loc/$f" ] || c=$((c+1))
+  done <<< "$base"
+  echo "$loc $c"
+done
 ```
 
 Use repository-preferred markdown lint/link checks when available.

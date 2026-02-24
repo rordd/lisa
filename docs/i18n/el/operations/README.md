@@ -7,6 +7,7 @@
 ## 1. Βασικές Λειτουργίες και Εγχειρίδια
 
 - **Operations Runbook (Day-2)**: [../operations-runbook.md](../operations-runbook.md)
+- **Runbook Probes Συνδεσιμότητας Παρόχων στο CI**: [connectivity-probes-runbook.md](connectivity-probes-runbook.md)
 - **Διαδικασία Έκδοσης (Release Process)**: [../release-process.md](../release-process.md)
 - **Αντιμετώπιση Προβλημάτων (Troubleshooting)**: [../troubleshooting.md](../troubleshooting.md)
 - **Ανάπτυξη Δικτύου και Πύλης (Gateway)**: [../network-deployment.md](../network-deployment.md)
