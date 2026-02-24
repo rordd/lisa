@@ -234,6 +234,16 @@ pub struct ModelProviderConfig {
     /// If true, load OpenAI auth material (OPENAI_API_KEY or ~/.codex/auth.json).
     #[serde(default)]
     pub requires_openai_auth: bool,
+    /// Path to a custom CA certificate file (PEM format) for TLS verification.
+    /// Useful for custom inference endpoints using local PKI.
+    /// Example: "~/.zeroclaw/ca.crt" or "/etc/ssl/certs/my-ca.pem"
+    #[serde(default)]
+    pub tls_ca_cert_path: Option<String>,
+    /// If true, disable TLS certificate verification entirely.
+    /// WARNING: This is insecure and should only be used for testing or
+    /// trusted internal networks. Defaults to false.
+    #[serde(default)]
+    pub tls_insecure: bool,
 }
 
 // ── Delegate Agents ──────────────────────────────────────────────
@@ -1585,6 +1595,90 @@ pub fn build_runtime_proxy_client_with_timeouts(
     });
     set_runtime_proxy_cached_client(cache_key, client.clone());
     client
+}
+
+/// Build an HTTP client with custom TLS configuration for a provider.
+///
+/// This function creates a reqwest client that can:
+/// - Use a custom CA certificate for TLS verification (for local PKI)
+/// - Optionally disable TLS verification entirely (insecure, for testing)
+///
+/// # Arguments
+/// * `service_key` - Service identifier for proxy configuration
+/// * `timeout_secs` - Request timeout in seconds
+/// * `connect_timeout_secs` - Connection timeout in seconds
+/// * `tls_ca_cert_path` - Optional path to a custom CA certificate (PEM format)
+/// * `tls_insecure` - If true, disable TLS certificate verification
+///
+/// # Returns
+/// A configured reqwest::Client
+pub fn build_provider_client_with_tls(
+    service_key: &str,
+    timeout_secs: u64,
+    connect_timeout_secs: u64,
+    tls_ca_cert_path: Option<&str>,
+    tls_insecure: bool,
+) -> reqwest::Client {
+    let builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .connect_timeout(std::time::Duration::from_secs(connect_timeout_secs));
+
+    // Apply proxy configuration
+    let mut builder = apply_runtime_proxy_to_builder(builder, service_key);
+
+    // Handle TLS configuration
+    if tls_insecure {
+        tracing::warn!(
+            service_key,
+            "TLS certificate verification is DISABLED. This is insecure and should only be used for testing."
+        );
+        builder = builder.danger_accept_invalid_certs(true);
+    } else if let Some(cert_path) = tls_ca_cert_path {
+        // Expand tilde in path
+        let expanded_path = shellexpand::tilde(cert_path);
+        let cert_path = std::path::Path::new(expanded_path.as_ref());
+
+        match std::fs::read(cert_path) {
+            Ok(cert_bytes) => {
+                // Try to parse as PEM certificate
+                let cert = reqwest::Certificate::from_pem(&cert_bytes);
+                match cert {
+                    Ok(cert) => {
+                        builder = builder.add_root_certificate(cert);
+                        tracing::info!(
+                            service_key,
+                            cert_path = %cert_path.display(),
+                            "Added custom CA certificate to trust store"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            service_key,
+                            cert_path = %cert_path.display(),
+                            error = %e,
+                            "Failed to parse CA certificate as PEM. Falling back to system trust store."
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    service_key,
+                    cert_path = %cert_path.display(),
+                    error = %e,
+                    "Failed to read CA certificate file. Falling back to system trust store."
+                );
+            }
+        }
+    }
+
+    builder.build().unwrap_or_else(|error| {
+        tracing::warn!(
+            service_key,
+            "Failed to build TLS-configured client: {error}. Falling back to default client."
+        );
+        reqwest::Client::new()
+    })
 }
 
 fn parse_proxy_scope(raw: &str) -> Option<ProxyScope> {
@@ -6490,6 +6584,8 @@ requires_openai_auth = true
                     base_url: Some("https://api.tonsof.blue/v1".to_string()),
                     wire_api: None,
                     requires_openai_auth: false,
+                    tls_ca_cert_path: None,
+                    tls_insecure: false,
                 },
             )]),
             ..Config::default()
@@ -6518,6 +6614,8 @@ requires_openai_auth = true
                     base_url: Some("https://api.tonsof.blue".to_string()),
                     wire_api: Some("responses".to_string()),
                     requires_openai_auth: true,
+                    tls_ca_cert_path: None,
+                    tls_insecure: false,
                 },
             )]),
             api_key: None,
@@ -6580,6 +6678,8 @@ requires_openai_auth = true
                     base_url: Some("https://api.tonsof.blue/v1".to_string()),
                     wire_api: Some("ws".to_string()),
                     requires_openai_auth: false,
+                    tls_ca_cert_path: None,
+                    tls_insecure: false,
                 },
             )]),
             ..Config::default()

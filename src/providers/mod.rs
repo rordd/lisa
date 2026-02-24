@@ -676,6 +676,10 @@ pub struct ProviderRuntimeOptions {
     pub zeroclaw_dir: Option<PathBuf>,
     pub secrets_encrypt: bool,
     pub reasoning_enabled: Option<bool>,
+    /// Path to a custom CA certificate file (PEM format) for TLS verification.
+    pub tls_ca_cert_path: Option<String>,
+    /// If true, disable TLS certificate verification entirely (insecure).
+    pub tls_insecure: bool,
 }
 
 impl Default for ProviderRuntimeOptions {
@@ -686,6 +690,8 @@ impl Default for ProviderRuntimeOptions {
             zeroclaw_dir: None,
             secrets_encrypt: true,
             reasoning_enabled: None,
+            tls_ca_cert_path: None,
+            tls_insecure: false,
         }
     }
 }

@@ -37,6 +37,10 @@ pub struct OpenAiCompatibleProvider {
     /// Whether this provider supports OpenAI-style native tool calling.
     /// When false, tools are injected into the system prompt as text.
     native_tool_calling: bool,
+    /// Path to a custom CA certificate file (PEM format) for TLS verification.
+    tls_ca_cert_path: Option<String>,
+    /// If true, disable TLS certificate verification entirely (insecure).
+    tls_insecure: bool,
 }
 
 /// How the provider expects the API key to be sent.
@@ -58,7 +62,7 @@ impl OpenAiCompatibleProvider {
         auth_style: AuthStyle,
     ) -> Self {
         Self::new_with_options(
-            name, base_url, credential, auth_style, false, true, None, false,
+            name, base_url, credential, auth_style, false, true, None, false, None, false,
         )
     }
 
@@ -78,6 +82,8 @@ impl OpenAiCompatibleProvider {
             true,
             None,
             false,
+            None,
+            false,
         )
     }
 
@@ -90,7 +96,7 @@ impl OpenAiCompatibleProvider {
         auth_style: AuthStyle,
     ) -> Self {
         Self::new_with_options(
-            name, base_url, credential, auth_style, false, false, None, false,
+            name, base_url, credential, auth_style, false, false, None, false, None, false,
         )
     }
 
@@ -114,6 +120,8 @@ impl OpenAiCompatibleProvider {
             true,
             Some(user_agent),
             false,
+            None,
+            false,
         )
     }
 
@@ -134,6 +142,8 @@ impl OpenAiCompatibleProvider {
             true,
             Some(user_agent),
             false,
+            None,
+            false,
         )
     }
 
@@ -146,7 +156,34 @@ impl OpenAiCompatibleProvider {
         auth_style: AuthStyle,
     ) -> Self {
         Self::new_with_options(
-            name, base_url, credential, auth_style, false, false, None, true,
+            name, base_url, credential, auth_style, false, false, None, true, None, false,
+        )
+    }
+
+    /// Create a provider with custom TLS configuration for local PKI support.
+    ///
+    /// # Arguments
+    /// * `tls_ca_cert_path` - Optional path to a custom CA certificate (PEM format)
+    /// * `tls_insecure` - If true, disable TLS certificate verification (insecure)
+    pub fn new_with_tls(
+        name: &str,
+        base_url: &str,
+        credential: Option<&str>,
+        auth_style: AuthStyle,
+        tls_ca_cert_path: Option<&str>,
+        tls_insecure: bool,
+    ) -> Self {
+        Self::new_with_options(
+            name,
+            base_url,
+            credential,
+            auth_style,
+            false,
+            true,
+            None,
+            false,
+            tls_ca_cert_path,
+            tls_insecure,
         )
     }
 
@@ -159,6 +196,8 @@ impl OpenAiCompatibleProvider {
         supports_responses_fallback: bool,
         user_agent: Option<&str>,
         merge_system_into_user: bool,
+        tls_ca_cert_path: Option<&str>,
+        tls_insecure: bool,
     ) -> Self {
         Self {
             name: name.to_string(),
@@ -170,6 +209,8 @@ impl OpenAiCompatibleProvider {
             user_agent: user_agent.map(ToString::to_string),
             merge_system_into_user,
             native_tool_calling: !merge_system_into_user,
+            tls_ca_cert_path: tls_ca_cert_path.map(ToString::to_string),
+            tls_insecure,
         }
     }
 
@@ -205,21 +246,73 @@ impl OpenAiCompatibleProvider {
     }
 
     fn http_client(&self) -> Client {
-        if let Some(ua) = self.user_agent.as_deref() {
+        // If custom TLS or user-agent is configured, build a custom client
+        if self.tls_ca_cert_path.is_some()
+            || self.tls_insecure
+            || self.user_agent.is_some()
+        {
             let mut headers = HeaderMap::new();
-            if let Ok(value) = HeaderValue::from_str(ua) {
-                headers.insert(USER_AGENT, value);
+            if let Some(ua) = self.user_agent.as_deref() {
+                if let Ok(value) = HeaderValue::from_str(ua) {
+                    headers.insert(USER_AGENT, value);
+                }
             }
 
             let builder = Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .default_headers(headers);
-            let builder =
+            let mut builder =
                 crate::config::apply_runtime_proxy_to_builder(builder, "provider.compatible");
 
+            // Apply TLS configuration
+            if self.tls_insecure {
+                tracing::warn!(
+                    provider = %self.name,
+                    "TLS certificate verification is DISABLED. This is insecure."
+                );
+                builder = builder.danger_accept_invalid_certs(true);
+            } else if let Some(cert_path) = self.tls_ca_cert_path.as_deref() {
+                let expanded_path = shellexpand::tilde(cert_path);
+                let cert_path = std::path::Path::new(expanded_path.as_ref());
+
+                match std::fs::read(cert_path) {
+                    Ok(cert_bytes) => {
+                        match reqwest::Certificate::from_pem(&cert_bytes) {
+                            Ok(cert) => {
+                                builder = builder.add_root_certificate(cert);
+                                tracing::info!(
+                                    provider = %self.name,
+                                    cert_path = %cert_path.display(),
+                                    "Added custom CA certificate to trust store"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    provider = %self.name,
+                                    cert_path = %cert_path.display(),
+                                    error = %e,
+                                    "Failed to parse CA certificate as PEM"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            provider = %self.name,
+                            cert_path = %cert_path.display(),
+                            error = %e,
+                            "Failed to read CA certificate file"
+                        );
+                    }
+                }
+            }
+
             return builder.build().unwrap_or_else(|error| {
-                tracing::warn!("Failed to build proxied timeout client with user-agent: {error}");
+                tracing::warn!(
+                    provider = %self.name,
+                    "Failed to build TLS-configured client: {error}"
+                );
                 Client::new()
             });
         }
