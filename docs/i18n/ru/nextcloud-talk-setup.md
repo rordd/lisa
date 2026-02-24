@@ -1,20 +1,32 @@
 # Локализованный bridge: Nextcloud Talk Setup
 
-Это bridge-страница первого этапа локализации. Она помогает быстро понять контекст и перейти к нормативному английскому документу.
+Это усиленная bridge-страница. Здесь собраны позиционирование темы, навигация по разделам оригинала и практические подсказки.
 
 Английский оригинал:
 
 - [../../nextcloud-talk-setup.md](../../nextcloud-talk-setup.md)
 
-## Когда использовать
+## Позиционирование темы
 
-- Сначала понять цель и границы темы, затем выполнять шаги по английскому оригиналу.
-- Выравнивать термины для эксплуатации, отладки и внедрения.
+- Категория: Runtime и каналы
+- Глубина: усиленный bridge (карта разделов + операционные подсказки)
+- Применение: сначала понять структуру, затем выполнять по английскому нормативному описанию.
 
-## Правила локализации
+## Карта разделов оригинала
 
-- Имена команд, ключей конфигурации, API-пути и code identifiers остаются на английском.
-- Финальная спецификация поведения определяется английским оригиналом.
+- [H2 · 1. What this integration does](../../nextcloud-talk-setup.md#1-what-this-integration-does)
+- [H2 · 2. Configuration](../../nextcloud-talk-setup.md#2-configuration)
+- [H2 · 3. Gateway endpoint](../../nextcloud-talk-setup.md#3-gateway-endpoint)
+- [H2 · 4. Signature verification contract](../../nextcloud-talk-setup.md#4-signature-verification-contract)
+- [H2 · 5. Message routing behavior](../../nextcloud-talk-setup.md#5-message-routing-behavior)
+- [H2 · 6. Quick validation checklist](../../nextcloud-talk-setup.md#6-quick-validation-checklist)
+- [H2 · 7. Troubleshooting](../../nextcloud-talk-setup.md#7-troubleshooting)
+
+## Практические рекомендации
+
+- Сначала просмотрите структуру разделов оригинала, затем переходите к релевантным блокам для текущего изменения.
+- Имена команд, ключей конфигурации, API-пути и code identifiers оставляйте на английском.
+- При расхождениях трактовки опирайтесь на английский оригинал.
 
 ## Связанные входы
 

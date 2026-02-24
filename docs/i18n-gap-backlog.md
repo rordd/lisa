@@ -41,7 +41,8 @@ Completed in this PR stream:
 
 These are not baseline blockers, but can be advanced in future waves:
 
-- fuller narrative translation depth for bridge pages currently linked to English normative docs
+- fuller narrative translation depth for the 33 enhanced bridge pages in each of `zh-CN`/`ja`/`ru`/`fr`
+- locale-specific examples (commands/config snippets) where operational behavior differs by provider/channel environment
 
 ## Tracking Rules
 

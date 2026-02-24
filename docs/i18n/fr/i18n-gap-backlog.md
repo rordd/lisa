@@ -1,20 +1,31 @@
 # Passerelle de localisation: I18n Gap Backlog
 
-Cette page est une passerelle de la première phase de localisation. Elle sert à comprendre rapidement le sujet puis à suivre la source normative en anglais.
+Cette page est une passerelle enrichie. Elle fournit le positionnement du sujet, un guidage par sections source et des conseils d'exécution.
 
 Source anglaise:
 
 - [../../i18n-gap-backlog.md](../../i18n-gap-backlog.md)
 
-## Quand l'utiliser
+## Positionnement du sujet
 
-- Comprendre l'objectif et le périmètre du sujet, puis exécuter les étapes détaillées depuis la source anglaise.
-- Aligner la terminologie pour l'exploitation, le debug et l'implémentation.
+- Catégorie : Gouvernance i18n
+- Profondeur : passerelle enrichie (guidage de sections + conseils d'exécution)
+- Usage : comprendre la structure puis appliquer les étapes selon la source normative anglaise.
 
-## Règles de localisation
+## Plan des sections source
 
+- [H2 · Baseline Definition](../../i18n-gap-backlog.md#baseline-definition)
+- [H2 · Current Gap Counts](../../i18n-gap-backlog.md#current-gap-counts)
+- [H2 · Closure Record (2026-02-24)](../../i18n-gap-backlog.md#closure-record-2026-02-24)
+- [H2 · Remaining Gaps (Baseline Scope)](../../i18n-gap-backlog.md#remaining-gaps-baseline-scope)
+- [H2 · Optional Next Depth](../../i18n-gap-backlog.md#optional-next-depth)
+- [H2 · Tracking Rules](../../i18n-gap-backlog.md#tracking-rules)
+
+## Conseils d'exécution
+
+- Commencer par la structure des sections source, puis cibler les parties directement liées au changement en cours.
 - Les noms de commandes, clés de configuration, chemins API et identifiants de code restent en anglais.
-- La définition finale du comportement est la source anglaise.
+- En cas d'ambiguïté d'interprétation, la source anglaise fait foi.
 
 ## Entrées liées
 

@@ -44,6 +44,19 @@ Baseline on 2026-02-24 uses 40 top-level English docs (`docs/*.md`, locale root 
 | `vi` | 0 |
 | `el` | 0 |
 
+## Narrative Depth Snapshot
+
+As of 2026-02-24:
+
+| Locale | Enhanced bridge pages | Notes |
+|---|---:|---|
+| `zh-CN` | 33 | Bridge pages include topic positioning + source section map + execution hints |
+| `ja` | 33 | Bridge pages include topic positioning + source section map + execution hints |
+| `ru` | 33 | Bridge pages include topic positioning + source section map + execution hints |
+| `fr` | 33 | Bridge pages include topic positioning + source section map + execution hints |
+| `vi` | N/A | Existing localization style kept as full localized tree |
+| `el` | N/A | Existing localization style kept as full localized tree |
+
 ## Root README Completeness
 
 Not all root READMEs are full translations of `README.md`:

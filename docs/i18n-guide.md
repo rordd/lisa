@@ -58,6 +58,7 @@ Before merge, verify all items:
 3. Top-level docs parity
 - If any file under `docs/*.md` changes, sync localized equivalents for all supported locales.
 - If full narrative translation is not feasible in the same PR, provide a bridge update (with source link) rather than leaving missing files.
+- Bridge pages must include a source section map (at least level-2 headings) and practical execution hints.
 
 4. Coverage metadata
 - Update `docs/i18n-coverage.md` if support status, canonical path, or coverage level changed.
@@ -73,6 +74,7 @@ If full narrative localization cannot be completed in the same PR:
 
 - Keep file-level parity complete (never leave locale file missing).
 - Use localized bridge pages with clear source links to English normative docs.
+- Keep bridge pages actionable: topic positioning + source section map + execution hints.
 - Add explicit deferral note in PR description with owner and follow-up issue/PR.
 
 Do not silently defer user-facing language parity changes.

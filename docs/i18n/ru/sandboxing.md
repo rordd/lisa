@@ -1,20 +1,34 @@
 # Локализованный bridge: Sandboxing
 
-Это bridge-страница первого этапа локализации. Она помогает быстро понять контекст и перейти к нормативному английскому документу.
+Это усиленная bridge-страница. Здесь собраны позиционирование темы, навигация по разделам оригинала и практические подсказки.
 
 Английский оригинал:
 
 - [../../sandboxing.md](../../sandboxing.md)
 
-## Когда использовать
+## Позиционирование темы
 
-- Сначала понять цель и границы темы, затем выполнять шаги по английскому оригиналу.
-- Выравнивать термины для эксплуатации, отладки и внедрения.
+- Категория: Безопасность и управление
+- Глубина: усиленный bridge (карта разделов + операционные подсказки)
+- Применение: сначала понять структуру, затем выполнять по английскому нормативному описанию.
 
-## Правила локализации
+## Карта разделов оригинала
 
-- Имена команд, ключей конфигурации, API-пути и code identifiers остаются на английском.
-- Финальная спецификация поведения определяется английским оригиналом.
+- [H2 · Problem](../../sandboxing.md#problem)
+- [H2 · Proposed Solutions](../../sandboxing.md#proposed-solutions)
+- [H3 · Option 1: Firejail Integration (Recommended for Linux)](../../sandboxing.md#option-1-firejail-integration-recommended-for-linux)
+- [H3 · Option 2: Bubblewrap (Portable, no root required)](../../sandboxing.md#option-2-bubblewrap-portable-no-root-required)
+- [H3 · Option 3: Docker-in-Docker (Heavyweight but complete isolation)](../../sandboxing.md#option-3-docker-in-docker-heavyweight-but-complete-isolation)
+- [H3 · Option 4: Landlock (Linux Kernel LSM, Rust native)](../../sandboxing.md#option-4-landlock-linux-kernel-lsm-rust-native)
+- [H2 · Priority Implementation Order](../../sandboxing.md#priority-implementation-order)
+- [H2 · Config Schema Extension](../../sandboxing.md#config-schema-extension)
+- [H2 · Testing Strategy](../../sandboxing.md#testing-strategy)
+
+## Практические рекомендации
+
+- Сначала просмотрите структуру разделов оригинала, затем переходите к релевантным блокам для текущего изменения.
+- Имена команд, ключей конфигурации, API-пути и code identifiers оставляйте на английском.
+- При расхождениях трактовки опирайтесь на английский оригинал.
 
 ## Связанные входы
 

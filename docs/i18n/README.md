@@ -3,6 +3,7 @@
 Canonical localized documentation trees live here.
 
 Top-level parity status: **all supported locales are 0-gap against `docs/*.md` baseline** (last validated 2026-02-24).
+Narrative depth status: **enhanced bridge rollout completed for `zh-CN`/`ja`/`ru`/`fr`**.
 
 ## Locales
 
