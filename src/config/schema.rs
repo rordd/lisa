@@ -2761,6 +2761,11 @@ pub struct TelegramConfig {
     /// Direct messages are always processed.
     #[serde(default)]
     pub mention_only: bool,
+    /// Optional custom base URL for Telegram-compatible APIs.
+    /// Defaults to "https://api.telegram.org" if not specified.
+    /// Example for Bale messenger: "https://tapi.bale.ai"
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 impl ChannelConfig for TelegramConfig {
@@ -5119,6 +5124,7 @@ default_temperature = 0.7
                     draft_update_interval_ms: default_draft_update_interval_ms(),
                     interrupt_on_new_message: false,
                     mention_only: false,
+                    base_url: None,
                 }),
                 discord: None,
                 slack: None,
@@ -5490,6 +5496,7 @@ tool_dispatcher = "xml"
             draft_update_interval_ms: 500,
             interrupt_on_new_message: true,
             mention_only: false,
+            base_url: None,
         };
         let json = serde_json::to_string(&tc).unwrap();
         let parsed: TelegramConfig = serde_json::from_str(&json).unwrap();
@@ -5507,6 +5514,14 @@ tool_dispatcher = "xml"
         assert_eq!(parsed.stream_mode, StreamMode::Off);
         assert_eq!(parsed.draft_update_interval_ms, 1000);
         assert!(!parsed.interrupt_on_new_message);
+        assert!(parsed.base_url.is_none());
+    }
+
+    #[test]
+    async fn telegram_config_custom_base_url() {
+        let json = r#"{"bot_token":"tok","allowed_users":[],"base_url":"https://tapi.bale.ai"}"#;
+        let parsed: TelegramConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.base_url, Some("https://tapi.bale.ai".to_string()));
     }
 
     #[test]
