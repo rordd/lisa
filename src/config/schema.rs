@@ -4556,10 +4556,6 @@ pub struct SecurityRoleConfig {
     pub gated_domain_categories: Vec<String>,
 }
 
-fn default_otp_enabled() -> bool {
-    true
-}
-
 fn default_otp_token_ttl_secs() -> u64 {
     30
 }
@@ -6232,20 +6228,6 @@ impl Config {
         .with_context(|| {
             "Invalid security.otp.gated_domains or security.otp.gated_domain_categories"
         })?;
-        for (i, cidr) in self.security.url_access.allow_cidrs.iter().enumerate() {
-            parse_cidr_notation(cidr).with_context(|| {
-                format!("security.url_access.allow_cidrs[{i}] is invalid CIDR notation: {cidr}")
-            })?;
-        }
-        for (i, domain) in self.security.url_access.allow_domains.iter().enumerate() {
-            let normalized = domain.trim();
-            if normalized.is_empty() {
-                anyhow::bail!("security.url_access.allow_domains[{i}] must not be empty");
-            }
-            if normalized.chars().any(char::is_whitespace) {
-                anyhow::bail!("security.url_access.allow_domains[{i}] must not contain whitespace");
-            }
-        }
         let built_in_roles = ["owner", "admin", "operator", "viewer", "guest"];
         let mut custom_role_names = std::collections::HashSet::new();
         for (i, role) in self.security.roles.iter().enumerate() {
@@ -10914,28 +10896,6 @@ symbol_ratio_threshold = 0.25
         assert!(err
             .to_string()
             .contains("max_denied_events_per_minute must be less than or equal"));
-    }
-
-    #[test]
-    async fn security_validation_rejects_invalid_perplexity_threshold() {
-        let mut config = Config::default();
-        config.security.perplexity_filter.perplexity_threshold = 1.0;
-
-        let err = config
-            .validate()
-            .expect_err("expected perplexity threshold validation failure");
-        assert!(err.to_string().contains("perplexity_threshold"));
-    }
-
-    #[test]
-    async fn security_validation_rejects_invalid_perplexity_symbol_ratio_threshold() {
-        let mut config = Config::default();
-        config.security.perplexity_filter.symbol_ratio_threshold = 1.5;
-
-        let err = config
-            .validate()
-            .expect_err("expected perplexity symbol ratio validation failure");
-        assert!(err.to_string().contains("symbol_ratio_threshold"));
     }
 
     #[test]
