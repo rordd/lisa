@@ -7,13 +7,15 @@ For first-time setup and quick orientation.
 1. Main overview and quick start: [../../README.md](../../README.md)
 2. One-click setup and dual bootstrap mode: [../one-click-bootstrap.md](../one-click-bootstrap.md)
 3. Update or uninstall on macOS: [macos-update-uninstall.md](macos-update-uninstall.md)
-4. Find commands by tasks: [../commands-reference.md](../commands-reference.md)
+4. Set up on Android (Termux/ADB): [../android-setup.md](../android-setup.md)
+5. Find commands by tasks: [../commands-reference.md](../commands-reference.md)
 
 ## Choose Your Path
 
 | Scenario | Command |
 |----------|---------|
 | I have an API key, want fastest setup | `zeroclaw onboard --api-key sk-... --provider openrouter` |
+| I want a web-based setup wizard (opens in browser) | `zeroclaw onboard --web` |
 | I want guided prompts | `zeroclaw onboard --interactive` |
 | Config exists, just fix channels | `zeroclaw onboard --channels-only` |
 | Config exists, I intentionally want full overwrite | `zeroclaw onboard --force` |
@@ -32,3 +34,4 @@ For first-time setup and quick orientation.
 - Runtime operations: [../operations/README.md](../operations/README.md)
 - Reference catalogs: [../reference/README.md](../reference/README.md)
 - macOS lifecycle tasks: [macos-update-uninstall.md](macos-update-uninstall.md)
+- Android setup path: [../android-setup.md](../android-setup.md)

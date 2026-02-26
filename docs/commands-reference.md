@@ -33,6 +33,8 @@ Last verified: **February 21, 2026**.
 ### `onboard`
 
 - `zeroclaw onboard`
+- `zeroclaw onboard --web` — web-based setup wizard (opens in browser)
+- `zeroclaw onboard --web --web-host 0.0.0.0 --web-port 8080` — bind to custom address
 - `zeroclaw onboard --interactive`
 - `zeroclaw onboard --channels-only`
 - `zeroclaw onboard --force`
@@ -122,6 +124,10 @@ Notes:
 - `zeroclaw doctor models [--provider <ID>] [--use-cache]`
 - `zeroclaw doctor traces [--limit <N>] [--event <TYPE>] [--contains <TEXT>]`
 - `zeroclaw doctor traces --id <TRACE_ID>`
+
+Provider connectivity matrix CI/local helper:
+
+- `python3 scripts/ci/provider_connectivity_matrix.py --binary target/release-fast/zeroclaw --contract .github/connectivity/probe-contract.json`
 
 `doctor traces` reads runtime tool/model diagnostics from `observability.runtime_trace_path`.
 

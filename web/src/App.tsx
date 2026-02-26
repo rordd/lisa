@@ -8,6 +8,7 @@ import Cron from './pages/Cron';
 import Integrations from './pages/Integrations';
 import Memory from './pages/Memory';
 import Config from './pages/Config';
+import Setup from './pages/Setup';
 import Cost from './pages/Cost';
 import Logs from './pages/Logs';
 import Doctor from './pages/Doctor';
@@ -16,13 +17,13 @@ import { setLocale, type Locale } from './lib/i18n';
 
 // Locale context
 interface LocaleContextType {
-  locale: string;
-  setAppLocale: (locale: string) => void;
+  locale: Locale;
+  setAppLocale: (locale: Locale) => void;
 }
 
 export const LocaleContext = createContext<LocaleContextType>({
   locale: 'tr',
-  setAppLocale: () => {},
+  setAppLocale: (_locale: Locale) => {},
 });
 
 export const useLocaleContext = () => useContext(LocaleContext);
@@ -80,12 +81,12 @@ function PairingDialog({ onPair }: { onPair: (code: string) => Promise<void> }) 
 }
 
 function AppContent() {
-  const { isAuthenticated, loading, pair, logout } = useAuth();
-  const [locale, setLocaleState] = useState('tr');
+  const { isAuthenticated, loading, pair, logout, serverMode } = useAuth();
+  const [locale, setLocaleState] = useState<Locale>('tr');
 
-  const setAppLocale = (newLocale: string) => {
+  const setAppLocale = (newLocale: Locale) => {
     setLocaleState(newLocale);
-    setLocale(newLocale as Locale);
+    setLocale(newLocale);
   };
 
   // Listen for 401 events to force logout
@@ -109,21 +110,32 @@ function AppContent() {
     return <PairingDialog onPair={pair} />;
   }
 
+  const isOnboard = serverMode === 'onboard';
+
   return (
     <LocaleContext.Provider value={{ locale, setAppLocale }}>
       <Routes>
         <Route element={<Layout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/agent" element={<AgentChat />} />
-          <Route path="/tools" element={<Tools />} />
-          <Route path="/cron" element={<Cron />} />
-          <Route path="/integrations" element={<Integrations />} />
-          <Route path="/memory" element={<Memory />} />
-          <Route path="/config" element={<Config />} />
-          <Route path="/cost" element={<Cost />} />
-          <Route path="/logs" element={<Logs />} />
-          <Route path="/doctor" element={<Doctor />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {isOnboard ? (
+            <>
+              <Route path="/setup" element={<Setup />} />
+              <Route path="*" element={<Navigate to="/setup" replace />} />
+            </>
+          ) : (
+            <>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/agent" element={<AgentChat />} />
+              <Route path="/tools" element={<Tools />} />
+              <Route path="/cron" element={<Cron />} />
+              <Route path="/integrations" element={<Integrations />} />
+              <Route path="/memory" element={<Memory />} />
+              <Route path="/config" element={<Config />} />
+              <Route path="/cost" element={<Cost />} />
+              <Route path="/logs" element={<Logs />} />
+              <Route path="/doctor" element={<Doctor />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </>
+          )}
         </Route>
       </Routes>
     </LocaleContext.Provider>

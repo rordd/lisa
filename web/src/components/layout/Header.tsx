@@ -16,6 +16,7 @@ const routeTitles: Record<string, string> = {
   '/cost': 'nav.cost',
   '/logs': 'nav.logs',
   '/doctor': 'nav.doctor',
+  '/setup': 'nav.setup',
 };
 
 const localeCycle: Locale[] = ['en', 'tr', 'zh-CN'];

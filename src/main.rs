@@ -1,4 +1,5 @@
 #![warn(clippy::all, clippy::pedantic)]
+#![forbid(unsafe_code)]
 #![allow(
     clippy::assigning_clones,
     clippy::bool_to_int_with_if,
@@ -147,6 +148,18 @@ enum Commands {
         #[arg(long)]
         channels_only: bool,
 
+        /// Launch web-based setup wizard in your browser
+        #[arg(long)]
+        web: bool,
+
+        /// Host address for web setup server (default: 127.0.0.1)
+        #[arg(long, default_value = "127.0.0.1")]
+        web_host: String,
+
+        /// Port for web setup server (default: 42618)
+        #[arg(long, default_value_t = 42618)]
+        web_port: u16,
+
         /// API key (used in quick mode, ignored with --interactive)
         #[arg(long)]
         api_key: Option<String>,
@@ -173,7 +186,9 @@ Examples:
   zeroclaw agent                              # interactive session
   zeroclaw agent -m \"Summarize today's logs\"  # single message
   zeroclaw agent -p anthropic --model claude-sonnet-4-20250514
-  zeroclaw agent --peripheral nucleo-f401re:/dev/ttyACM0")]
+  zeroclaw agent --peripheral nucleo-f401re:/dev/ttyACM0
+  zeroclaw agent --autonomy-level full --max-actions-per-hour 100
+  zeroclaw agent -m \"quick task\" --memory-backend none --compact-context")]
     Agent {
         /// Single message mode (don't enter interactive mode)
         #[arg(short, long)]
@@ -194,6 +209,30 @@ Examples:
         /// Attach a peripheral (board:path, e.g. nucleo-f401re:/dev/ttyACM0)
         #[arg(long)]
         peripheral: Vec<String>,
+
+        /// Autonomy level (read_only, supervised, full)
+        #[arg(long, value_parser = clap::value_parser!(security::AutonomyLevel))]
+        autonomy_level: Option<security::AutonomyLevel>,
+
+        /// Maximum shell/tool actions per hour
+        #[arg(long)]
+        max_actions_per_hour: Option<u32>,
+
+        /// Maximum tool-call iterations per message
+        #[arg(long)]
+        max_tool_iterations: Option<usize>,
+
+        /// Maximum conversation history messages
+        #[arg(long)]
+        max_history_messages: Option<usize>,
+
+        /// Enable compact context mode (smaller prompts for limited models)
+        #[arg(long)]
+        compact_context: bool,
+
+        /// Memory backend (sqlite, markdown, none)
+        #[arg(long)]
+        memory_backend: Option<String>,
     },
 
     /// Start the gateway server (webhooks, websockets)
@@ -686,6 +725,7 @@ async fn main() -> Result<()> {
 
     // Initialize logging - respects RUST_LOG env var, defaults to INFO
     let subscriber = fmt::Subscriber::builder()
+        .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
@@ -701,6 +741,9 @@ async fn main() -> Result<()> {
         interactive,
         force,
         channels_only,
+        web,
+        web_host,
+        web_port,
         api_key,
         provider,
         model,
@@ -710,6 +753,9 @@ async fn main() -> Result<()> {
         let interactive = *interactive;
         let force = *force;
         let channels_only = *channels_only;
+        let web = *web;
+        let web_host = web_host.clone();
+        let web_port = *web_port;
         let api_key = api_key.clone();
         let provider = provider.clone();
         let model = model.clone();
@@ -717,6 +763,9 @@ async fn main() -> Result<()> {
 
         if interactive && channels_only {
             bail!("Use either --interactive or --channels-only, not both");
+        }
+        if web && (interactive || channels_only) {
+            bail!("--web cannot be combined with --interactive or --channels-only");
         }
         if channels_only
             && (api_key.is_some() || provider.is_some() || model.is_some() || memory.is_some())
@@ -726,6 +775,13 @@ async fn main() -> Result<()> {
         if channels_only && force {
             bail!("--channels-only does not accept --force");
         }
+
+        // Web-based setup wizard: load config first, then start server
+        if web {
+            let config = Config::load_or_init().await?;
+            return onboard::run_onboard_web(config, &web_host, web_port).await;
+        }
+
         let config = if channels_only {
             onboard::run_channels_repair_wizard().await
         } else if interactive {
@@ -775,17 +831,43 @@ async fn main() -> Result<()> {
             model,
             temperature,
             peripheral,
-        } => agent::run(
-            config,
-            message,
-            provider,
-            model,
-            temperature,
-            peripheral,
-            true,
-        )
-        .await
-        .map(|_| ()),
+            autonomy_level,
+            max_actions_per_hour,
+            max_tool_iterations,
+            max_history_messages,
+            compact_context,
+            memory_backend,
+        } => {
+            if let Some(level) = autonomy_level {
+                config.autonomy.level = level;
+            }
+            if let Some(n) = max_actions_per_hour {
+                config.autonomy.max_actions_per_hour = n;
+            }
+            if let Some(n) = max_tool_iterations {
+                config.agent.max_tool_iterations = n;
+            }
+            if let Some(n) = max_history_messages {
+                config.agent.max_history_messages = n;
+            }
+            if compact_context {
+                config.agent.compact_context = true;
+            }
+            if let Some(ref backend) = memory_backend {
+                config.memory.backend = backend.clone();
+            }
+            agent::run(
+                config,
+                message,
+                provider,
+                model,
+                temperature,
+                peripheral,
+                true,
+            )
+            .await
+            .map(|_| ())
+        }
 
         Commands::Gateway { port, host } => {
             let port = port.unwrap_or(config.gateway.port);
