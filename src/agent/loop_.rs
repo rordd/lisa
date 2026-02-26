@@ -12,13 +12,7 @@ use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use regex::{Regex, RegexSet};
-use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
-use rustyline::highlight::Highlighter;
-use rustyline::hint::Hinter;
-use rustyline::validate::Validator;
-use rustyline::{CompletionType, Config as RlConfig, Context, Editor, Helper};
-use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write;
 use std::io::Write as _;
@@ -1829,12 +1823,7 @@ pub async fn run(
         // Persistent conversation history across turns
         let mut history = vec![ChatMessage::system(&system_prompt)];
         // Reusable readline editor for UTF-8 input support
-        let mut rl = Editor::with_config(
-            RlConfig::builder()
-                .completion_type(CompletionType::List)
-                .build(),
-        )?;
-        rl.set_helper(Some(SlashCommandCompleter));
+        let mut rl = rustyline::DefaultEditor::new()?;
 
         loop {
             let input = match rl.readline("> ") {
