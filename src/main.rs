@@ -894,11 +894,8 @@ async fn main() -> Result<()> {
             new_pairing,
         } => {
             if new_pairing {
-                // Persist token reset from raw config so env-derived overrides are not written to disk.
-                let mut persisted_config = Config::load_or_init().await?;
-                persisted_config.gateway.paired_tokens.clear();
-                persisted_config.save().await?;
                 config.gateway.paired_tokens.clear();
+                config.save().await?;
                 info!("🔐 Cleared paired tokens — a fresh pairing code will be generated");
             }
             let port = port.unwrap_or(config.gateway.port);
