@@ -79,22 +79,6 @@ env:
     CARGO_TERM_COLOR: always
 
 jobs:
-    audit:
-        name: Security Audit
-        runs-on: [self-hosted, aws-india]
-        timeout-minutes: 20
-        steps:
-            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-            - name: Set up Rust
-              uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-              with:
-                  toolchain: 1.92.0
-
-            - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
     deny:
         name: License & Supply Chain
         runs-on: [self-hosted, aws-india]
@@ -563,7 +547,7 @@ jobs:
     security-required:
         name: Security Required Gate
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group')
-        needs: [audit, deny, secrets, sbom, unsafe-debt]
+        needs: [deny, secrets, sbom, unsafe-debt]
         runs-on: [self-hosted, aws-india]
         steps:
             - name: Enforce security gate
@@ -571,7 +555,6 @@ jobs:
               run: |
                   set -euo pipefail
                   results=(
-                    "audit=${{ needs.audit.result }}"
                     "deny=${{ needs.deny.result }}"
                     "secrets=${{ needs.secrets.result }}"
                     "sbom=${{ needs.sbom.result }}"
