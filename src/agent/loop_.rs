@@ -122,6 +122,12 @@ pub(crate) const DRAFT_CLEAR_SENTINEL: &str = "\x00CLEAR\x00";
 /// when the user explicitly asks for command/tool execution details.
 pub(crate) const DRAFT_PROGRESS_SENTINEL: &str = "\x00PROGRESS\x00";
 
+tokio::task_local! {
+    static TOOL_LOOP_REPLY_TARGET: Option<String>;
+}
+
+const AUTO_CRON_DELIVERY_CHANNELS: &[&str] = &["telegram", "discord", "slack", "mattermost"];
+
 /// Extract a short hint from tool call arguments for progress display.
 fn truncate_tool_args_for_progress(name: &str, args: &serde_json::Value, max_len: usize) -> String {
     let hint = match name {
@@ -135,6 +141,82 @@ fn truncate_tool_args_for_progress(name: &str, args: &serde_json::Value, max_len
     match hint {
         Some(s) => truncate_with_ellipsis(s, max_len),
         None => String::new(),
+    }
+}
+
+fn maybe_inject_cron_add_delivery(
+    tool_name: &str,
+    tool_args: &mut serde_json::Value,
+    channel_name: &str,
+    reply_target: Option<&str>,
+) {
+    if tool_name != "cron_add"
+        || !AUTO_CRON_DELIVERY_CHANNELS
+            .iter()
+            .any(|supported| supported == &channel_name)
+    {
+        return;
+    }
+
+    let Some(reply_target) = reply_target.map(str::trim).filter(|v| !v.is_empty()) else {
+        return;
+    };
+
+    let Some(args_obj) = tool_args.as_object_mut() else {
+        return;
+    };
+
+    let is_agent_job = match args_obj.get("job_type").and_then(serde_json::Value::as_str) {
+        Some("agent") => true,
+        Some("shell") => false,
+        Some(_) => false,
+        None => args_obj.contains_key("prompt"),
+    };
+    if !is_agent_job {
+        return;
+    }
+
+    let delivery = args_obj
+        .entry("delivery".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    let Some(delivery_obj) = delivery.as_object_mut() else {
+        return;
+    };
+
+    let mode = delivery_obj
+        .get("mode")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("none");
+    if mode.eq_ignore_ascii_case("none") || mode.trim().is_empty() {
+        delivery_obj.insert(
+            "mode".to_string(),
+            serde_json::Value::String("announce".to_string()),
+        );
+    } else if !mode.eq_ignore_ascii_case("announce") {
+        // Respect explicitly chosen non-announce modes.
+        return;
+    }
+
+    let needs_channel = delivery_obj
+        .get("channel")
+        .and_then(serde_json::Value::as_str)
+        .is_none_or(|value| value.trim().is_empty());
+    if needs_channel {
+        delivery_obj.insert(
+            "channel".to_string(),
+            serde_json::Value::String(channel_name.to_string()),
+        );
+    }
+
+    let needs_target = delivery_obj
+        .get("to")
+        .and_then(serde_json::Value::as_str)
+        .is_none_or(|value| value.trim().is_empty());
+    if needs_target {
+        delivery_obj.insert(
+            "to".to_string(),
+            serde_json::Value::String(reply_target.to_string()),
+        );
     }
 }
 
@@ -317,6 +399,53 @@ pub(crate) async fn agent_turn(
     .await
 }
 
+/// Run the tool loop with channel reply_target context, used by channel runtimes
+/// to auto-populate delivery routing for scheduled reminders.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_tool_call_loop_with_reply_target(
+    provider: &dyn Provider,
+    history: &mut Vec<ChatMessage>,
+    tools_registry: &[Box<dyn Tool>],
+    observer: &dyn Observer,
+    provider_name: &str,
+    model: &str,
+    temperature: f64,
+    silent: bool,
+    approval: Option<&ApprovalManager>,
+    channel_name: &str,
+    reply_target: Option<&str>,
+    multimodal_config: &crate::config::MultimodalConfig,
+    max_tool_iterations: usize,
+    cancellation_token: Option<CancellationToken>,
+    on_delta: Option<tokio::sync::mpsc::Sender<String>>,
+    hooks: Option<&crate::hooks::HookRunner>,
+    excluded_tools: &[String],
+) -> Result<String> {
+    TOOL_LOOP_REPLY_TARGET
+        .scope(
+            reply_target.map(str::to_string),
+            run_tool_call_loop(
+                provider,
+                history,
+                tools_registry,
+                observer,
+                provider_name,
+                model,
+                temperature,
+                silent,
+                approval,
+                channel_name,
+                multimodal_config,
+                max_tool_iterations,
+                cancellation_token,
+                on_delta,
+                hooks,
+                excluded_tools,
+            ),
+        )
+        .await
+}
+
 // ── Agent Tool-Call Loop ──────────────────────────────────────────────────
 // Core agentic iteration: send conversation to the LLM, parse any tool
 // calls from the response, execute them, append results to history, and
@@ -350,6 +479,8 @@ pub(crate) async fn run_tool_call_loop(
     hooks: Option<&crate::hooks::HookRunner>,
     excluded_tools: &[String],
 ) -> Result<String> {
+    let channel_reply_target = TOOL_LOOP_REPLY_TARGET.try_with(Clone::clone).ok().flatten();
+
     let max_iterations = if max_tool_iterations == 0 {
         DEFAULT_MAX_TOOL_ITERATIONS
     } else {
@@ -724,6 +855,13 @@ pub(crate) async fn run_tool_call_loop(
                     }
                 }
             }
+
+            maybe_inject_cron_add_delivery(
+                &tool_name,
+                &mut tool_args,
+                channel_name,
+                channel_reply_target.as_deref(),
+            );
 
             if excluded_tools.iter().any(|ex| ex == &tool_name) {
                 let blocked = format!("Tool '{tool_name}' is not available in this channel.");
@@ -1849,6 +1987,51 @@ mod tests {
         assert!(scrubbed.contains("\"api_key\": \"sk-1*[REDACTED]\""));
         assert!(scrubbed.contains("public"));
     }
+
+    #[test]
+    fn maybe_inject_cron_add_delivery_populates_agent_delivery_from_channel_context() {
+        let mut args = serde_json::json!({
+            "job_type": "agent",
+            "prompt": "remind me later"
+        });
+
+        maybe_inject_cron_add_delivery("cron_add", &mut args, "telegram", Some("-10012345"));
+
+        assert_eq!(args["delivery"]["mode"], "announce");
+        assert_eq!(args["delivery"]["channel"], "telegram");
+        assert_eq!(args["delivery"]["to"], "-10012345");
+    }
+
+    #[test]
+    fn maybe_inject_cron_add_delivery_does_not_override_explicit_target() {
+        let mut args = serde_json::json!({
+            "job_type": "agent",
+            "prompt": "remind me later",
+            "delivery": {
+                "mode": "announce",
+                "channel": "discord",
+                "to": "C123"
+            }
+        });
+
+        maybe_inject_cron_add_delivery("cron_add", &mut args, "telegram", Some("-10012345"));
+
+        assert_eq!(args["delivery"]["channel"], "discord");
+        assert_eq!(args["delivery"]["to"], "C123");
+    }
+
+    #[test]
+    fn maybe_inject_cron_add_delivery_skips_shell_jobs() {
+        let mut args = serde_json::json!({
+            "job_type": "shell",
+            "command": "echo hello"
+        });
+
+        maybe_inject_cron_add_delivery("cron_add", &mut args, "telegram", Some("-10012345"));
+
+        assert!(args.get("delivery").is_none());
+    }
+
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
     use crate::providers::traits::ProviderCapabilities;

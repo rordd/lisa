@@ -68,8 +68,8 @@ pub use whatsapp::WhatsAppChannel;
 pub use whatsapp_web::WhatsAppWebChannel;
 
 use crate::agent::loop_::{
-    build_shell_policy_instructions, build_tool_instructions_from_specs, run_tool_call_loop,
-    scrub_credentials,
+    build_shell_policy_instructions, build_tool_instructions_from_specs,
+    run_tool_call_loop_with_reply_target, scrub_credentials,
 };
 use crate::approval::{ApprovalManager, PendingApprovalError};
 use crate::config::{Config, NonCliNaturalLanguageApprovalMode};
@@ -2965,7 +2965,7 @@ async fn process_channel_message(
         () = cancellation_token.cancelled() => LlmExecutionResult::Cancelled,
         result = tokio::time::timeout(
             Duration::from_secs(timeout_budget_secs),
-            run_tool_call_loop(
+            run_tool_call_loop_with_reply_target(
                 active_provider.as_ref(),
                 &mut history,
                 ctx.tools_registry.as_ref(),
@@ -2976,6 +2976,7 @@ async fn process_channel_message(
                 true,
                 Some(ctx.approval_manager.as_ref()),
                 msg.channel.as_str(),
+                Some(msg.reply_target.as_str()),
                 &ctx.multimodal,
                 ctx.max_tool_iterations,
                 Some(cancellation_token.clone()),
