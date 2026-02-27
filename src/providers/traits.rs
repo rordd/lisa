@@ -49,6 +49,13 @@ pub struct ToolCall {
     pub arguments: String,
 }
 
+/// Raw token counts from a single LLM API response.
+#[derive(Debug, Clone, Default)]
+pub struct TokenUsage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+}
+
 /// An LLM response that may contain text, tool calls, or both.
 #[derive(Debug, Clone)]
 pub struct ChatResponse {
@@ -56,6 +63,13 @@ pub struct ChatResponse {
     pub text: Option<String>,
     /// Tool calls requested by the LLM.
     pub tool_calls: Vec<ToolCall>,
+    /// Token usage reported by the provider, if available.
+    pub usage: Option<TokenUsage>,
+    /// Raw reasoning/thinking content from thinking models (e.g. DeepSeek-R1,
+    /// Kimi K2.5, GLM-4.7). Preserved as an opaque pass-through so it can be
+    /// sent back in subsequent API requests — some providers reject tool-call
+    /// history that omits this field.
+    pub reasoning_content: Option<String>,
 }
 
 impl ChatResponse {
@@ -94,6 +108,9 @@ pub enum ConversationMessage {
     AssistantToolCalls {
         text: Option<String>,
         tool_calls: Vec<ToolCall>,
+        /// Raw reasoning content from thinking models, preserved for round-trip
+        /// fidelity with provider APIs that require it.
+        reasoning_content: Option<String>,
     },
     /// Results of tool executions, fed back to the LLM.
     ToolResults(Vec<ToolResultMessage>),
@@ -192,6 +209,15 @@ pub enum StreamError {
     Io(#[from] std::io::Error),
 }
 
+/// Structured error returned when a requested capability is not supported.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("provider_capability_error provider={provider} capability={capability} message={message}")]
+pub struct ProviderCapabilityError {
+    pub provider: String,
+    pub capability: String,
+    pub message: String,
+}
+
 /// Provider capabilities declaration.
 ///
 /// Describes what features a provider supports, enabling intelligent
@@ -205,6 +231,8 @@ pub struct ProviderCapabilities {
     ///
     /// When `false`, tools must be injected via system prompt as text.
     pub native_tool_calling: bool,
+    /// Whether the provider supports vision / image inputs.
+    pub vision: bool,
 }
 
 /// Provider-specific tool payload formats.
@@ -333,6 +361,8 @@ pub trait Provider: Send + Sync {
                 return Ok(ChatResponse {
                     text: Some(text),
                     tool_calls: Vec::new(),
+                    usage: None,
+                    reasoning_content: None,
                 });
             }
         }
@@ -343,12 +373,19 @@ pub trait Provider: Send + Sync {
         Ok(ChatResponse {
             text: Some(text),
             tool_calls: Vec::new(),
+            usage: None,
+            reasoning_content: None,
         })
     }
 
     /// Whether provider supports native tool calls over API.
     fn supports_native_tools(&self) -> bool {
         self.capabilities().native_tool_calling
+    }
+
+    /// Whether provider supports multimodal vision input.
+    fn supports_vision(&self) -> bool {
+        self.capabilities().vision
     }
 
     /// Warm up the HTTP connection pool (TLS handshake, DNS, HTTP/2 setup).
@@ -371,6 +408,8 @@ pub trait Provider: Send + Sync {
         Ok(ChatResponse {
             text: Some(text),
             tool_calls: Vec::new(),
+            usage: None,
+            reasoning_content: None,
         })
     }
 
@@ -396,21 +435,25 @@ pub trait Provider: Send + Sync {
     }
 
     /// Streaming chat with history.
-    /// Default implementation falls back to stream_chat_with_system with last user message.
+    /// Default implementation extracts the last user message and delegates to
+    /// `stream_chat_with_system`, mirroring the non-streaming `chat_with_history`.
     fn stream_chat_with_history(
         &self,
-        _messages: &[ChatMessage],
-        _model: &str,
-        _temperature: f64,
-        _options: StreamOptions,
+        messages: &[ChatMessage],
+        model: &str,
+        temperature: f64,
+        options: StreamOptions,
     ) -> stream::BoxStream<'static, StreamResult<StreamChunk>> {
-        // For default implementation, we need to convert to owned strings
-        // This is a limitation of the default implementation
-        let provider_name = "unknown".to_string();
-
-        // Create a single empty chunk to indicate not supported
-        let chunk = StreamChunk::error(format!("{} does not support streaming", provider_name));
-        stream::once(async move { Ok(chunk) }).boxed()
+        let system = messages
+            .iter()
+            .find(|m| m.role == "system")
+            .map(|m| m.content.as_str());
+        let last_user = messages
+            .iter()
+            .rfind(|m| m.role == "user")
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+        self.stream_chat_with_system(system, last_user, model, temperature, options)
     }
 }
 
@@ -458,6 +501,7 @@ mod tests {
         fn capabilities(&self) -> ProviderCapabilities {
             ProviderCapabilities {
                 native_tool_calling: true,
+                vision: true,
             }
         }
 
@@ -493,6 +537,8 @@ mod tests {
         let empty = ChatResponse {
             text: None,
             tool_calls: vec![],
+            usage: None,
+            reasoning_content: None,
         };
         assert!(!empty.has_tool_calls());
         assert_eq!(empty.text_or_empty(), "");
@@ -504,9 +550,33 @@ mod tests {
                 name: "shell".into(),
                 arguments: "{}".into(),
             }],
+            usage: None,
+            reasoning_content: None,
         };
         assert!(with_tools.has_tool_calls());
         assert_eq!(with_tools.text_or_empty(), "Let me check");
+    }
+
+    #[test]
+    fn token_usage_default_is_none() {
+        let usage = TokenUsage::default();
+        assert!(usage.input_tokens.is_none());
+        assert!(usage.output_tokens.is_none());
+    }
+
+    #[test]
+    fn chat_response_with_usage() {
+        let resp = ChatResponse {
+            text: Some("Hello".into()),
+            tool_calls: vec![],
+            usage: Some(TokenUsage {
+                input_tokens: Some(100),
+                output_tokens: Some(50),
+            }),
+            reasoning_content: None,
+        };
+        assert_eq!(resp.usage.as_ref().unwrap().input_tokens, Some(100));
+        assert_eq!(resp.usage.as_ref().unwrap().output_tokens, Some(50));
     }
 
     #[test]
@@ -539,18 +609,22 @@ mod tests {
     fn provider_capabilities_default() {
         let caps = ProviderCapabilities::default();
         assert!(!caps.native_tool_calling);
+        assert!(!caps.vision);
     }
 
     #[test]
     fn provider_capabilities_equality() {
         let caps1 = ProviderCapabilities {
             native_tool_calling: true,
+            vision: false,
         };
         let caps2 = ProviderCapabilities {
             native_tool_calling: true,
+            vision: false,
         };
         let caps3 = ProviderCapabilities {
             native_tool_calling: false,
+            vision: false,
         };
 
         assert_eq!(caps1, caps2);
@@ -561,6 +635,12 @@ mod tests {
     fn supports_native_tools_reflects_capabilities_default_mapping() {
         let provider = CapabilityMockProvider;
         assert!(provider.supports_native_tools());
+    }
+
+    #[test]
+    fn supports_vision_reflects_capabilities_default_mapping() {
+        let provider = CapabilityMockProvider;
+        assert!(provider.supports_vision());
     }
 
     #[test]

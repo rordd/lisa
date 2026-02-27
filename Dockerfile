@@ -4,6 +4,7 @@
 FROM rust:1.93-slim@sha256:9663b80a1621253d30b146454f903de48f0af925c967be48c84745537cd35d8b AS builder
 
 WORKDIR /app
+ARG ZEROCLAW_CARGO_FEATURES=""
 
 # Install build dependencies
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -12,8 +13,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# 1. Copy manifests and toolchain pin to cache dependencies with the same compiler
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+# 1. Copy manifests to cache dependencies
+COPY Cargo.toml Cargo.lock ./
 COPY crates/robot-kit/Cargo.toml crates/robot-kit/Cargo.toml
 # Create dummy targets declared in Cargo.toml so manifest parsing succeeds.
 RUN mkdir -p src benches crates/robot-kit/src \
@@ -23,7 +24,11 @@ RUN mkdir -p src benches crates/robot-kit/src \
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=zeroclaw-target,target=/app/target,sharing=locked \
-    cargo build --release --locked
+    if [ -n "$ZEROCLAW_CARGO_FEATURES" ]; then \
+      cargo build --release --locked --features "$ZEROCLAW_CARGO_FEATURES"; \
+    else \
+      cargo build --release --locked; \
+    fi
 RUN rm -rf src benches crates/robot-kit/src
 
 # 2. Copy only build-relevant source paths (avoid cache-busting on docs/tests/scripts)
@@ -31,10 +36,32 @@ COPY src/ src/
 COPY benches/ benches/
 COPY crates/ crates/
 COPY firmware/ firmware/
+COPY web/ web/
+# Keep release builds resilient when frontend dist assets are not prebuilt in Git.
+RUN mkdir -p web/dist && \
+    if [ ! -f web/dist/index.html ]; then \
+      printf '%s\n' \
+        '<!doctype html>' \
+        '<html lang="en">' \
+        '  <head>' \
+        '    <meta charset="utf-8" />' \
+        '    <meta name="viewport" content="width=device-width,initial-scale=1" />' \
+        '    <title>ZeroClaw Dashboard</title>' \
+        '  </head>' \
+        '  <body>' \
+        '    <h1>ZeroClaw Dashboard Unavailable</h1>' \
+        '    <p>Frontend assets are not bundled in this build. Build the web UI to populate <code>web/dist</code>.</p>' \
+        '  </body>' \
+        '</html>' > web/dist/index.html; \
+    fi
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=zeroclaw-target,target=/app/target,sharing=locked \
-    cargo build --release --locked && \
+    if [ -n "$ZEROCLAW_CARGO_FEATURES" ]; then \
+      cargo build --release --locked --features "$ZEROCLAW_CARGO_FEATURES"; \
+    else \
+      cargo build --release --locked; \
+    fi && \
     cp target/release/zeroclaw /app/zeroclaw && \
     strip /app/zeroclaw
 
@@ -50,9 +77,9 @@ default_model = "anthropic/claude-sonnet-4-20250514"
 default_temperature = 0.7
 
 [gateway]
-port = 3000
-host = "[::]"
-allow_public_bind = true
+port = 42617
+host = "127.0.0.1"
+allow_public_bind = false
 EOF
 
 # ── Stage 2: Development Runtime (Debian) ────────────────────
@@ -78,14 +105,14 @@ ENV HOME=/zeroclaw-data
 # Defaults for local dev (Ollama) - matches config.template.toml
 ENV PROVIDER="ollama"
 ENV ZEROCLAW_MODEL="llama3.2"
-ENV ZEROCLAW_GATEWAY_PORT=3000
+ENV ZEROCLAW_GATEWAY_PORT=42617
 
 # Note: API_KEY is intentionally NOT set here to avoid confusion.
 # It is set in config.toml as the Ollama URL.
 
 WORKDIR /zeroclaw-data
 USER 65534:65534
-EXPOSE 3000
+EXPOSE 42617
 ENTRYPOINT ["zeroclaw"]
 CMD ["gateway"]
 
@@ -98,15 +125,15 @@ COPY --from=builder /zeroclaw-data /zeroclaw-data
 # Environment setup
 ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
 ENV HOME=/zeroclaw-data
-# Default provider (model is set in config.toml, not here,
-# so config file edits are not silently overridden)
-ENV PROVIDER="openrouter"
-ENV ZEROCLAW_GATEWAY_PORT=3000
+# Default provider and model are set in config.toml, not here,
+# so config file edits are not silently overridden
+#ENV PROVIDER=
+ENV ZEROCLAW_GATEWAY_PORT=42617
 
 # API_KEY must be provided at runtime!
 
 WORKDIR /zeroclaw-data
 USER 65534:65534
-EXPOSE 3000
+EXPOSE 42617
 ENTRYPOINT ["zeroclaw"]
 CMD ["gateway"]

@@ -22,7 +22,8 @@ Selected allowlist patterns:
 - `rhysd/actionlint@*`
 - `softprops/action-gh-release@*`
 - `sigstore/cosign-installer@*`
-- `useblacksmith/*` (Blacksmith self-hosted runner infrastructure)
+- `Checkmarx/vorpal-reviewdog-github-action@*`
+- `Swatinem/rust-cache@*`
 
 ## Change Control Export
 
@@ -74,13 +75,14 @@ If encountered, add only the specific trusted missing action, rerun, and documen
 
 Latest sweep notes:
 
-- 2026-02-17: Rust dependency cache migrated from `Swatinem/rust-cache` to `useblacksmith/rust-cache`
-    - No new allowlist pattern required (`useblacksmith/*` already allowlisted)
+- 2026-02-21: Added manual Vorpal reviewdog workflow for targeted secure-coding checks on supported file types
+    - Added allowlist pattern: `Checkmarx/vorpal-reviewdog-github-action@*`
+    - Workflow uses pinned source: `Checkmarx/vorpal-reviewdog-github-action@8cc292f337a2f1dea581b4f4bd73852e7becb50d` (v1.2.0)
+- 2026-02-26: Standardized runner/action sources for cache and Docker build paths
+    - Added allowlist pattern: `Swatinem/rust-cache@*`
+    - Docker build jobs use `docker/setup-buildx-action` and `docker/build-push-action`
 - 2026-02-16: Hidden dependency discovered in `release.yml`: `sigstore/cosign-installer@...`
     - Added allowlist pattern: `sigstore/cosign-installer@*`
-- 2026-02-16: Blacksmith migration blocked workflow execution
-    - Added allowlist pattern: `useblacksmith/*` for self-hosted runner infrastructure
-    - Actions: `useblacksmith/setup-docker-builder@v1`, `useblacksmith/build-push-action@v2`
 - 2026-02-17: Security audit reproducibility/freshness balance update
     - Added allowlist pattern: `rustsec/audit-check@*`
     - Replaced inline `cargo install cargo-audit` execution with pinned `rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998` in `security.yml`

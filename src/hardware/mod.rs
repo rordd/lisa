@@ -7,10 +7,16 @@ pub mod protocol;
 pub mod registry;
 pub mod transport;
 
-#[cfg(feature = "hardware")]
+#[cfg(all(
+    feature = "hardware",
+    any(target_os = "linux", target_os = "macos", target_os = "windows")
+))]
 pub mod discover;
 
-#[cfg(feature = "hardware")]
+#[cfg(all(
+    feature = "hardware",
+    any(target_os = "linux", target_os = "macos", target_os = "windows")
+))]
 pub mod introspect;
 
 #[cfg(feature = "hardware")]
@@ -203,8 +209,12 @@ pub struct DiscoveredDevice {
 /// Auto-discover connected hardware devices.
 /// Returns an empty vec on platforms without hardware support.
 pub fn discover_hardware() -> Vec<DiscoveredDevice> {
-    // USB/serial discovery is behind the "hardware" feature gate.
-    #[cfg(feature = "hardware")]
+    // USB/serial discovery is behind the "hardware" feature gate and only
+    // available on platforms where nusb supports device enumeration.
+    #[cfg(all(
+        feature = "hardware",
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    ))]
     {
         if let Ok(devices) = discover::list_usb_devices() {
             return devices
@@ -274,10 +284,24 @@ pub fn handle_command(cmd: crate::HardwareCommands, _config: &Config) -> Result<
         let _ = &cmd;
         println!("Hardware discovery requires the 'hardware' feature.");
         println!("Build with: cargo build --features hardware");
+        Ok(())
+    }
+
+    #[cfg(all(
+        feature = "hardware",
+        not(any(target_os = "linux", target_os = "macos", target_os = "windows"))
+    ))]
+    {
+        let _ = &cmd;
+        println!("Hardware USB discovery is not supported on this platform.");
+        println!("Supported platforms: Linux, macOS, Windows.");
         return Ok(());
     }
 
-    #[cfg(feature = "hardware")]
+    #[cfg(all(
+        feature = "hardware",
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    ))]
     match cmd {
         crate::HardwareCommands::Discover => run_discover(),
         crate::HardwareCommands::Introspect { path } => run_introspect(&path),
@@ -285,7 +309,10 @@ pub fn handle_command(cmd: crate::HardwareCommands, _config: &Config) -> Result<
     }
 }
 
-#[cfg(feature = "hardware")]
+#[cfg(all(
+    feature = "hardware",
+    any(target_os = "linux", target_os = "macos", target_os = "windows")
+))]
 fn run_discover() -> Result<()> {
     let devices = discover::list_usb_devices()?;
 
@@ -313,7 +340,10 @@ fn run_discover() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "hardware")]
+#[cfg(all(
+    feature = "hardware",
+    any(target_os = "linux", target_os = "macos", target_os = "windows")
+))]
 fn run_introspect(path: &str) -> Result<()> {
     let result = introspect::introspect_device(path)?;
 
@@ -335,7 +365,10 @@ fn run_introspect(path: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "hardware")]
+#[cfg(all(
+    feature = "hardware",
+    any(target_os = "linux", target_os = "macos", target_os = "windows")
+))]
 fn run_info(chip: &str) -> Result<()> {
     #[cfg(feature = "probe")]
     {
@@ -367,7 +400,11 @@ fn run_info(chip: &str) -> Result<()> {
     }
 }
 
-#[cfg(all(feature = "hardware", feature = "probe"))]
+#[cfg(all(
+    feature = "hardware",
+    feature = "probe",
+    any(target_os = "linux", target_os = "macos", target_os = "windows")
+))]
 fn info_via_probe(chip: &str) -> anyhow::Result<()> {
     use probe_rs::config::MemoryRegion;
     use probe_rs::{Session, SessionConfig};

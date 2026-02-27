@@ -1,11 +1,14 @@
 pub mod backend;
 pub mod chunker;
+pub mod cli;
 pub mod embeddings;
 pub mod hygiene;
 pub mod lucid;
 pub mod markdown;
 pub mod none;
+#[cfg(feature = "memory-postgres")]
 pub mod postgres;
+pub mod qdrant;
 pub mod response_cache;
 pub mod snapshot;
 pub mod sqlite;
@@ -20,14 +23,16 @@ pub use backend::{
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
+#[cfg(feature = "memory-postgres")]
 pub use postgres::PostgresMemory;
+pub use qdrant::QdrantMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
 pub use traits::{MemoryCategory, MemoryEntry};
 
-use crate::config::{MemoryConfig, StorageProviderConfig};
+use crate::config::{EmbeddingRouteConfig, MemoryConfig, StorageProviderConfig};
 use anyhow::Context;
 use std::path::Path;
 use std::sync::Arc;
@@ -41,7 +46,7 @@ fn create_memory_with_builders<F, G>(
 ) -> anyhow::Result<Box<dyn Memory>>
 where
     F: FnMut() -> anyhow::Result<SqliteMemory>,
-    G: FnMut() -> anyhow::Result<PostgresMemory>,
+    G: FnMut() -> anyhow::Result<Box<dyn Memory>>,
 {
     match classify_memory_backend(backend_name) {
         MemoryBackendKind::Sqlite => Ok(Box::new(sqlite_builder()?)),
@@ -49,8 +54,10 @@ where
             let local = sqlite_builder()?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
-        MemoryBackendKind::Postgres => Ok(Box::new(postgres_builder()?)),
-        MemoryBackendKind::Markdown => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
+        MemoryBackendKind::Postgres => postgres_builder(),
+        MemoryBackendKind::Qdrant | MemoryBackendKind::Markdown => {
+            Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+        }
         MemoryBackendKind::None => Ok(Box::new(NoneMemory::new())),
         MemoryBackendKind::Unknown => {
             tracing::warn!(
@@ -75,13 +82,100 @@ pub fn effective_memory_backend_name(
     memory_backend.trim().to_ascii_lowercase()
 }
 
+/// Legacy auto-save key used for model-authored assistant summaries.
+/// These entries are treated as untrusted context and should not be re-injected.
+pub fn is_assistant_autosave_key(key: &str) -> bool {
+    let normalized = key.trim().to_ascii_lowercase();
+    normalized == "assistant_resp" || normalized.starts_with("assistant_resp_")
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct ResolvedEmbeddingConfig {
+    provider: String,
+    model: String,
+    dimensions: usize,
+    api_key: Option<String>,
+}
+
+impl std::fmt::Debug for ResolvedEmbeddingConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResolvedEmbeddingConfig")
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("dimensions", &self.dimensions)
+            .finish_non_exhaustive()
+    }
+}
+
+fn resolve_embedding_config(
+    config: &MemoryConfig,
+    embedding_routes: &[EmbeddingRouteConfig],
+    api_key: Option<&str>,
+) -> ResolvedEmbeddingConfig {
+    let fallback_api_key = api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let fallback = ResolvedEmbeddingConfig {
+        provider: config.embedding_provider.trim().to_string(),
+        model: config.embedding_model.trim().to_string(),
+        dimensions: config.embedding_dimensions,
+        api_key: fallback_api_key.clone(),
+    };
+
+    let Some(hint) = config
+        .embedding_model
+        .strip_prefix("hint:")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return fallback;
+    };
+
+    let Some(route) = embedding_routes
+        .iter()
+        .find(|route| route.hint.trim() == hint)
+    else {
+        tracing::warn!(
+            hint,
+            "Unknown embedding route hint; falling back to [memory] embedding settings"
+        );
+        return fallback;
+    };
+
+    let provider = route.provider.trim();
+    let model = route.model.trim();
+    let dimensions = route.dimensions.unwrap_or(config.embedding_dimensions);
+    if provider.is_empty() || model.is_empty() || dimensions == 0 {
+        tracing::warn!(
+            hint,
+            "Invalid embedding route configuration; falling back to [memory] embedding settings"
+        );
+        return fallback;
+    }
+
+    let routed_api_key = route
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value: &&str| !value.is_empty())
+        .map(|value| value.to_string());
+
+    ResolvedEmbeddingConfig {
+        provider: provider.to_string(),
+        model: model.to_string(),
+        dimensions,
+        api_key: routed_api_key.or(fallback_api_key),
+    }
+}
+
 /// Factory: create the right memory backend from config
 pub fn create_memory(
     config: &MemoryConfig,
     workspace_dir: &Path,
     api_key: Option<&str>,
 ) -> anyhow::Result<Box<dyn Memory>> {
-    create_memory_with_storage(config, None, workspace_dir, api_key)
+    create_memory_with_storage_and_routes(config, &[], None, workspace_dir, api_key)
 }
 
 /// Factory: create memory with optional storage-provider override.
@@ -91,8 +185,20 @@ pub fn create_memory_with_storage(
     workspace_dir: &Path,
     api_key: Option<&str>,
 ) -> anyhow::Result<Box<dyn Memory>> {
+    create_memory_with_storage_and_routes(config, &[], storage_provider, workspace_dir, api_key)
+}
+
+/// Factory: create memory with optional storage-provider override and embedding routes.
+pub fn create_memory_with_storage_and_routes(
+    config: &MemoryConfig,
+    embedding_routes: &[EmbeddingRouteConfig],
+    storage_provider: Option<&StorageProviderConfig>,
+    workspace_dir: &Path,
+    api_key: Option<&str>,
+) -> anyhow::Result<Box<dyn Memory>> {
     let backend_name = effective_memory_backend_name(&config.backend, storage_provider);
     let backend_kind = classify_memory_backend(&backend_name);
+    let resolved_embedding = resolve_embedding_config(config, embedding_routes, api_key);
 
     // Best-effort memory hygiene/retention pass (throttled by state file).
     if let Err(e) = hygiene::run_if_due(config, workspace_dir) {
@@ -137,14 +243,14 @@ pub fn create_memory_with_storage(
     fn build_sqlite_memory(
         config: &MemoryConfig,
         workspace_dir: &Path,
-        api_key: Option<&str>,
+        resolved_embedding: &ResolvedEmbeddingConfig,
     ) -> anyhow::Result<SqliteMemory> {
         let embedder: Arc<dyn embeddings::EmbeddingProvider> =
             Arc::from(embeddings::create_embedding_provider(
-                &config.embedding_provider,
-                api_key,
-                &config.embedding_model,
-                config.embedding_dimensions,
+                &resolved_embedding.provider,
+                resolved_embedding.api_key.as_deref(),
+                &resolved_embedding.model,
+                resolved_embedding.dimensions,
             ));
 
         #[allow(clippy::cast_possible_truncation)]
@@ -159,9 +265,10 @@ pub fn create_memory_with_storage(
         Ok(mem)
     }
 
+    #[cfg(feature = "memory-postgres")]
     fn build_postgres_memory(
         storage_provider: Option<&StorageProviderConfig>,
-    ) -> anyhow::Result<PostgresMemory> {
+    ) -> anyhow::Result<Box<dyn Memory>> {
         let storage_provider = storage_provider
             .context("memory backend 'postgres' requires [storage.provider.config] settings")?;
         let db_url = storage_provider
@@ -173,18 +280,69 @@ pub fn create_memory_with_storage(
                 "memory backend 'postgres' requires [storage.provider.config].db_url (or dbURL)",
             )?;
 
-        PostgresMemory::new(
+        let memory = PostgresMemory::new(
             db_url,
             &storage_provider.schema,
             &storage_provider.table,
             storage_provider.connect_timeout_secs,
-        )
+        )?;
+        Ok(Box::new(memory))
+    }
+
+    #[cfg(not(feature = "memory-postgres"))]
+    fn build_postgres_memory(
+        _storage_provider: Option<&StorageProviderConfig>,
+    ) -> anyhow::Result<Box<dyn Memory>> {
+        anyhow::bail!(
+            "memory backend 'postgres' requested but this build was compiled without `memory-postgres`; rebuild with `--features memory-postgres`"
+        );
+    }
+
+    if matches!(backend_kind, MemoryBackendKind::Qdrant) {
+        let url = config
+            .qdrant
+            .url
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| std::env::var("QDRANT_URL").ok())
+            .filter(|s| !s.trim().is_empty())
+            .context(
+                "Qdrant memory backend requires url in [memory.qdrant] or QDRANT_URL env var",
+            )?;
+        let collection = std::env::var("QDRANT_COLLECTION")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| config.qdrant.collection.clone());
+        let qdrant_api_key = config
+            .qdrant
+            .api_key
+            .clone()
+            .or_else(|| std::env::var("QDRANT_API_KEY").ok())
+            .filter(|s| !s.trim().is_empty());
+        let embedder: Arc<dyn embeddings::EmbeddingProvider> =
+            Arc::from(embeddings::create_embedding_provider(
+                &resolved_embedding.provider,
+                resolved_embedding.api_key.as_deref(),
+                &resolved_embedding.model,
+                resolved_embedding.dimensions,
+            ));
+        tracing::info!(
+            "📦 Qdrant memory backend configured (url: {}, collection: {})",
+            url,
+            collection
+        );
+        return Ok(Box::new(QdrantMemory::new_lazy(
+            &url,
+            &collection,
+            qdrant_api_key,
+            embedder,
+        )));
     }
 
     create_memory_with_builders(
         &backend_name,
         workspace_dir,
-        || build_sqlite_memory(config, workspace_dir, api_key),
+        || build_sqlite_memory(config, workspace_dir, &resolved_embedding),
         || build_postgres_memory(storage_provider),
         "",
     )
@@ -247,7 +405,7 @@ pub fn create_response_cache(config: &MemoryConfig, workspace_dir: &Path) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::StorageProviderConfig;
+    use crate::config::{EmbeddingRouteConfig, StorageProviderConfig};
     use tempfile::TempDir;
 
     #[test]
@@ -259,6 +417,15 @@ mod tests {
         };
         let mem = create_memory(&cfg, tmp.path(), None).unwrap();
         assert_eq!(mem.name(), "sqlite");
+    }
+
+    #[test]
+    fn assistant_autosave_key_detection_matches_legacy_patterns() {
+        assert!(is_assistant_autosave_key("assistant_resp"));
+        assert!(is_assistant_autosave_key("assistant_resp_1234"));
+        assert!(is_assistant_autosave_key("ASSISTANT_RESP_abcd"));
+        assert!(!is_assistant_autosave_key("assistant_response"));
+        assert!(!is_assistant_autosave_key("user_msg_1234"));
     }
 
     #[test]
@@ -351,6 +518,108 @@ mod tests {
         let error = create_memory_with_storage(&cfg, Some(&storage), tmp.path(), None)
             .err()
             .expect("postgres without db_url should be rejected");
-        assert!(error.to_string().contains("db_url"));
+        if cfg!(feature = "memory-postgres") {
+            assert!(error.to_string().contains("db_url"));
+        } else {
+            assert!(error.to_string().contains("memory-postgres"));
+        }
+    }
+
+    #[test]
+    fn resolve_embedding_config_uses_base_config_when_model_is_not_hint() {
+        let cfg = MemoryConfig {
+            embedding_provider: "openai".into(),
+            embedding_model: "text-embedding-3-small".into(),
+            embedding_dimensions: 1536,
+            ..MemoryConfig::default()
+        };
+
+        let resolved = resolve_embedding_config(&cfg, &[], Some("base-key"));
+        assert_eq!(
+            resolved,
+            ResolvedEmbeddingConfig {
+                provider: "openai".into(),
+                model: "text-embedding-3-small".into(),
+                dimensions: 1536,
+                api_key: Some("base-key".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_embedding_config_uses_matching_route_with_api_key_override() {
+        let cfg = MemoryConfig {
+            embedding_provider: "none".into(),
+            embedding_model: "hint:semantic".into(),
+            embedding_dimensions: 1536,
+            ..MemoryConfig::default()
+        };
+        let routes = vec![EmbeddingRouteConfig {
+            hint: "semantic".into(),
+            provider: "custom:https://api.example.com/v1".into(),
+            model: "custom-embed-v2".into(),
+            dimensions: Some(1024),
+            api_key: Some("route-key".into()),
+        }];
+
+        let resolved = resolve_embedding_config(&cfg, &routes, Some("base-key"));
+        assert_eq!(
+            resolved,
+            ResolvedEmbeddingConfig {
+                provider: "custom:https://api.example.com/v1".into(),
+                model: "custom-embed-v2".into(),
+                dimensions: 1024,
+                api_key: Some("route-key".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_embedding_config_falls_back_when_hint_is_missing() {
+        let cfg = MemoryConfig {
+            embedding_provider: "openai".into(),
+            embedding_model: "hint:semantic".into(),
+            embedding_dimensions: 1536,
+            ..MemoryConfig::default()
+        };
+
+        let resolved = resolve_embedding_config(&cfg, &[], Some("base-key"));
+        assert_eq!(
+            resolved,
+            ResolvedEmbeddingConfig {
+                provider: "openai".into(),
+                model: "hint:semantic".into(),
+                dimensions: 1536,
+                api_key: Some("base-key".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_embedding_config_falls_back_when_route_is_invalid() {
+        let cfg = MemoryConfig {
+            embedding_provider: "openai".into(),
+            embedding_model: "hint:semantic".into(),
+            embedding_dimensions: 1536,
+            ..MemoryConfig::default()
+        };
+        let routes = vec![EmbeddingRouteConfig {
+            hint: "semantic".into(),
+            provider: String::new(),
+            model: "text-embedding-3-small".into(),
+            dimensions: Some(0),
+            api_key: None,
+        }];
+
+        let resolved = resolve_embedding_config(&cfg, &routes, Some("base-key"));
+        assert_eq!(
+            resolved,
+            ResolvedEmbeddingConfig {
+                provider: "openai".into(),
+                model: "hint:semantic".into(),
+                dimensions: 1536,
+                api_key: Some("base-key".into()),
+            }
+        );
     }
 }

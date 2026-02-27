@@ -14,6 +14,9 @@
 | 一键安装与初始化 | [one-click-bootstrap.md](one-click-bootstrap.md) |
 | 按任务找命令 | [commands-reference.md](commands-reference.md) |
 | 快速查看配置默认值与关键项 | [config-reference.md](config-reference.md) |
+| 接入自定义 Provider / endpoint | [custom-providers.md](custom-providers.md) |
+| 配置 Z.AI / GLM Provider | [zai-glm-setup.md](zai-glm-setup.md) |
+| 使用 LangGraph 工具调用集成 | [langgraph-integration.md](langgraph-integration.md) |
 | 进行日常运维（runbook） | [operations-runbook.md](operations-runbook.md) |
 | 快速排查安装/运行问题 | [troubleshooting.md](troubleshooting.md) |
 | 统一目录导航 | [SUMMARY.md](SUMMARY.md) |
@@ -48,6 +51,9 @@
 - [providers-reference.md](providers-reference.md)
 - [channels-reference.md](channels-reference.md)
 - [config-reference.md](config-reference.md)
+- [custom-providers.md](custom-providers.md)
+- [zai-glm-setup.md](zai-glm-setup.md)
+- [langgraph-integration.md](langgraph-integration.md)
 - [operations-runbook.md](operations-runbook.md)
 - [troubleshooting.md](troubleshooting.md)
 
@@ -65,6 +71,7 @@
 
 - [security/README.md](security/README.md)
 - [agnostic-security.md](agnostic-security.md)
+- [frictionless-security.md](frictionless-security.md)
 - [sandboxing.md](sandboxing.md)
 - [resource-limits.md](resource-limits.md)
 - [audit-logging.md](audit-logging.md)
@@ -73,6 +80,7 @@
 ## 文档治理与分类
 
 - 统一目录（TOC）：[SUMMARY.md](SUMMARY.md)
+- 文档结构图（按语言/分区/功能）：[structure/README.md](structure/README.md)
 - 文档清单与分类：[docs-inventory.md](docs-inventory.md)
 
 ## 其他语言
@@ -80,3 +88,5 @@
 - English: [README.md](README.md)
 - 日本語: [README.ja.md](README.ja.md)
 - Русский: [README.ru.md](README.ru.md)
+- Français: [README.fr.md](README.fr.md)
+- Tiếng Việt: [i18n/vi/README.md](i18n/vi/README.md)

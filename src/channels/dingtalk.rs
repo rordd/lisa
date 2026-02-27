@@ -15,7 +15,6 @@ pub struct DingTalkChannel {
     client_id: String,
     client_secret: String,
     allowed_users: Vec<String>,
-    client: reqwest::Client,
     /// Per-chat session webhooks for sending replies (chatID -> webhook URL).
     /// DingTalk provides a unique webhook URL with each incoming message.
     session_webhooks: Arc<RwLock<HashMap<String, String>>>,
@@ -34,9 +33,12 @@ impl DingTalkChannel {
             client_id,
             client_secret,
             allowed_users,
-            client: reqwest::Client::new(),
             session_webhooks: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    fn http_client(&self) -> reqwest::Client {
+        crate::config::build_runtime_proxy_client("channel.dingtalk")
     }
 
     fn is_user_allowed(&self, user_id: &str) -> bool {
@@ -86,7 +88,7 @@ impl DingTalkChannel {
         });
 
         let resp = self
-            .client
+            .http_client()
             .post("https://api.dingtalk.com/v1.0/gateway/connections/open")
             .json(&body)
             .send()
@@ -95,7 +97,8 @@ impl DingTalkChannel {
         if !resp.status().is_success() {
             let status = resp.status();
             let err = resp.text().await.unwrap_or_default();
-            anyhow::bail!("DingTalk gateway registration failed ({status}): {err}");
+            let sanitized = crate::providers::sanitize_api_error(&err);
+            anyhow::bail!("DingTalk gateway registration failed ({status}): {sanitized}");
         }
 
         let gw: GatewayResponse = resp.json().await?;
@@ -128,12 +131,18 @@ impl Channel for DingTalkChannel {
             }
         });
 
-        let resp = self.client.post(webhook_url).json(&body).send().await?;
+        let resp = self
+            .http_client()
+            .post(webhook_url)
+            .json(&body)
+            .send()
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let err = resp.text().await.unwrap_or_default();
-            anyhow::bail!("DingTalk webhook reply failed ({status}): {err}");
+            let sanitized = crate::providers::sanitize_api_error(&err);
+            anyhow::bail!("DingTalk webhook reply failed ({status}): {sanitized}");
         }
 
         Ok(())
@@ -156,13 +165,14 @@ impl Channel for DingTalkChannel {
                 Ok(Message::Text(t)) => t,
                 Ok(Message::Close(_)) => break,
                 Err(e) => {
-                    tracing::warn!("DingTalk WebSocket error: {e}");
+                    let sanitized = crate::providers::sanitize_api_error(&e.to_string());
+                    tracing::warn!("DingTalk WebSocket error: {sanitized}");
                     break;
                 }
                 _ => continue,
             };
 
-            let frame: serde_json::Value = match serde_json::from_str(&msg) {
+            let frame: serde_json::Value = match serde_json::from_str(msg.as_ref()) {
                 Ok(v) => v,
                 Err(_) => continue,
             };
@@ -188,7 +198,7 @@ impl Channel for DingTalkChannel {
                         "data": "",
                     });
 
-                    if let Err(e) = write.send(Message::Text(pong.to_string())).await {
+                    if let Err(e) = write.send(Message::Text(pong.to_string().into())).await {
                         tracing::warn!("DingTalk: failed to send pong: {e}");
                         break;
                     }
@@ -255,7 +265,7 @@ impl Channel for DingTalkChannel {
                         "message": "OK",
                         "data": "",
                     });
-                    let _ = write.send(Message::Text(ack.to_string())).await;
+                    let _ = write.send(Message::Text(ack.to_string().into())).await;
 
                     let channel_msg = ChannelMessage {
                         id: Uuid::new_v4().to_string(),
@@ -267,6 +277,7 @@ impl Channel for DingTalkChannel {
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs(),
+                        thread_ts: None,
                     };
 
                     if tx.send(channel_msg).await.is_err() {

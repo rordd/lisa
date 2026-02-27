@@ -83,7 +83,6 @@ module.exports = async ({ github, context, core }) => {
   if (dangerousProblems.length > 0) {
     blockingFindings.push(`Dangerous patch markers found (${dangerousProblems.length})`);
   }
-
   const comments = await github.paginate(github.rest.issues.listComments, {
     owner,
     repo,

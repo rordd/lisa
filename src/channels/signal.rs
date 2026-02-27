@@ -28,7 +28,6 @@ pub struct SignalChannel {
     allowed_from: Vec<String>,
     ignore_attachments: bool,
     ignore_stories: bool,
-    client: Client,
 }
 
 // ── signal-cli SSE event JSON shapes ────────────────────────────
@@ -81,10 +80,6 @@ impl SignalChannel {
         ignore_stories: bool,
     ) -> Self {
         let http_url = http_url.trim_end_matches('/').to_string();
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .expect("Signal HTTP client should build");
         Self {
             http_url,
             account,
@@ -92,8 +87,13 @@ impl SignalChannel {
             allowed_from,
             ignore_attachments,
             ignore_stories,
-            client,
         }
+    }
+
+    fn http_client(&self) -> Client {
+        let builder = Client::builder().connect_timeout(Duration::from_secs(10));
+        let builder = crate::config::apply_runtime_proxy_to_builder(builder, "channel.signal");
+        builder.build().expect("Signal HTTP client should build")
     }
 
     /// Effective sender: prefer `sourceNumber` (E.164), fall back to `source`.
@@ -119,12 +119,18 @@ impl SignalChannel {
         (2..=15).contains(&number.len()) && number.chars().all(|c| c.is_ascii_digit())
     }
 
+    /// Check whether a string is a valid UUID (signal-cli uses these for
+    /// privacy-enabled users who have opted out of sharing their phone number).
+    fn is_uuid(s: &str) -> bool {
+        Uuid::parse_str(s).is_ok()
+    }
+
     fn parse_recipient_target(recipient: &str) -> RecipientTarget {
         if let Some(group_id) = recipient.strip_prefix(GROUP_TARGET_PREFIX) {
             return RecipientTarget::Group(group_id.to_string());
         }
 
-        if Self::is_e164(recipient) {
+        if Self::is_e164(recipient) || Self::is_uuid(recipient) {
             RecipientTarget::Direct(recipient.to_string())
         } else {
             RecipientTarget::Group(recipient.to_string())
@@ -178,7 +184,7 @@ impl SignalChannel {
         });
 
         let resp = self
-            .client
+            .http_client()
             .post(&url)
             .timeout(Duration::from_secs(30))
             .header("Content-Type", "application/json")
@@ -259,6 +265,7 @@ impl SignalChannel {
             content: text.to_string(),
             channel: "signal".to_string(),
             timestamp: timestamp / 1000, // millis → secs
+            thread_ts: None,
         })
     }
 }
@@ -298,7 +305,7 @@ impl Channel for SignalChannel {
 
         loop {
             let resp = self
-                .client
+                .http_client()
                 .get(url.clone())
                 .header("Accept", "text/event-stream")
                 .send()
@@ -309,7 +316,8 @@ impl Channel for SignalChannel {
                 Ok(r) => {
                     let status = r.status();
                     let body = r.text().await.unwrap_or_default();
-                    tracing::warn!("Signal SSE returned {status}: {body}");
+                    let sanitized = crate::providers::sanitize_api_error(&body);
+                    tracing::warn!("Signal SSE returned {status}: {sanitized}");
                     tokio::time::sleep(tokio::time::Duration::from_secs(retry_delay_secs)).await;
                     retry_delay_secs = (retry_delay_secs * 2).min(max_delay_secs);
                     continue;
@@ -408,7 +416,7 @@ impl Channel for SignalChannel {
     async fn health_check(&self) -> bool {
         let url = format!("{}/api/v1/check", self.http_url);
         let Ok(resp) = self
-            .client
+            .http_client()
             .get(&url)
             .timeout(Duration::from_secs(10))
             .send()
@@ -654,11 +662,38 @@ mod tests {
     }
 
     #[test]
+    fn parse_recipient_target_uuid_is_direct() {
+        let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        assert_eq!(
+            SignalChannel::parse_recipient_target(uuid),
+            RecipientTarget::Direct(uuid.to_string())
+        );
+    }
+
+    #[test]
     fn parse_recipient_target_non_e164_plus_is_group() {
         assert_eq!(
             SignalChannel::parse_recipient_target("+abc123"),
             RecipientTarget::Group("+abc123".to_string())
         );
+    }
+
+    #[test]
+    fn is_uuid_valid() {
+        assert!(SignalChannel::is_uuid(
+            "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        ));
+        assert!(SignalChannel::is_uuid(
+            "00000000-0000-0000-0000-000000000000"
+        ));
+    }
+
+    #[test]
+    fn is_uuid_invalid() {
+        assert!(!SignalChannel::is_uuid("+1234567890"));
+        assert!(!SignalChannel::is_uuid("not-a-uuid"));
+        assert!(!SignalChannel::is_uuid("group:abc123"));
+        assert!(!SignalChannel::is_uuid(""));
     }
 
     #[test]
@@ -683,6 +718,73 @@ mod tests {
             timestamp: Some(1000),
         };
         assert_eq!(SignalChannel::sender(&env), Some("uuid-123".to_string()));
+    }
+
+    #[test]
+    fn process_envelope_uuid_sender_dm() {
+        let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        let ch = SignalChannel::new(
+            "http://127.0.0.1:8686".to_string(),
+            "+1234567890".to_string(),
+            None,
+            vec!["*".to_string()],
+            false,
+            false,
+        );
+        let env = Envelope {
+            source: Some(uuid.to_string()),
+            source_number: None,
+            data_message: Some(DataMessage {
+                message: Some("Hello from privacy user".to_string()),
+                timestamp: Some(1_700_000_000_000),
+                group_info: None,
+                attachments: None,
+            }),
+            story_message: None,
+            timestamp: Some(1_700_000_000_000),
+        };
+        let msg = ch.process_envelope(&env).unwrap();
+        assert_eq!(msg.sender, uuid);
+        assert_eq!(msg.reply_target, uuid);
+        assert_eq!(msg.content, "Hello from privacy user");
+
+        // Verify reply routing: UUID sender in DM should route as Direct
+        let target = SignalChannel::parse_recipient_target(&msg.reply_target);
+        assert_eq!(target, RecipientTarget::Direct(uuid.to_string()));
+    }
+
+    #[test]
+    fn process_envelope_uuid_sender_in_group() {
+        let uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        let ch = SignalChannel::new(
+            "http://127.0.0.1:8686".to_string(),
+            "+1234567890".to_string(),
+            Some("testgroup".to_string()),
+            vec!["*".to_string()],
+            false,
+            false,
+        );
+        let env = Envelope {
+            source: Some(uuid.to_string()),
+            source_number: None,
+            data_message: Some(DataMessage {
+                message: Some("Group msg from privacy user".to_string()),
+                timestamp: Some(1_700_000_000_000),
+                group_info: Some(GroupInfo {
+                    group_id: Some("testgroup".to_string()),
+                }),
+                attachments: None,
+            }),
+            story_message: None,
+            timestamp: Some(1_700_000_000_000),
+        };
+        let msg = ch.process_envelope(&env).unwrap();
+        assert_eq!(msg.sender, uuid);
+        assert_eq!(msg.reply_target, "group:testgroup");
+
+        // Verify reply routing: group message should still route as Group
+        let target = SignalChannel::parse_recipient_target(&msg.reply_target);
+        assert_eq!(target, RecipientTarget::Group("testgroup".to_string()));
     }
 
     #[test]

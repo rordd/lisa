@@ -2,9 +2,9 @@
 
 This page is the primary entry point for the documentation system.
 
-Last refreshed: **February 18, 2026**.
+Last refreshed: **February 21, 2026**.
 
-Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Русский](README.ru.md).
+Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Русский](README.ru.md) · [Français](README.fr.md) · [Tiếng Việt](i18n/vi/README.md).
 
 ## Start Here
 
@@ -12,10 +12,15 @@ Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · 
 |---|---|
 | Install and run ZeroClaw quickly | [README.md (Quick Start)](../README.md#quick-start) |
 | Bootstrap in one command | [one-click-bootstrap.md](one-click-bootstrap.md) |
+| Update or uninstall on macOS | [getting-started/macos-update-uninstall.md](getting-started/macos-update-uninstall.md) |
 | Find commands by task | [commands-reference.md](commands-reference.md) |
 | Check config defaults and keys quickly | [config-reference.md](config-reference.md) |
+| Configure custom providers/endpoints | [custom-providers.md](custom-providers.md) |
+| Configure Z.AI / GLM provider | [zai-glm-setup.md](zai-glm-setup.md) |
+| Use LangGraph integration patterns | [langgraph-integration.md](langgraph-integration.md) |
 | Operate runtime (day-2 runbook) | [operations-runbook.md](operations-runbook.md) |
 | Troubleshoot install/runtime/channel issues | [troubleshooting.md](troubleshooting.md) |
+| Run Matrix encrypted-room setup and diagnostics | [matrix-e2ee-guide.md](matrix-e2ee-guide.md) |
 | Browse docs by category | [SUMMARY.md](SUMMARY.md) |
 | See project PR/issue docs snapshot | [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md) |
 
@@ -47,7 +52,11 @@ Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · 
 - [commands-reference.md](commands-reference.md) — command lookup by workflow
 - [providers-reference.md](providers-reference.md) — provider IDs, aliases, credential env vars
 - [channels-reference.md](channels-reference.md) — channel capabilities and setup paths
+- [matrix-e2ee-guide.md](matrix-e2ee-guide.md) — Matrix encrypted-room (E2EE) setup and no-response diagnostics
 - [config-reference.md](config-reference.md) — high-signal config keys and secure defaults
+- [custom-providers.md](custom-providers.md) — custom provider/base URL integration templates
+- [zai-glm-setup.md](zai-glm-setup.md) — Z.AI/GLM setup and endpoint matrix
+- [langgraph-integration.md](langgraph-integration.md) — fallback integration for model/tool-calling edge cases
 - [operations-runbook.md](operations-runbook.md) — day-2 runtime operations and rollback flow
 - [troubleshooting.md](troubleshooting.md) — common failure signatures and recovery steps
 
@@ -74,5 +83,8 @@ Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · 
 ## System Navigation & Governance
 
 - Unified TOC: [SUMMARY.md](SUMMARY.md)
+- Docs structure map (language/part/function): [structure/README.md](structure/README.md)
 - Documentation inventory/classification: [docs-inventory.md](docs-inventory.md)
+- i18n docs index: [i18n/README.md](i18n/README.md)
+- i18n coverage map: [i18n-coverage.md](i18n-coverage.md)
 - Project triage snapshot: [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)

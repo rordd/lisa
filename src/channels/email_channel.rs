@@ -13,13 +13,14 @@ use async_imap::extensions::idle::IdleResponse;
 use async_imap::types::Fetch;
 use async_imap::Session;
 use async_trait::async_trait;
-use futures::TryStreamExt;
+use futures_util::TryStreamExt;
 use lettre::message::SinglePart;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
 use mail_parser::{MessageParser, MimeHeaders};
 use rustls::{ClientConfig, RootCertStore};
 use rustls_pki_types::DnsName;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -35,7 +36,7 @@ use uuid::Uuid;
 use super::traits::{Channel, ChannelMessage, SendMessage};
 
 /// Email channel configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EmailConfig {
     /// IMAP server hostname
     pub imap_host: String,
@@ -66,6 +67,15 @@ pub struct EmailConfig {
     /// Allowed sender addresses/domains (empty = deny all, ["*"] = allow all)
     #[serde(default)]
     pub allowed_senders: Vec<String>,
+}
+
+impl crate::config::traits::ChannelConfig for EmailConfig {
+    fn name() -> &'static str {
+        "Email"
+    }
+    fn desc() -> &'static str {
+        "Email over IMAP/SMTP"
+    }
 }
 
 fn default_imap_port() -> u16 {
@@ -153,7 +163,14 @@ impl EmailChannel {
                 _ => {}
             }
         }
-        result.split_whitespace().collect::<Vec<_>>().join(" ")
+        let mut normalized = String::with_capacity(result.len());
+        for word in result.split_whitespace() {
+            if !normalized.is_empty() {
+                normalized.push(' ');
+            }
+            normalized.push_str(word);
+        }
+        normalized
     }
 
     /// Extract the sender address from a parsed email
@@ -442,6 +459,7 @@ impl EmailChannel {
                 content: email.content,
                 channel: "email".to_string(),
                 timestamp: email.timestamp,
+                thread_ts: None,
             };
 
             if tx.send(msg).await.is_err() {
