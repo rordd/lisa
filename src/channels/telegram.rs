@@ -333,6 +333,7 @@ pub struct TelegramChannel {
     draft_update_interval_ms: u64,
     last_draft_edit: Mutex<std::collections::HashMap<String, std::time::Instant>>,
     mention_only: bool,
+    group_reply_allowed_sender_ids: Vec<String>,
     bot_username: Mutex<Option<String>>,
     /// Base URL for the Telegram Bot API. Defaults to `https://api.telegram.org`.
     /// Override for local Bot API servers or testing.
@@ -366,6 +367,7 @@ impl TelegramChannel {
             last_draft_edit: Mutex::new(std::collections::HashMap::new()),
             typing_handle: Mutex::new(None),
             mention_only,
+            group_reply_allowed_sender_ids: Vec::new(),
             bot_username: Mutex::new(None),
             api_base: "https://api.telegram.org".to_string(),
             transcription: None,
@@ -388,6 +390,13 @@ impl TelegramChannel {
     ) -> Self {
         self.stream_mode = stream_mode;
         self.draft_update_interval_ms = draft_update_interval_ms;
+        self
+    }
+
+    /// Configure sender IDs that bypass mention gating in group chats.
+    pub fn with_group_reply_allowed_senders(mut self, sender_ids: Vec<String>) -> Self {
+        self.group_reply_allowed_sender_ids =
+            Self::normalize_group_reply_allowed_sender_ids(sender_ids);
         self
     }
 
@@ -570,6 +579,10 @@ impl TelegramChannel {
         crate::config::build_runtime_proxy_client("channel.telegram")
     }
 
+    fn sanitize_telegram_error(input: &str) -> String {
+        crate::providers::sanitize_api_error(input)
+    }
+
     fn normalize_identity(value: &str) -> String {
         value.trim().trim_start_matches('@').to_string()
     }
@@ -580,6 +593,27 @@ impl TelegramChannel {
             .map(|entry| Self::normalize_identity(&entry))
             .filter(|entry| !entry.is_empty())
             .collect()
+    }
+
+    fn normalize_group_reply_allowed_sender_ids(sender_ids: Vec<String>) -> Vec<String> {
+        let mut normalized = sender_ids
+            .into_iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect::<Vec<_>>();
+        normalized.sort();
+        normalized.dedup();
+        normalized
+    }
+
+    fn is_group_sender_trigger_enabled(&self, sender_id: Option<&str>) -> bool {
+        let Some(sender_id) = sender_id.map(str::trim).filter(|id| !id.is_empty()) else {
+            return false;
+        };
+
+        self.group_reply_allowed_sender_ids
+            .iter()
+            .any(|entry| entry == "*" || entry == sender_id)
     }
 
     async fn load_config_without_env() -> anyhow::Result<Config> {
@@ -993,10 +1027,9 @@ Allowlist Telegram username (without '@') or numeric user ID.",
 
     /// Download a file from the Telegram CDN.
     async fn download_file(&self, file_path: &str) -> anyhow::Result<Vec<u8>> {
-        let url = format!(
-            "https://api.telegram.org/file/bot{}/{file_path}",
-            self.bot_token
-        );
+        let api_base = self.api_base.trim_end_matches('/');
+        let normalized_path = file_path.trim_start_matches('/');
+        let url = format!("{api_base}/file/bot{}/{normalized_path}", self.bot_token);
         let resp = self
             .http_client()
             .get(&url)
@@ -1265,7 +1298,13 @@ Allowlist Telegram username (without '@') or numeric user ID.",
 
         // Determine local filename
         let local_filename = match &attachment.file_name {
-            Some(name) => name.clone(),
+            Some(name) => Path::new(name)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .unwrap_or("attachment")
+                .to_string(),
             None => {
                 // For photos, derive extension from Telegram file path
                 let ext = tg_file_path.rsplit('.').next().unwrap_or("jpg");
@@ -1633,10 +1672,9 @@ Allowlist Telegram username (without '@') or numeric user ID.",
             .to_string();
 
         // Step 2: download the actual file
-        let download_url = format!(
-            "https://api.telegram.org/file/bot{}/{}",
-            self.bot_token, file_path
-        );
+        let api_base = self.api_base.trim_end_matches('/');
+        let normalized_path = file_path.trim_start_matches('/');
+        let download_url = format!("{api_base}/file/bot{}/{}", self.bot_token, normalized_path);
         let img_resp = self.http_client().get(&download_url).send().await?;
         let bytes = img_resp.bytes().await?;
 
@@ -2010,9 +2048,41 @@ Allowlist Telegram username (without '@') or numeric user ID.",
         // workspace directory so files written by the containerised runtime
         // can be found and sent by the host-side Telegram sender.
         let remapped;
-        let target = if let Some(rel) = target.strip_prefix("/workspace/") {
+        let resolved_target = if let Some(rel) = target.strip_prefix("/workspace/") {
             if let Some(ws) = &self.workspace_dir {
-                remapped = ws.join(rel);
+                let rel_path = Path::new(rel);
+                if rel_path.components().any(|component| {
+                    matches!(
+                        component,
+                        std::path::Component::ParentDir | std::path::Component::RootDir
+                    )
+                }) {
+                    anyhow::bail!("Telegram attachment path escapes workspace: {target}");
+                }
+
+                remapped = ws.join(rel_path);
+
+                // Defense-in-depth: for existing paths, verify canonical path stays
+                // inside the configured workspace root.
+                if remapped.exists() {
+                    let workspace_canonical = std::fs::canonicalize(ws).with_context(|| {
+                        format!("failed to canonicalize workspace: {}", ws.display())
+                    })?;
+                    let remapped_canonical =
+                        std::fs::canonicalize(&remapped).with_context(|| {
+                            format!(
+                                "failed to canonicalize remapped attachment path: {}",
+                                remapped.display()
+                            )
+                        })?;
+                    if !remapped_canonical.starts_with(&workspace_canonical) {
+                        anyhow::bail!(
+                            "Telegram attachment path escapes workspace: {}",
+                            remapped_canonical.display()
+                        );
+                    }
+                }
+
                 remapped.to_str().unwrap_or(target)
             } else {
                 target
@@ -2021,9 +2091,9 @@ Allowlist Telegram username (without '@') or numeric user ID.",
             target
         };
 
-        let path = Path::new(target);
+        let path = Path::new(resolved_target);
         if !path.exists() {
-            anyhow::bail!("Telegram attachment path not found: {target}");
+            anyhow::bail!("Telegram attachment path not found: {resolved_target}");
         }
 
         match attachment.kind {
@@ -2507,7 +2577,7 @@ impl Channel for TelegramChannel {
         recipient: &str,
         message_id: &str,
         text: &str,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<String>> {
         let (chat_id, _) = Self::parse_reply_target(recipient);
 
         // Rate-limit edits per chat
@@ -2516,7 +2586,7 @@ impl Channel for TelegramChannel {
             if let Some(last_time) = last_edits.get(&chat_id) {
                 let elapsed = u64::try_from(last_time.elapsed().as_millis()).unwrap_or(u64::MAX);
                 if elapsed < self.draft_update_interval_ms {
-                    return Ok(());
+                    return Ok(None);
                 }
             }
         }
@@ -2540,7 +2610,7 @@ impl Channel for TelegramChannel {
             Ok(id) => id,
             Err(e) => {
                 tracing::warn!("Invalid Telegram message_id '{message_id}': {e}");
-                return Ok(());
+                return Ok(None);
             }
         };
 
@@ -2564,10 +2634,11 @@ impl Channel for TelegramChannel {
         } else {
             let status = resp.status();
             let err = resp.text().await.unwrap_or_default();
-            tracing::debug!("Telegram editMessageText failed ({status}): {err}");
+            let sanitized = Self::sanitize_telegram_error(&err);
+            tracing::debug!("Telegram editMessageText failed ({status}): {sanitized}");
         }
 
-        Ok(())
+        Ok(None)
     }
 
     async fn finalize_draft(
