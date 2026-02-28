@@ -205,7 +205,7 @@ landlock = { version = "0.4", optional = true }
 libc = "0.2"
 
 [features]
-default = ["wasm-tools"]
+default = ["wasm-tools", "web-fetch-plaintext"]
 hardware = ["nusb", "tokio-serial"]
 channel-matrix = ["dep:matrix-sdk"]
 channel-lark = ["dep:prost"]
@@ -225,6 +225,7 @@ sandbox-bubblewrap = []
 landlock = ["sandbox-landlock"]
 # probe = probe-rs for Nucleo memory read (adds ~50 deps; optional)
 probe = ["dep:probe-rs"]
+web-fetch-plaintext = []
 # rag-pdf = PDF ingestion for datasheet RAG
 rag-pdf = ["dep:pdf-extract"]
 # wasm-tools = WASM plugin engine for dynamically-loaded tool packages (WASI stdio protocol)
