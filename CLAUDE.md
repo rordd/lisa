@@ -534,3 +534,34 @@ When working in fast iterative mode:
 - Prefer deterministic behavior over clever shortcuts.
 - Do not “ship and hope” on security-sensitive paths.
 - If uncertain, leave a concrete TODO with verification context, not a hidden guess.
+
+## 13) Lisa Fork Rules (Team-Specific)
+
+### 13.1 Testing (Mandatory)
+- Every code change MUST include corresponding test code.
+- Run full regression before deploy: `cargo test`.
+- Never commit without running relevant tests.
+
+### 13.2 Commit Hygiene
+- Commit message MUST include list of changed files and summary of changes.
+- New files MUST be listed separately.
+- Use conventional commit format (`feat:`, `fix:`, `test:`, `refactor:`, `docs:`).
+
+### 13.3 Skill Development
+- SKILL.md MUST have YAML front matter (`---` delimited) with `name` and `description`.
+- Personal data (accounts, coordinates, API keys) goes in `USER.md`, NOT in skills.
+- Skills reference `USER.md` for personal data.
+- Use `always: true` in front matter for skills that must be fully injected in compact mode.
+
+### 13.4 Feature Flag Policy (Mandatory)
+- All fork-specific features MUST be gated behind a feature flag.
+- Config flag: `config.toml` section with `enabled = false` by default.
+- Cargo feature flag: for compile-time gating when needed.
+- Default OFF: upstream-identical behavior when flags are disabled.
+- New feature PRs MUST include the feature flag; ungated changes are rejected.
+- This minimizes upstream merge conflicts on rebase.
+
+### 13.5 Code Safety
+- Don't touch working code on unconfirmed "bugs".
+- Minimize upstream divergence — keep fork delta as small as possible.
+- All `Skill` struct literals MUST include the `always` field.
