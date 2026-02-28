@@ -21,6 +21,41 @@
       "reason": "Transitive via matrix-sdk indexeddb dependency chain in current matrix release line; track removal when upstream drops derivative.",
       "ticket": "SEC-21",
       "expires_on": "2026-12-31"
+    },
+    {
+      "id": "RUSTSEC-2024-0436",
+      "owner": "repo-maintainers",
+      "reason": "Transitive via wasmtime dependency chain; keep until wasm runtime upgrade path is completed.",
+      "ticket": "SEC-21",
+      "expires_on": "2026-12-31"
+    },
+    {
+      "id": "RUSTSEC-2025-0046",
+      "owner": "repo-maintainers",
+      "reason": "Wasmtime 28.x vulnerability in current optional wasm-tools stack; tracked for runtime uplift.",
+      "ticket": "SEC-21",
+      "expires_on": "2026-12-31"
+    },
+    {
+      "id": "RUSTSEC-2025-0118",
+      "owner": "repo-maintainers",
+      "reason": "Wasmtime 28.x vulnerability in current optional wasm-tools stack; tracked for runtime uplift.",
+      "ticket": "SEC-21",
+      "expires_on": "2026-12-31"
+    },
+    {
+      "id": "RUSTSEC-2026-0020",
+      "owner": "repo-maintainers",
+      "reason": "Wasmtime 28.x vulnerability in current optional wasm-tools stack; tracked for runtime uplift.",
+      "ticket": "SEC-21",
+      "expires_on": "2026-12-31"
+    },
+    {
+      "id": "RUSTSEC-2026-0021",
+      "owner": "repo-maintainers",
+      "reason": "Wasmtime 28.x vulnerability in current optional wasm-tools stack; tracked for runtime uplift.",
+      "ticket": "SEC-21",
+      "expires_on": "2026-12-31"
     }
   ]
 }
