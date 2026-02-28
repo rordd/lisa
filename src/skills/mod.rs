@@ -31,6 +31,10 @@ pub struct Skill {
     pub prompts: Vec<String>,
     #[serde(skip)]
     pub location: Option<PathBuf>,
+    /// When true, always inject full skill instructions even in compact prompt mode.
+    /// Set via front matter: `always: true`
+    #[serde(default)]
+    pub always: bool,
 }
 
 /// A tool defined by a skill (shell command, HTTP call, etc.)
@@ -431,6 +435,7 @@ fn load_skill_toml(path: &Path) -> Result<Skill> {
         tools: manifest.tools,
         prompts: manifest.prompts,
         location: Some(path.to_path_buf()),
+        always: false,
     })
 }
 
@@ -467,6 +472,25 @@ fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
         }
     }
 
+    // Override fields from front matter (OpenClaw compatible)
+    let (fm, _) = parse_front_matter(&content);
+    if let Some(v) = fm.get("name") {
+        if !v.is_empty() {
+            name = v.clone();
+        }
+    }
+    if let Some(v) = fm.get("version") {
+        if !v.is_empty() {
+            version = v.clone();
+        }
+    }
+    if let Some(v) = fm.get("author") {
+        if !v.is_empty() {
+            author = Some(v.clone());
+        }
+    }
+    let always = fm_bool(&fm, "always");
+
     Ok(Skill {
         name,
         description: extract_description(&content),
@@ -476,6 +500,7 @@ fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
         tools: Vec::new(),
         prompts: vec![content],
         location: Some(path.to_path_buf()),
+        always,
     })
 }
 
@@ -496,12 +521,90 @@ fn load_open_skill_md(path: &Path) -> Result<Skill> {
         tools: Vec::new(),
         prompts: vec![content],
         location: Some(path.to_path_buf()),
+        always: false,
     })
 }
 
+// ── Front matter parsing ─────────────────────────────────────────────────────
+//
+// Compatible with OpenClaw's `parseFrontmatterBlock`: parses `---` delimited
+// YAML-style front matter into key-value pairs.  Handles quoted values, boolean
+// coercion, and multi-word strings.  Returns (map, body) where body is the
+// content after the closing `---`.
+
+/// Strip surrounding single or double quotes from a value string.
+fn strip_quotes(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2
+        && ((bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\''))
+    {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    }
+}
+
+/// Parse YAML front matter from `---` delimited block.
+/// Returns a map of key-value pairs and the remaining content body.
+fn parse_front_matter(content: &str) -> (HashMap<String, String>, &str) {
+    let mut map = HashMap::new();
+    // Normalise line endings
+    let trimmed = content.trim_start_matches('\u{feff}'); // strip BOM
+    if !trimmed.starts_with("---") {
+        return (map, content);
+    }
+    let after_open = &trimmed[3..];
+    let after_open = after_open.strip_prefix('\r').unwrap_or(after_open);
+    let after_open = after_open.strip_prefix('\n').unwrap_or(after_open);
+
+    // Find closing `---` on its own line
+    let close_idx = after_open
+        .find("\n---")
+        .or_else(|| after_open.find("\r\n---"));
+    let Some(end) = close_idx else {
+        return (map, content);
+    };
+
+    let block = &after_open[..end];
+    for line in block.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once(':') {
+            let key = key.trim();
+            let value = strip_quotes(value.trim());
+            if !key.is_empty() && !value.is_empty() {
+                map.insert(key.to_string(), value.to_string());
+            }
+        }
+    }
+
+    // Body starts after the closing `---\n`
+    let rest = &after_open[end + 4..]; // skip "\n---"
+    let rest = rest.strip_prefix('\r').unwrap_or(rest);
+    let rest = rest.strip_prefix('\n').unwrap_or(rest);
+    (map, rest)
+}
+
+/// Parse a front matter value as a boolean (true/yes/1 → true, else false).
+fn fm_bool(map: &HashMap<String, String>, key: &str) -> bool {
+    map.get(key)
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "true" | "yes" | "1"))
+        .unwrap_or(false)
+}
+
 fn extract_description(content: &str) -> String {
-    content
-        .lines()
+    // Prefer front matter `description` field (OpenClaw compatible)
+    let (fm, body) = parse_front_matter(content);
+    if let Some(desc) = fm.get("description") {
+        if !desc.is_empty() {
+            return desc.clone();
+        }
+    }
+    // Fallback: first non-header, non-empty line from body
+    body.lines()
         .find(|line| !line.starts_with('#') && !line.trim().is_empty())
         .unwrap_or("No description")
         .trim()
@@ -583,8 +686,10 @@ pub fn skills_to_prompt_with_mode(
         ),
         crate::config::SkillsPromptInjectionMode::Compact => String::from(
             "## Available Skills\n\n\
-             Skill summaries are preloaded below to keep context compact.\n\
-             Skill instructions are loaded on demand: read the skill file in `location` only when needed.\n\n\
+             Skill summaries are listed below. When a user request matches a skill's description, \
+             you MUST use the `file_read` tool to read the skill file at the `location` path \
+             and follow its instructions before responding. Do NOT answer from general knowledge \
+             when a matching skill exists.\n\n\
              <available_skills>\n",
         ),
     };
@@ -600,7 +705,12 @@ pub fn skills_to_prompt_with_mode(
         );
         write_xml_text_element(&mut prompt, 4, "location", &location);
 
-        if matches!(mode, crate::config::SkillsPromptInjectionMode::Full) {
+        // Inject full instructions when mode is Full OR skill has `always: true`.
+        // This mirrors OpenClaw's `always` field in skill metadata.
+        let inject_full =
+            matches!(mode, crate::config::SkillsPromptInjectionMode::Full) || skill.always;
+
+        if inject_full {
             if !skill.prompts.is_empty() {
                 let _ = writeln!(prompt, "    <instructions>");
                 for instruction in &skill.prompts {
@@ -2294,7 +2404,7 @@ command = "echo hello"
             tags: vec![],
             tools: vec![],
             prompts: vec!["Do the thing.".to_string()],
-            location: None,
+            location: None, always: false,
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("<available_skills>"));
@@ -2319,6 +2429,7 @@ command = "echo hello"
             }],
             prompts: vec!["Do the thing.".to_string()],
             location: Some(PathBuf::from("/tmp/workspace/skills/test/SKILL.md")),
+            always: false,
         }];
         let prompt = skills_to_prompt_with_mode(
             &skills,
@@ -2329,7 +2440,7 @@ command = "echo hello"
         assert!(prompt.contains("<available_skills>"));
         assert!(prompt.contains("<name>test</name>"));
         assert!(prompt.contains("<location>skills/test/SKILL.md</location>"));
-        assert!(prompt.contains("loaded on demand"));
+        assert!(prompt.contains("MUST use the `file_read` tool"));
         assert!(!prompt.contains("<instructions>"));
         assert!(!prompt.contains("<instruction>Do the thing.</instruction>"));
         assert!(!prompt.contains("<tools>"));
@@ -2518,7 +2629,7 @@ description = "Bare minimum"
                 args: HashMap::new(),
             }],
             prompts: vec![],
-            location: None,
+            location: None, always: false,
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("weather"));
@@ -2537,7 +2648,7 @@ description = "Bare minimum"
             tags: vec![],
             tools: vec![],
             prompts: vec!["Use <tool> & check \"quotes\".".to_string()],
-            location: None,
+            location: None, always: false,
         }];
 
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
@@ -2986,6 +3097,111 @@ description = "Bare minimum"
     fn normalize_skill_name_strips_non_alnum() {
         assert_eq!(normalize_skill_name("skill.v1"), "skillv1");
         assert_eq!(normalize_skill_name("skill@1.0.0"), "skill100");
+    }
+
+    // ── Front matter parsing tests ────────────────────────────────────────────
+
+    #[test]
+    fn parse_front_matter_extracts_fields() {
+        let content = "---\nname: weather\ndescription: \"Get weather forecasts\"\nversion: 1.0.0\nalways: true\n---\n# Weather\nBody text.";
+        let (fm, body) = parse_front_matter(content);
+        assert_eq!(fm.get("name").unwrap(), "weather");
+        assert_eq!(fm.get("description").unwrap(), "Get weather forecasts");
+        assert_eq!(fm.get("version").unwrap(), "1.0.0");
+        assert!(fm_bool(&fm, "always"));
+        assert!(body.starts_with("# Weather"));
+    }
+
+    #[test]
+    fn parse_front_matter_missing_returns_empty() {
+        let content = "# No front matter\nJust a skill.";
+        let (fm, body) = parse_front_matter(content);
+        assert!(fm.is_empty());
+        assert_eq!(body, content);
+    }
+
+    #[test]
+    fn parse_front_matter_single_quotes() {
+        let content = "---\nname: 'my-skill'\ndescription: 'A cool skill'\n---\nBody.";
+        let (fm, _) = parse_front_matter(content);
+        assert_eq!(fm.get("name").unwrap(), "my-skill");
+        assert_eq!(fm.get("description").unwrap(), "A cool skill");
+    }
+
+    #[test]
+    fn extract_description_prefers_front_matter() {
+        let content = "---\ndescription: From front matter\n---\n# Title\nFallback line.";
+        assert_eq!(extract_description(content), "From front matter");
+    }
+
+    #[test]
+    fn extract_description_fallback_without_front_matter() {
+        let content = "# Title\nFallback line here.";
+        assert_eq!(extract_description(content), "Fallback line here.");
+    }
+
+    #[test]
+    fn load_skill_md_reads_front_matter() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        let skill_dir = skills_dir.join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: custom-name\ndescription: \"Custom description\"\nalways: true\n---\n# My Skill\nInstructions.",
+        )
+        .unwrap();
+
+        let skills = load_skills(dir.path());
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "custom-name");
+        assert_eq!(skills[0].description, "Custom description");
+        assert!(skills[0].always);
+    }
+
+    #[test]
+    fn always_skill_injected_in_compact_mode() {
+        let skills = vec![Skill {
+            name: "always-skill".to_string(),
+            description: "Always injected".to_string(),
+            version: "1.0.0".to_string(),
+            author: None,
+            tags: vec![],
+            tools: vec![],
+            prompts: vec!["Always do this.".to_string()],
+            location: None, always: true,
+        }];
+        let prompt = skills_to_prompt_with_mode(
+            &skills,
+            Path::new("/tmp"),
+            crate::config::SkillsPromptInjectionMode::Compact,
+        );
+        // always=true should still have instructions in compact mode
+        assert!(prompt.contains("<instructions>"));
+        assert!(prompt.contains("Always do this."));
+    }
+
+    #[test]
+    fn non_always_skill_omitted_in_compact_mode() {
+        let skills = vec![Skill {
+            name: "normal-skill".to_string(),
+            description: "Normal skill".to_string(),
+            version: "1.0.0".to_string(),
+            author: None,
+            tags: vec![],
+            tools: vec![],
+            prompts: vec!["Normal instructions.".to_string()],
+            location: None, always: false,
+        }];
+        let prompt = skills_to_prompt_with_mode(
+            &skills,
+            Path::new("/tmp"),
+            crate::config::SkillsPromptInjectionMode::Compact,
+        );
+        // always=false should NOT have instructions in compact mode
+        assert!(!prompt.contains("<instructions>"));
+        assert!(!prompt.contains("Normal instructions."));
     }
 }
 
