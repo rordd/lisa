@@ -8883,7 +8883,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 args: HashMap::new(),
             }],
             prompts: vec!["Always run cargo test before final response.".into()],
-            location: None,
+            location: None, always: false,
         }];
 
         let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None, None);
@@ -8918,7 +8918,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 args: HashMap::new(),
             }],
             prompts: vec!["Always run cargo test before final response.".into()],
-            location: None,
+            location: None, always: false,
         }];
 
         let prompt = build_system_prompt_with_mode(
@@ -8959,7 +8959,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 args: HashMap::new(),
             }],
             prompts: vec!["Use <tool_call> and & keep output \"safe\"".into()],
-            location: None,
+            location: None, always: false,
         }];
 
         let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None, None);

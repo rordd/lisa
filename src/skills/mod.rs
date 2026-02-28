@@ -30,6 +30,9 @@ pub struct Skill {
     pub prompts: Vec<String>,
     #[serde(skip)]
     pub location: Option<PathBuf>,
+    /// When `true`, inject full instructions even in compact prompt mode.
+    #[serde(default)]
+    pub always: bool,
 }
 
 /// A tool defined by a skill (shell command, HTTP call, etc.)
@@ -414,27 +417,39 @@ fn load_skill_toml(path: &Path) -> Result<Skill> {
         tools: manifest.tools,
         prompts: manifest.prompts,
         location: Some(path.to_path_buf()),
+        always: false,
     })
 }
 
 /// Load a skill from a SKILL.md file (simpler format)
 fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
     let content = std::fs::read_to_string(path)?;
-    let name = dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let (fm, _body) = parse_front_matter(&content);
+
+    let name = fm
+        .get("name")
+        .cloned()
+        .unwrap_or_else(|| {
+            dir.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        });
+
+    let version = fm.get("version").cloned().unwrap_or_else(|| "0.1.0".to_string());
+    let author = fm.get("author").cloned();
+    let always = fm_bool(&fm, "always");
 
     Ok(Skill {
         name,
         description: extract_description(&content),
-        version: "0.1.0".to_string(),
-        author: None,
+        version,
+        author,
         tags: Vec::new(),
         tools: Vec::new(),
         prompts: vec![content],
         location: Some(path.to_path_buf()),
+        always,
     })
 }
 
@@ -455,12 +470,73 @@ fn load_open_skill_md(path: &Path) -> Result<Skill> {
         tools: Vec::new(),
         prompts: vec![content],
         location: Some(path.to_path_buf()),
+        always: false,
     })
 }
 
+/// Strip surrounding single or double quotes from a string value.
+fn strip_quotes(s: &str) -> &str {
+    let s = s.trim();
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        &s[1..s.len() - 1]
+    } else {
+        s
+    }
+}
+
+/// Parse a `---` delimited YAML front matter block from skill content.
+/// Returns a map of key-value pairs and the remaining body after the closing `---`.
+/// Compatible with OpenClaw's `parseFrontmatterBlock` format.
+fn parse_front_matter(content: &str) -> (std::collections::HashMap<String, String>, &str) {
+    let text = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let mut lines = text.lines();
+    let first = match lines.next() {
+        Some(l) if l.trim() == "---" => l,
+        _ => return (std::collections::HashMap::new(), content),
+    };
+    let start = first.len() + 1; // +1 for newline
+    let mut end = start;
+    let mut map = std::collections::HashMap::new();
+    for line in lines {
+        if line.trim() == "---" {
+            let body_start = end + line.len() + 1;
+            let body = if body_start <= text.len() {
+                text[body_start..].trim_start_matches('\n')
+            } else {
+                ""
+            };
+            return (map, body);
+        }
+        if let Some(pos) = line.find(':') {
+            let key = line[..pos].trim().to_lowercase();
+            let val = strip_quotes(line[pos + 1..].trim());
+            if !key.is_empty() && !val.is_empty() {
+                map.insert(key, val.to_string());
+            }
+        }
+        end += line.len() + 1;
+    }
+    (std::collections::HashMap::new(), content)
+}
+
+/// Read a boolean from front matter map. Accepts "true"/"yes"/"1".
+fn fm_bool(map: &std::collections::HashMap<String, String>, key: &str) -> bool {
+    map.get(key)
+        .map(|v| matches!(v.to_lowercase().as_str(), "true" | "yes" | "1"))
+        .unwrap_or(false)
+}
+
+/// Extract a short description from skill content.
+/// Prefers `description` from YAML front matter; falls back to the first
+/// non-header, non-empty line in the body.
 fn extract_description(content: &str) -> String {
-    content
-        .lines()
+    let (fm, body) = parse_front_matter(content);
+    if let Some(desc) = fm.get("description") {
+        if !desc.is_empty() {
+            return desc.clone();
+        }
+    }
+    body.lines()
         .find(|line| !line.starts_with('#') && !line.trim().is_empty())
         .unwrap_or("No description")
         .trim()
@@ -543,7 +619,7 @@ pub fn skills_to_prompt_with_mode(
         crate::config::SkillsPromptInjectionMode::Compact => String::from(
             "## Available Skills\n\n\
              Skill summaries are preloaded below to keep context compact.\n\
-             Skill instructions are loaded on demand: read the skill file in `location` only when needed.\n\n\
+             When a task matches a skill, you MUST use the `file_read` tool to read the skill file at the `location` path and follow its instructions before responding.\n\n\
              <available_skills>\n",
         ),
     };
@@ -559,7 +635,8 @@ pub fn skills_to_prompt_with_mode(
         );
         write_xml_text_element(&mut prompt, 4, "location", &location);
 
-        if matches!(mode, crate::config::SkillsPromptInjectionMode::Full) {
+        let inject_full = matches!(mode, crate::config::SkillsPromptInjectionMode::Full) || skill.always;
+        if inject_full {
             if !skill.prompts.is_empty() {
                 let _ = writeln!(prompt, "    <instructions>");
                 for instruction in &skill.prompts {
@@ -1075,7 +1152,7 @@ command = "echo hello"
             tags: vec![],
             tools: vec![],
             prompts: vec!["Do the thing.".to_string()],
-            location: None,
+            location: None, always: false,
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("<available_skills>"));
@@ -1100,6 +1177,7 @@ command = "echo hello"
             }],
             prompts: vec!["Do the thing.".to_string()],
             location: Some(PathBuf::from("/tmp/workspace/skills/test/SKILL.md")),
+            always: false,
         }];
         let prompt = skills_to_prompt_with_mode(
             &skills,
@@ -1299,7 +1377,7 @@ description = "Bare minimum"
                 args: HashMap::new(),
             }],
             prompts: vec![],
-            location: None,
+            location: None, always: false,
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("weather"));
@@ -1318,7 +1396,7 @@ description = "Bare minimum"
             tags: vec![],
             tools: vec![],
             prompts: vec!["Use <tool> & check \"quotes\".".to_string()],
-            location: None,
+            location: None, always: false,
         }];
 
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
@@ -1470,6 +1548,109 @@ description = "Bare minimum"
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "http_request");
         assert_ne!(skills[0].name, "CONTRIBUTING");
+    }
+
+    // ── Front matter parsing tests ────────────────────────────────────────────
+
+    #[test]
+    fn parse_front_matter_extracts_fields() {
+        let content = "---\nname: weather\ndescription: \"Get weather forecasts\"\nversion: 1.0.0\nalways: true\n---\n# Weather\nBody text.";
+        let (fm, body) = parse_front_matter(content);
+        assert_eq!(fm.get("name").unwrap(), "weather");
+        assert_eq!(fm.get("description").unwrap(), "Get weather forecasts");
+        assert_eq!(fm.get("version").unwrap(), "1.0.0");
+        assert!(fm_bool(&fm, "always"));
+        assert!(body.starts_with("# Weather"));
+    }
+
+    #[test]
+    fn parse_front_matter_missing_returns_empty() {
+        let content = "# No front matter\nJust a skill.";
+        let (fm, body) = parse_front_matter(content);
+        assert!(fm.is_empty());
+        assert_eq!(body, content);
+    }
+
+    #[test]
+    fn parse_front_matter_single_quotes() {
+        let content = "---\nname: 'my-skill'\ndescription: 'A cool skill'\n---\nBody.";
+        let (fm, _) = parse_front_matter(content);
+        assert_eq!(fm.get("name").unwrap(), "my-skill");
+        assert_eq!(fm.get("description").unwrap(), "A cool skill");
+    }
+
+    #[test]
+    fn extract_description_prefers_front_matter() {
+        let content = "---\ndescription: From front matter\n---\n# Title\nFallback line.";
+        assert_eq!(extract_description(content), "From front matter");
+    }
+
+    #[test]
+    fn extract_description_fallback_without_front_matter() {
+        let content = "# Title\nFallback line here.";
+        assert_eq!(extract_description(content), "Fallback line here.");
+    }
+
+    #[test]
+    fn load_skill_md_reads_front_matter() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        let skill_dir = skills_dir.join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: custom-name\ndescription: \"Custom description\"\nalways: true\n---\n# My Skill\nInstructions.",
+        )
+        .unwrap();
+
+        let skills = load_skills(dir.path());
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "custom-name");
+        assert_eq!(skills[0].description, "Custom description");
+        assert!(skills[0].always);
+    }
+
+    #[test]
+    fn always_skill_injected_in_compact_mode() {
+        let skills = vec![Skill {
+            name: "always-skill".to_string(),
+            description: "Always injected".to_string(),
+            version: "1.0.0".to_string(),
+            author: None,
+            tags: vec![],
+            tools: vec![],
+            prompts: vec!["Always do this.".to_string()],
+            location: None, always: true,
+        }];
+        let prompt = skills_to_prompt_with_mode(
+            &skills,
+            Path::new("/tmp"),
+            crate::config::SkillsPromptInjectionMode::Compact,
+        );
+        assert!(prompt.contains("<instructions>"));
+        assert!(prompt.contains("Always do this."));
+    }
+
+    #[test]
+    fn non_always_skill_omitted_in_compact_mode() {
+        let skills = vec![Skill {
+            name: "normal-skill".to_string(),
+            description: "Normal skill".to_string(),
+            version: "1.0.0".to_string(),
+            author: None,
+            tags: vec![],
+            tools: vec![],
+            prompts: vec!["Normal instructions.".to_string()],
+            location: None, always: false,
+        }];
+        let prompt = skills_to_prompt_with_mode(
+            &skills,
+            Path::new("/tmp"),
+            crate::config::SkillsPromptInjectionMode::Compact,
+        );
+        assert!(!prompt.contains("<instructions>"));
+        assert!(!prompt.contains("Normal instructions."));
     }
 }
 
