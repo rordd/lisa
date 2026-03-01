@@ -154,6 +154,7 @@ pub use auth_profile::ManageAuthProfileTool;
 pub use quota_tools::{CheckProviderQuotaTool, EstimateQuotaCostTool, SwitchProviderTool};
 
 use crate::config::{Config, DelegateAgentConfig};
+use crate::cost::CostTracker;
 use crate::memory::Memory;
 use crate::plugins;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
@@ -343,6 +344,23 @@ pub fn all_tools_with_runtime(
         &zeroclaw_dir,
         root_config.security.audit.clone(),
     ));
+    let cost_tracker = if config.cost.enabled {
+        match CostTracker::new(config.cost.clone(), workspace_dir) {
+            Ok(tracker) => Some(Arc::new(tracker)),
+            Err(error) => {
+                tracing::warn!("Failed to initialize cost tracker for quota tools: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let check_provider_quota_tool = match &cost_tracker {
+        Some(tracker) => {
+            CheckProviderQuotaTool::new(config.clone()).with_cost_tracker(tracker.clone())
+        }
+        None => CheckProviderQuotaTool::new(config.clone()),
+    };
 
     let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
         Arc::new(CronAddTool::new(config.clone(), security.clone())),
@@ -366,7 +384,7 @@ pub fn all_tools_with_runtime(
         Arc::new(WebAccessConfigTool::new(config.clone(), security.clone())),
         Arc::new(WebSearchConfigTool::new(config.clone(), security.clone())),
         Arc::new(ManageAuthProfileTool::new(config.clone())),
-        Arc::new(CheckProviderQuotaTool::new(config.clone())),
+        Arc::new(check_provider_quota_tool),
         Arc::new(SwitchProviderTool::new(config.clone())),
         Arc::new(EstimateQuotaCostTool),
         Arc::new(PushoverTool::new(

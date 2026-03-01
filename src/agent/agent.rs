@@ -6,6 +6,7 @@ use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
 use crate::agent::research;
 use crate::config::{Config, ResearchPhaseConfig};
+use crate::cost::CostTracker;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{self, Observer, ObserverEvent};
 use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
@@ -256,8 +257,25 @@ impl Agent {
             tracing::warn!("plugin registry initialization skipped: {error}");
         }
 
+        let cost_tracker = if config.cost.enabled {
+            match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
+                Ok(tracker) => Some(Arc::new(tracker)),
+                Err(error) => {
+                    tracing::warn!(
+                        "Failed to initialize cost tracker for Agent::from_config: {error}"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let observer: Arc<dyn Observer> =
-            Arc::from(observability::create_observer(&config.observability));
+            Arc::from(observability::create_observer_with_cost_tracking(
+                &config.observability,
+                cost_tracker,
+                &config.cost,
+            ));
         let runtime: Arc<dyn runtime::RuntimeAdapter> =
             Arc::from(runtime::create_runtime(&config.runtime)?);
         let security = Arc::new(SecurityPolicy::from_config(

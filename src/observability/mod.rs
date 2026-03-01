@@ -111,6 +111,7 @@ fn create_observer_internal(config: &ObservabilityConfig) -> Box<dyn Observer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn factory_none_returns_noop() {
@@ -221,5 +222,36 @@ mod tests {
             ..ObservabilityConfig::default()
         };
         assert_eq!(create_observer(&cfg).name(), "noop");
+    }
+
+    #[test]
+    fn create_observer_with_cost_tracking_wraps_multi_when_enabled() {
+        let cfg = ObservabilityConfig {
+            backend: "noop".into(),
+            ..ObservabilityConfig::default()
+        };
+        let mut cost = CostConfig::default();
+        cost.enabled = true;
+        let tmp = TempDir::new().expect("tempdir should be created");
+        let tracker = Arc::new(
+            CostTracker::new(cost.clone(), tmp.path()).expect("cost tracker should initialize"),
+        );
+        let observer = create_observer_with_cost_tracking(&cfg, Some(tracker), &cost);
+        assert_eq!(observer.name(), "multi");
+    }
+
+    #[test]
+    fn create_observer_with_cost_tracking_keeps_base_when_disabled() {
+        let cfg = ObservabilityConfig {
+            backend: "noop".into(),
+            ..ObservabilityConfig::default()
+        };
+        let cost = CostConfig::default();
+        let tmp = TempDir::new().expect("tempdir should be created");
+        let tracker = Arc::new(
+            CostTracker::new(cost.clone(), tmp.path()).expect("cost tracker should initialize"),
+        );
+        let observer = create_observer_with_cost_tracking(&cfg, Some(tracker), &cost);
+        assert_eq!(observer.name(), "noop");
     }
 }

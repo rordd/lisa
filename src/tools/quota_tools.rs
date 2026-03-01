@@ -569,4 +569,24 @@ mod tests {
         let result = tool.execute(json!({"provider": "gemini"})).await.unwrap();
         assert!(result.success);
     }
+
+    #[tokio::test]
+    async fn test_check_provider_quota_includes_cost_summary_with_tracker() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = Config {
+            workspace_dir: tmp.path().to_path_buf(),
+            config_path: tmp.path().join("config.toml"),
+            ..Config::default()
+        };
+        config.cost.enabled = true;
+
+        let tracker = Arc::new(
+            CostTracker::new(config.cost.clone(), tmp.path())
+                .expect("cost tracker should initialize"),
+        );
+        let tool = CheckProviderQuotaTool::new(Arc::new(config)).with_cost_tracker(tracker);
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("Cost & Usage Summary"));
+    }
 }

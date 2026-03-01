@@ -84,6 +84,7 @@ use crate::agent::loop_::{
 use crate::agent::session::{resolve_session_id, shared_session_manager, Session, SessionManager};
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
 use crate::config::{Config, NonCliNaturalLanguageApprovalMode, ProgressMode};
+use crate::cost::CostTracker;
 use crate::identity;
 use crate::memory::{self, Memory};
 use crate::observability::{self, runtime_trace, Observer};
@@ -5321,8 +5322,22 @@ pub async fn start_channels(config: Config) -> Result<()> {
         );
     }
 
-    let observer: Arc<dyn Observer> =
-        Arc::from(observability::create_observer(&config.observability));
+    let cost_tracker = if config.cost.enabled {
+        match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
+            Ok(tracker) => Some(Arc::new(tracker)),
+            Err(error) => {
+                tracing::warn!("Failed to initialize cost tracker for channel observer: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let observer: Arc<dyn Observer> = Arc::from(observability::create_observer_with_cost_tracking(
+        &config.observability,
+        cost_tracker,
+        &config.cost,
+    ));
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
         Arc::from(runtime::create_runtime(&config.runtime)?);
     let security = Arc::new(SecurityPolicy::from_config(

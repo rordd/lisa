@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::cost::CostTracker;
 use anyhow::{bail, Result};
 use chrono::Utc;
 use std::future::Future;
@@ -190,8 +191,23 @@ where
 }
 
 async fn run_heartbeat_worker(config: Config) -> Result<()> {
+    let cost_tracker = if config.cost.enabled {
+        match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
+            Ok(tracker) => Some(std::sync::Arc::new(tracker)),
+            Err(error) => {
+                tracing::warn!("Failed to initialize cost tracker for heartbeat observer: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let observer: std::sync::Arc<dyn crate::observability::Observer> =
-        std::sync::Arc::from(crate::observability::create_observer(&config.observability));
+        std::sync::Arc::from(crate::observability::create_observer_with_cost_tracking(
+            &config.observability,
+            cost_tracker,
+            &config.cost,
+        ));
     let engine = crate::heartbeat::engine::HeartbeatEngine::new(
         config.heartbeat.clone(),
         config.workspace_dir.clone(),

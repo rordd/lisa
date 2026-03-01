@@ -2181,7 +2181,24 @@ pub async fn run(
     }
 
     // ── Wire up agnostic subsystems ──────────────────────────────
-    let base_observer = observability::create_observer(&config.observability);
+    let cost_tracker = if config.cost.enabled {
+        match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
+            Ok(tracker) => Some(Arc::new(tracker)),
+            Err(error) => {
+                tracing::warn!(
+                    "Failed to initialize cost tracker for agent loop observer: {error}"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let base_observer = observability::create_observer_with_cost_tracking(
+        &config.observability,
+        cost_tracker,
+        &config.cost,
+    );
     let observer: Arc<dyn Observer> = Arc::from(base_observer);
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
         Arc::from(runtime::create_runtime(&config.runtime)?);
@@ -2812,8 +2829,24 @@ pub async fn process_message_with_session(
     if let Err(error) = crate::plugins::runtime::initialize_from_config(&config.plugins) {
         tracing::warn!("plugin registry initialization skipped: {error}");
     }
-    let observer: Arc<dyn Observer> =
-        Arc::from(observability::create_observer(&config.observability));
+    let cost_tracker = if config.cost.enabled {
+        match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
+            Ok(tracker) => Some(Arc::new(tracker)),
+            Err(error) => {
+                tracing::warn!(
+                    "Failed to initialize cost tracker for process_message observer: {error}"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let observer: Arc<dyn Observer> = Arc::from(observability::create_observer_with_cost_tracking(
+        &config.observability,
+        cost_tracker,
+        &config.cost,
+    ));
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
         Arc::from(runtime::create_runtime(&config.runtime)?);
     let security = Arc::new(SecurityPolicy::from_config(
