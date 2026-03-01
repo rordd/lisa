@@ -3251,6 +3251,7 @@ fn default_always_ask() -> Vec<String> {
 fn default_non_cli_excluded_tools() -> Vec<String> {
     [
         "shell",
+        "process",
         "file_write",
         "file_edit",
         "git_operations",
@@ -9233,6 +9234,7 @@ mod tests {
         assert!(!a.allow_sensitive_file_reads);
         assert!(!a.allow_sensitive_file_writes);
         assert!(a.non_cli_excluded_tools.contains(&"shell".to_string()));
+        assert!(a.non_cli_excluded_tools.contains(&"process".to_string()));
         assert!(a.non_cli_excluded_tools.contains(&"delegate".to_string()));
     }
 
@@ -9262,6 +9264,7 @@ allowed_roots = []
             "Missing allow_sensitive_file_writes must default to false"
         );
         assert!(parsed.non_cli_excluded_tools.contains(&"shell".to_string()));
+        assert!(parsed.non_cli_excluded_tools.contains(&"process".to_string()));
         assert!(parsed
             .non_cli_excluded_tools
             .contains(&"browser".to_string()));
