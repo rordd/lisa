@@ -41,6 +41,8 @@ impl BenchProvider {
                 tool_calls: vec![],
                 usage: None,
                 reasoning_content: None,
+                stop_reason: None,
+                raw_stop_reason: None,
                 quota_metadata: None,
             }]),
         }
@@ -58,6 +60,8 @@ impl BenchProvider {
                     }],
                     usage: None,
                     reasoning_content: None,
+                    stop_reason: None,
+                    raw_stop_reason: None,
                     quota_metadata: None,
                 },
                 ChatResponse {
@@ -65,6 +69,8 @@ impl BenchProvider {
                     tool_calls: vec![],
                     usage: None,
                     reasoning_content: None,
+                    stop_reason: None,
+                    raw_stop_reason: None,
                     quota_metadata: None,
                 },
             ]),
@@ -97,6 +103,8 @@ impl Provider for BenchProvider {
                 tool_calls: vec![],
                 usage: None,
                 reasoning_content: None,
+                stop_reason: None,
+                raw_stop_reason: None,
                 quota_metadata: None,
             });
         }
@@ -165,6 +173,8 @@ Let me know if you need more."#
         tool_calls: vec![],
         usage: None,
         reasoning_content: None,
+        stop_reason: None,
+        raw_stop_reason: None,
         quota_metadata: None,
     };
 
@@ -184,6 +194,8 @@ Let me know if you need more."#
         tool_calls: vec![],
         usage: None,
         reasoning_content: None,
+        stop_reason: None,
+        raw_stop_reason: None,
         quota_metadata: None,
     };
 
@@ -219,6 +231,8 @@ fn bench_native_parsing(c: &mut Criterion) {
         ],
         usage: None,
         reasoning_content: None,
+        stop_reason: None,
+        raw_stop_reason: None,
         quota_metadata: None,
     };
 

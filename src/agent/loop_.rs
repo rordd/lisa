@@ -66,6 +66,8 @@ const DEFAULT_MAX_TOOL_ITERATIONS: usize = 20;
 const MAX_TOKENS_CONTINUATION_MAX_ATTEMPTS: usize = 3;
 /// Absolute safety cap for merged continuation output.
 const MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS: usize = 120_000;
+/// Search-window cap for suffix/prefix overlap when merging continuation chunks.
+const MAX_TOKENS_CONTINUATION_OVERLAP_BYTES: usize = 8 * 1024;
 /// Deterministic continuation instruction appended as a user message.
 const MAX_TOKENS_CONTINUATION_PROMPT: &str = "Previous response was truncated by token limit.\nContinue exactly from where you left off.\nIf you intended a tool call, emit one complete tool call payload only.\nDo not repeat already-sent text.";
 /// Notice appended when continuation budget is exhausted before completion.
@@ -583,6 +585,26 @@ fn merge_continuation_text(existing: &str, next: &str) -> String {
     if next.starts_with(existing) {
         return next.to_string();
     }
+
+    // Providers can resend a short prefix from the previous chunk.
+    // Keep a bounded overlap search to avoid quadratic work on long outputs.
+    let max_overlap = existing
+        .len()
+        .min(next.len())
+        .min(MAX_TOKENS_CONTINUATION_OVERLAP_BYTES);
+    for overlap in (1..=max_overlap).rev() {
+        let existing_suffix_start = existing.len() - overlap;
+        if !existing.is_char_boundary(existing_suffix_start) || !next.is_char_boundary(overlap) {
+            continue;
+        }
+        if existing[existing_suffix_start..] == next[..overlap] {
+            let mut merged = String::with_capacity(existing.len() + next.len() - overlap);
+            merged.push_str(existing);
+            merged.push_str(&next[overlap..]);
+            return merged;
+        }
+    }
+
     format!("{existing}{next}")
 }
 
@@ -3277,6 +3299,18 @@ mod tests {
         let scrubbed = scrub_credentials(input);
         assert!(scrubbed.contains("\"api_key\": \"sk-1*[REDACTED]\""));
         assert!(scrubbed.contains("public"));
+    }
+
+    #[test]
+    fn merge_continuation_text_deduplicates_overlap_suffix_prefix() {
+        let merged = merge_continuation_text("Hello wor", "world");
+        assert_eq!(merged, "Hello world");
+    }
+
+    #[test]
+    fn merge_continuation_text_keeps_unicode_boundaries() {
+        let merged = merge_continuation_text("你好世界", "世界和平");
+        assert_eq!(merged, "你好世界和平");
     }
 
     #[test]
