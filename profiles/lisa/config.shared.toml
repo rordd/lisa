@@ -1,0 +1,22 @@
+# Lisa 공유 설정 — 시크릿은 환경변수로 주입
+# GEMINI_API_KEY, TELEGRAM_BOT_TOKEN 등은 .env 파일에서 관리
+
+model = "gemini-2.5-flash"
+default_provider = "gemini"
+default_temperature = 0.7
+
+auto_approve = ["file_read", "memory_recall", "web_fetch", "web_search", "web_search_tool", "skills", "shell"]
+allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date", "gog", "memo", "remindctl", "jq", "python3", "bash"]
+
+[channels_config]
+cli = true
+
+# 텔레그램은 setup.sh에서 봇 토큰 주입 후 활성화
+# [channels_config.telegram]
+# bot_token = "환경변수에서 주입"
+# allowed_users = ["사용자ID"]
+# mention_only = true
+
+[gateway]
+port = 42617
+bind = "127.0.0.1"
