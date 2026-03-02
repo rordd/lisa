@@ -533,3 +533,82 @@ When working in fast iterative mode:
 - Prefer deterministic behavior over clever shortcuts.
 - Do not “ship and hope” on security-sensitive paths.
 - If uncertain, leave a concrete TODO with verification context, not a hidden guess.
+
+---
+
+## 🏠 Project Lisa — On-Device AI Home Agent
+
+> 이 섹션은 ZeroClaw fork "Lisa" 프로젝트 전용 컨텍스트.
+> upstream 규칙을 따르되, 아래 내용이 우선.
+
+### 프로젝트 개요
+
+**Lisa**는 ZeroClaw 기반 온디바이스 AI 홈 관리자.
+최종 목표: webOS ARM 보드(LG TV)에서 독립 실행되는 AI 에이전트.
+
+- **레포**: https://github.com/rordd/lisa (fork of zeroclaw-labs/zeroclaw)
+- **설정 레포**: https://github.com/rordd/lisa-config (workspace, 스킬, 온보드)
+- **런타임**: `~/.zeroclaw/config.toml` + `config.override.toml` (심볼릭 링크 → lisa-config)
+- **모델**: Gemini 2.5 Flash (GEMINI_API_KEY 환경변수)
+- **텔레그램 봇**: @rordd04182_bot
+- **게이트웨이 포트**: 42617
+
+### 개발 로드맵
+
+#### Phase 1: 기초 기능 (현재)
+- [ ] A2UI (Agent-to-UI) — 카드형 UI 렌더링 + 버튼 인터랙션
+- [ ] WS 멀티턴 대화 — 웹 대시보드에서 맥락 유지되는 채팅
+- [ ] 날씨 스킬
+- [ ] A2A (Agent-to-Agent) 통신
+- [ ] MCP (Model Context Protocol) 지원
+
+#### Phase 2: 홈 컨트롤
+- [ ] IoT 디바이스 연동 (MQTT)
+- [ ] 미디어 컨트롤
+- [ ] 홈 시뮬레이터 (가상 집 + 가전 + 센서)
+
+#### Phase 3: TV 이식
+- [ ] webOS ARM 보드 배포
+- [ ] TV 인터페이스 (음성 + 시각)
+
+### 아키텍처 노트
+
+#### config.override.toml (deep merge)
+- `config.toml` = 기본값 (onboard 생성)
+- `config.override.toml` = 커스텀 값 (lisa-config에서 심볼릭 링크)
+- `deep_merge_toml()`: Table은 재귀 merge, scalar/array는 replace
+
+#### A2UI 구조
+- 웹 대시보드 `/ws/chat` 단일 WS에서 `type` 필드로 chat/a2ui 구분
+- `@a2ui/lit` + lit으로 카드 렌더링
+- 버튼 클릭 → DOM textContent → 자연어 → LLM 응답
+
+#### WS 멀티턴 (TODO — 가장 시급)
+- **문제**: `process_message_with_a2ui`가 매 호출마다 history를 새로 생성 → 맥락 유실
+- **정석**: 텔레그램 채널처럼 WS handler에서 history 직접 관리
+- **참조 코드**: `src/channels/telegram.rs`의 `ConversationHistoryMap` 패턴
+- **접근법 A (선택)**: `process_message_with_a2ui`에 `prior_history: Option<Vec<ChatMessage>>` 추가, 반환타입을 `(String, Vec<ChatMessage>)`로 변경
+- **핵심**: prior_history에는 user/assistant/tool 턴만 (system prompt 제외), MAX_WS_HISTORY 제한 필요
+
+### ⚠️ 삽질 교훈 (반드시 읽을 것)
+
+1. **rust-embed 함정**: `web/` 디렉토리만 빌드하면 안 됨. `cargo build` 필수 (컴파일 타임 번들링)
+2. **Gemini tool call 파싱**: `<tool_call>` 태그 형식 파싱 실패 빈번. canvas/web_fetch 호출 후 30초 재시도 × 3~5회 지연 발생 가능
+3. **ruleengine은 interceptor로**: provider 체인에 넣으면 서브에이전트/heartbeat까지 영향 → processMessage 인터셉터로
+4. **WS subprotocol echo**: 브라우저 WS handshake 시 `Sec-WebSocket-Protocol` 응답 안 하면 연결 실패
+5. **한글 IME**: `isComposing` 체크 없으면 Enter 시 마지막 글자 이중 전송
+6. **버그 없는 코드 건드리지 말 것**: 확인 안 된 "버그" 고치다가 진짜 문제 만듦
+7. **A2UI a2ui_tx 전달**: `process_message`에서 a2ui_tx를 None으로 넘기면 canvas tool 미등록됨
+
+### 브랜치 전략
+- `main`: upstream sync + 우리 커밋
+- feature 브랜치: `feat/xxx`로 작업 → PR → main merge
+- upstream sync: `git fetch upstream && git rebase upstream/main`
+
+### 빌드 & 테스트
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo build  # rust-embed 때문에 반드시 full build
+```
