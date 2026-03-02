@@ -600,6 +600,15 @@ When working in fast iterative mode:
 6. **버그 없는 코드 건드리지 말 것**: 확인 안 된 "버그" 고치다가 진짜 문제 만듦
 7. **A2UI a2ui_tx 전달**: `process_message`에서 a2ui_tx를 None으로 넘기면 canvas tool 미등록됨
 
+### 협업 체계
+
+이 프로젝트는 두 환경에서 개발됨:
+
+- **집 (엘비스 경유)**: 형님 → 엘비스(PM) → Claude Code 서브에이전트 스폰. 엘비스가 CLAUDE.md 태스크 정리, 결과 검증, 메모리 기록 담당.
+- **회사 (직접)**: 형님 → Claude Code 직접 사용. 작업 후 CLAUDE.md에 진행상황 반영하여 커밋. 추가 컨텍스트는 별도 전달.
+
+**동기화 규칙**: 작업 시작 전 반드시 `git pull`로 CLAUDE.md 최신 상태 확인.
+
 ### 브랜치 전략
 - `main`: upstream sync + 우리 커밋
 - feature 브랜치: `feat/xxx`로 작업 → PR → main merge
