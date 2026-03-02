@@ -26,8 +26,8 @@ fi
 source "$ENV_FILE"
 
 # 3) 필수 값 확인
-if [ -z "${GEMINI_API_KEY:-}" ]; then
-    echo "❌ GEMINI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요."
+if [ -z "${ZEROCLAW_API_KEY:-}" ] && [ -z "${API_KEY:-}" ]; then
+    echo "❌ ZEROCLAW_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요."
     exit 1
 fi
 
@@ -72,5 +72,5 @@ fi
 
 echo ""
 echo "🎀 Lisa 셋업 완료!"
-echo "   실행: GEMINI_API_KEY=\$GEMINI_API_KEY zeroclaw daemon"
+echo "   실행: source .env && zeroclaw daemon"
 echo "   상태: zeroclaw status"

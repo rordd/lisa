@@ -1,8 +1,8 @@
 # Lisa 공유 설정 — 시크릿은 환경변수로 주입
 # GEMINI_API_KEY, TELEGRAM_BOT_TOKEN 등은 .env 파일에서 관리
 
-model = "gemini-2.5-flash"
-default_provider = "gemini"
+# model, default_provider는 .env에서 환경변수로 주입
+# ZEROCLAW_MODEL, ZEROCLAW_PROVIDER, ZEROCLAW_API_KEY
 default_temperature = 0.7
 
 auto_approve = ["file_read", "memory_recall", "web_fetch", "web_search", "web_search_tool", "skills", "shell"]
