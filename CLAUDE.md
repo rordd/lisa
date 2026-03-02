@@ -549,11 +549,3 @@ When working in fast iterative mode:
 - **회사 (직접)**: 형님 → Claude Code 직접 사용. 작업 후 CLAUDE.md에 진행상황 반영하여 커밋. 추가 컨텍스트는 별도 전달.
 
 **동기화 규칙**: 작업 시작 전 반드시 `git pull`로 CLAUDE.md 최신 상태 확인.
-
-### ⚠️ 삽질 교훈 (반드시 읽을 것)
-
-1. **rust-embed 함정**: `web/` 디렉토리만 빌드하면 안 됨. `cargo build` 필수 (컴파일 타임 번들링)
-2. **Gemini tool call 파싱**: `<tool_call>` 태그 형식 파싱 실패 빈번. canvas/web_fetch 호출 후 30초 재시도 × 3~5회 지연 발생 가능
-3. **WS subprotocol echo**: 브라우저 WS handshake 시 `Sec-WebSocket-Protocol` 응답 안 하면 연결 실패
-4. **한글 IME**: `isComposing` 체크 없으면 Enter 시 마지막 글자 이중 전송
-5. **버그 없는 코드 건드리지 말 것**: 확인 안 된 "버그" 고치다가 진짜 문제 만듦
