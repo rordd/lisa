@@ -50,6 +50,8 @@ ZEROCLAW_MODEL=gemini-2.5-flash
 ZEROCLAW_API_KEY=<Azure API Key>
 ZEROCLAW_PROVIDER=custom:azure
 ZEROCLAW_MODEL=gpt-4o
+AZURE_OPENAI_BASE_URL=https://<리소스명>.openai.azure.com/openai/deployments/<배포명>/chat/completions?api-version=2024-02-01
+AZURE_OPENAI_API_KEY=<Azure API Key>
 ```
 
 #### OpenAI 사용 시
@@ -84,24 +86,7 @@ TELEGRAM_MENTION_ONLY=true
 - 텔레그램 설정 주입 (`.env`에 봇토큰이 있으면)
 - 성격 파일 (`SOUL.md`, `AGENTS.md`) → workspace에 복사
 
-### 4. Azure OpenAI 추가 설정
-
-Azure를 사용하는 경우, setup 후 config.toml에 프로바이더 프로필을 추가합니다:
-
-```bash
-cat >> ~/.zeroclaw/config.toml << 'EOF'
-
-[model_providers.azure]
-name = "openai"
-base_url = "https://<리소스명>.openai.azure.com/openai/deployments/<배포명>/chat/completions?api-version=2024-02-01"
-auth_header = "api-key"
-api_key = "<Azure API Key>"
-EOF
-```
-
-> `<리소스명>`, `<배포명>`, `<Azure API Key>`를 자신의 값으로 교체하세요.
-
-### 5. 개인 정보 설정
+### 4. 개인 정보 설정
 
 ```bash
 cp profiles/lisa/USER.md.example ~/.zeroclaw/workspace/USER.md

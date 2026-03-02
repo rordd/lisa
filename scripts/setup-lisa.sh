@@ -52,6 +52,20 @@ EOF
     echo "✅ 텔레그램 채널 설정 완료"
 fi
 
+# Azure OpenAI 프로필 주입
+if [ -n "${AZURE_OPENAI_BASE_URL:-}" ]; then
+    AZURE_KEY="${AZURE_OPENAI_API_KEY:-${ZEROCLAW_API_KEY:-}}"
+    cat >> "$ZEROCLAW_DIR/config.toml" << EOF
+
+[model_providers.azure]
+name = "openai"
+base_url = "${AZURE_OPENAI_BASE_URL}"
+auth_header = "api-key"
+api_key = "${AZURE_KEY}"
+EOF
+    echo "✅ Azure OpenAI 프로필 설정 완료"
+fi
+
 chmod 600 "$ZEROCLAW_DIR/config.toml"
 
 # 5) 공유 workspace 파일 복사
