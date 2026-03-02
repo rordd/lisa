@@ -744,6 +744,8 @@ pub struct ProviderRuntimeOptions {
     pub custom_provider_api_mode: Option<CompatibleApiMode>,
     pub max_tokens_override: Option<u32>,
     pub model_support_vision: Option<bool>,
+    /// Auth header style override for custom providers (from profile `auth_header`).
+    pub custom_provider_auth_header: Option<String>,
 }
 
 impl Default for ProviderRuntimeOptions {
@@ -759,6 +761,7 @@ impl Default for ProviderRuntimeOptions {
             custom_provider_api_mode: None,
             max_tokens_override: None,
             model_support_vision: None,
+            custom_provider_auth_header: None,
         }
     }
 }
@@ -1073,6 +1076,22 @@ pub(crate) fn provider_credential_available(name: &str, credential_override: Opt
     }
 
     resolve_provider_credential(name, credential_override).is_some()
+}
+
+/// Convert an optional `auth_header` config string into an [`AuthStyle`].
+///
+/// - `None` or `"bearer"` → `AuthStyle::Bearer` (default, `Authorization: Bearer <key>`)
+/// - `"x-api-key"` → `AuthStyle::XApiKey`
+/// - Any other value → `AuthStyle::Custom(value)` (e.g. `"api-key"` for Azure OpenAI)
+fn resolve_auth_style(auth_header: Option<&str>) -> AuthStyle {
+    match auth_header {
+        None => AuthStyle::Bearer,
+        Some(h) => match h.to_ascii_lowercase().as_str() {
+            "bearer" => AuthStyle::Bearer,
+            "x-api-key" => AuthStyle::XApiKey,
+            _ => AuthStyle::Custom(h.to_string()),
+        },
+    }
 }
 
 fn parse_custom_provider_url(
@@ -1488,11 +1507,12 @@ fn create_provider_with_url_and_options(
             let api_mode = options
                 .custom_provider_api_mode
                 .unwrap_or(CompatibleApiMode::OpenAiChatCompletions);
+            let auth_style = resolve_auth_style(options.custom_provider_auth_header.as_deref());
             Ok(Box::new(OpenAiCompatibleProvider::new_custom_with_mode(
                 "Custom",
                 &base_url,
                 key,
-                AuthStyle::Bearer,
+                auth_style,
                 true,
                 api_mode,
                 options.max_tokens_override,
@@ -2850,6 +2870,45 @@ mod tests {
     fn factory_custom_trims_whitespace() {
         let p = create_provider("custom:  https://my-llm.example.com  ", Some("key"));
         assert!(p.is_ok());
+    }
+
+    // ── resolve_auth_style ──────────────────────────────────────
+
+    #[test]
+    fn resolve_auth_style_none_defaults_to_bearer() {
+        assert!(matches!(resolve_auth_style(None), AuthStyle::Bearer));
+    }
+
+    #[test]
+    fn resolve_auth_style_bearer_string() {
+        assert!(matches!(
+            resolve_auth_style(Some("bearer")),
+            AuthStyle::Bearer
+        ));
+        assert!(matches!(
+            resolve_auth_style(Some("Bearer")),
+            AuthStyle::Bearer
+        ));
+    }
+
+    #[test]
+    fn resolve_auth_style_x_api_key() {
+        assert!(matches!(
+            resolve_auth_style(Some("x-api-key")),
+            AuthStyle::XApiKey
+        ));
+        assert!(matches!(
+            resolve_auth_style(Some("X-Api-Key")),
+            AuthStyle::XApiKey
+        ));
+    }
+
+    #[test]
+    fn resolve_auth_style_custom_header() {
+        match resolve_auth_style(Some("api-key")) {
+            AuthStyle::Custom(h) => assert_eq!(h, "api-key"),
+            other => panic!("expected Custom, got {other:?}"),
+        }
     }
 
     // ── Anthropic-compatible custom endpoints ─────────────────

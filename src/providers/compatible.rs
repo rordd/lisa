@@ -316,6 +316,8 @@ impl OpenAiCompatibleProvider {
     /// Build the full URL for chat completions, detecting if base_url already includes the path.
     /// This allows custom providers with non-standard endpoints (e.g., VolcEngine ARK uses
     /// `/api/coding/v3/chat/completions` instead of `/v1/chat/completions`).
+    ///
+    /// Preserves query parameters from `base_url` (e.g. Azure's `?api-version=...`).
     fn chat_completions_url(&self) -> String {
         let has_full_endpoint = reqwest::Url::parse(&self.base_url)
             .map(|url| {
@@ -332,6 +334,14 @@ impl OpenAiCompatibleProvider {
         if has_full_endpoint {
             self.base_url.clone()
         } else {
+            // Preserve query parameters (e.g. Azure OpenAI `?api-version=2024-10-21`).
+            if let Ok(parsed) = reqwest::Url::parse(&self.base_url) {
+                let query = parsed.query();
+                if let Some(q) = query {
+                    let base_no_query = self.base_url.split('?').next().unwrap_or(&self.base_url);
+                    return format!("{base_no_query}/chat/completions?{q}");
+                }
+            }
             format!("{}/chat/completions", self.base_url)
         }
     }
@@ -3454,6 +3464,44 @@ mod tests {
         assert_eq!(
             p.chat_completions_url(),
             "https://opencode.ai/zen/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn chat_completions_url_preserves_query_params() {
+        // Azure OpenAI uses query parameters for api-version
+        let p = make_provider(
+            "azure",
+            "https://myinstance.openai.azure.com/openai/deployments/gpt-4/v1?api-version=2024-10-21",
+            None,
+        );
+        assert_eq!(
+            p.chat_completions_url(),
+            "https://myinstance.openai.azure.com/openai/deployments/gpt-4/v1/chat/completions?api-version=2024-10-21"
+        );
+    }
+
+    #[test]
+    fn chat_completions_url_preserves_query_when_already_has_endpoint() {
+        // If base_url already ends with /chat/completions and has query, keep as-is
+        let p = make_provider(
+            "azure",
+            "https://myinstance.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-10-21",
+            None,
+        );
+        assert_eq!(
+            p.chat_completions_url(),
+            "https://myinstance.openai.azure.com/openai/deployments/gpt-4/chat/completions?api-version=2024-10-21"
+        );
+    }
+
+    #[test]
+    fn chat_completions_url_no_query_unchanged() {
+        // Standard base URL without query params should work as before
+        let p = make_provider("custom", "https://api.example.com/v1", None);
+        assert_eq!(
+            p.chat_completions_url(),
+            "https://api.example.com/v1/chat/completions"
         );
     }
 

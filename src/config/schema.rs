@@ -391,6 +391,11 @@ pub struct Config {
     /// WASM plugin engine configuration (`[wasm]` section).
     #[serde(default)]
     pub wasm: WasmConfig,
+
+    /// Resolved auth header style for custom providers (populated from profile).
+    /// Not serialized — derived from `ModelProviderConfig.auth_header` during profile application.
+    #[serde(skip)]
+    pub custom_provider_auth_header: Option<String>,
 }
 
 /// Named provider profile definition compatible with Codex app-server style config.
@@ -414,6 +419,13 @@ pub struct ModelProviderConfig {
     /// If true, load OpenAI auth material (OPENAI_API_KEY or ~/.codex/auth.json).
     #[serde(default)]
     pub requires_openai_auth: bool,
+    /// Auth header style override for custom providers.
+    /// - `None` or `"bearer"`: `Authorization: Bearer <key>` (default)
+    /// - `"api-key"`: `api-key: <key>` (Azure OpenAI)
+    /// - `"x-api-key"`: `x-api-key: <key>` (Anthropic-style)
+    /// - Any other string: used as a custom header name
+    #[serde(default)]
+    pub auth_header: Option<String>,
 }
 
 /// Provider behavior overrides (`[provider]` section).
@@ -6476,6 +6488,7 @@ impl Default for Config {
             mcp: McpConfig::default(),
             model_support_vision: None,
             wasm: WasmConfig::default(),
+            custom_provider_auth_header: None,
         }
     }
 }
@@ -7842,6 +7855,14 @@ impl Config {
                 self.api_key = Some(codex_key);
             }
         }
+
+        // Propagate auth_header for custom provider auth style resolution.
+        self.custom_provider_auth_header = profile
+            .auth_header
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
 
         let normalized_wire_api = profile.wire_api.as_deref().and_then(normalize_wire_api);
         let profile_name = profile
@@ -10132,6 +10153,7 @@ ws_url = "ws://127.0.0.1:3002"
             mcp: McpConfig::default(),
             model_support_vision: None,
             wasm: WasmConfig::default(),
+            custom_provider_auth_header: None,
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -10507,6 +10529,7 @@ tool_dispatcher = "xml"
             mcp: McpConfig::default(),
             model_support_vision: None,
             wasm: WasmConfig::default(),
+            custom_provider_auth_header: None,
         };
 
         config.save().await.unwrap();
@@ -12421,6 +12444,7 @@ provider_api = "not-a-real-mode"
                     default_model: None,
                     api_key: None,
                     requires_openai_auth: false,
+                    auth_header: None,
                 },
             )]),
             ..Config::default()
@@ -12451,6 +12475,7 @@ provider_api = "not-a-real-mode"
                     default_model: None,
                     api_key: None,
                     requires_openai_auth: true,
+                    auth_header: None,
                 },
             )]),
             api_key: None,
@@ -12515,6 +12540,7 @@ provider_api = "not-a-real-mode"
                     default_model: None,
                     api_key: None,
                     requires_openai_auth: false,
+                    auth_header: None,
                 },
             )]),
             ..Config::default()
@@ -12541,6 +12567,7 @@ provider_api = "not-a-real-mode"
                     default_model: None,
                     api_key: Some("profile-api-key".to_string()),
                     requires_openai_auth: false,
+                    auth_header: None,
                 },
             )]),
             ..Config::default()
@@ -12565,6 +12592,7 @@ provider_api = "not-a-real-mode"
                     default_model: Some("qwen-max".to_string()),
                     api_key: None,
                     requires_openai_auth: false,
+                    auth_header: None,
                 },
             )]),
             ..Config::default()
@@ -12572,6 +12600,59 @@ provider_api = "not-a-real-mode"
 
         config.apply_env_overrides();
         assert_eq!(config.default_model.as_deref(), Some("qwen-max"));
+    }
+
+    #[test]
+    async fn model_provider_profile_propagates_auth_header() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config {
+            default_provider: Some("azure-gpt4".to_string()),
+            model_providers: HashMap::from([(
+                "azure-gpt4".to_string(),
+                ModelProviderConfig {
+                    name: None,
+                    base_url: Some(
+                        "https://myinstance.openai.azure.com/openai/deployments/gpt-4".to_string(),
+                    ),
+                    wire_api: None,
+                    default_model: None,
+                    api_key: Some("azure-key".to_string()),
+                    requires_openai_auth: false,
+                    auth_header: Some("api-key".to_string()),
+                },
+            )]),
+            ..Config::default()
+        };
+
+        config.apply_env_overrides();
+        assert_eq!(
+            config.custom_provider_auth_header.as_deref(),
+            Some("api-key")
+        );
+    }
+
+    #[test]
+    async fn model_provider_profile_auth_header_none_leaves_default() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config {
+            default_provider: Some("myapi".to_string()),
+            model_providers: HashMap::from([(
+                "myapi".to_string(),
+                ModelProviderConfig {
+                    name: None,
+                    base_url: Some("https://api.example.com/v1".to_string()),
+                    wire_api: None,
+                    default_model: None,
+                    api_key: None,
+                    requires_openai_auth: false,
+                    auth_header: None,
+                },
+            )]),
+            ..Config::default()
+        };
+
+        config.apply_env_overrides();
+        assert!(config.custom_provider_auth_header.is_none());
     }
 
     #[test]
