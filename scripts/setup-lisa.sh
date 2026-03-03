@@ -76,7 +76,15 @@ for f in SOUL.md AGENTS.md; do
     fi
 done
 
-# 6) USER.md 확인
+# 6) 스킬 복사
+if [ -d "$PROFILE_DIR/skills" ]; then
+    mkdir -p "$WORKSPACE_DIR/skills"
+    cp -r "$PROFILE_DIR/skills/"* "$WORKSPACE_DIR/skills/"
+    SKILL_COUNT=$(ls -d "$PROFILE_DIR/skills/"*/ 2>/dev/null | wc -l | tr -d ' ')
+    echo "✅ 스킬 ${SKILL_COUNT}개 → workspace/skills/"
+fi
+
+# 7) USER.md 확인
 if [ ! -f "$WORKSPACE_DIR/USER.md" ]; then
     echo ""
     echo "📝 USER.md가 없습니다. 예시 파일을 참고해서 작성하세요:"
