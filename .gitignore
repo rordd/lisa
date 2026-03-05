@@ -50,3 +50,4 @@ lisa/config/config.linux.toml
 lisa/profiles/lisa/lisa.env
 lisa/profiles/lisa/USER.md
 lisa/gogcli/
+lisa/release/
