@@ -3047,6 +3047,7 @@ pub async fn run(
                 config.agent.max_history_messages,
                 effective_hooks,
                 Some(mem.as_ref()),
+                config.default_temperature,
             )
             .await
             {

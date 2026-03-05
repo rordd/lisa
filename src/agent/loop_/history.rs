@@ -72,6 +72,7 @@ pub(super) async fn auto_compact_history(
     max_history: usize,
     hooks: Option<&crate::hooks::HookRunner>,
     memory: Option<&dyn Memory>,
+    temperature: f64,
 ) -> Result<bool> {
     let has_system = history.first().map_or(false, |m| m.role == "system");
     let non_system_count = if has_system {
@@ -114,7 +115,7 @@ pub(super) async fn auto_compact_history(
     // Before discarding old messages, ask the LLM to extract durable
     // facts and store them as Core memories so they survive compaction.
     if let Some(mem) = memory {
-        flush_durable_facts(provider, model, &transcript, mem).await;
+        flush_durable_facts(provider, model, &transcript, mem, temperature).await;
     }
 
     let summarizer_system = "You are a conversation compaction engine. Summarize older chat history into concise context for future turns. Preserve: user preferences, commitments, decisions, unresolved tasks, key facts. Omit: filler, repeated chit-chat, verbose tool logs. Output plain text bullet points only.";
@@ -125,7 +126,7 @@ pub(super) async fn auto_compact_history(
     );
 
     let summary_raw = provider
-        .chat_with_system(Some(summarizer_system), &summarizer_user, model, 0.2)
+        .chat_with_system(Some(summarizer_system), &summarizer_user, model, temperature)
         .await
         .unwrap_or_else(|_| {
             // Fallback to deterministic local truncation when summarization fails.
@@ -158,6 +159,7 @@ async fn flush_durable_facts(
     model: &str,
     transcript: &str,
     memory: &dyn Memory,
+    temperature: f64,
 ) {
     const FLUSH_SYSTEM: &str = "\
 You extract durable facts from a conversation that is about to be compacted. \
@@ -175,7 +177,7 @@ If there are no durable facts, output exactly: NONE";
     );
 
     let response = match provider
-        .chat_with_system(Some(FLUSH_SYSTEM), &flush_user, model, 0.2)
+        .chat_with_system(Some(FLUSH_SYSTEM), &flush_user, model, temperature)
         .await
     {
         Ok(r) => r,
@@ -314,6 +316,7 @@ mod tests {
             21,
             None,
             None,
+            0.2,
         )
         .await
         .expect("compaction should succeed");
@@ -478,6 +481,7 @@ mod tests {
             21,
             None,
             Some(mem.as_ref()),
+            0.2,
         )
         .await
         .expect("compaction should succeed");
@@ -616,6 +620,7 @@ mod tests {
             21,
             None,
             Some(mem.as_ref()),
+            0.2,
         )
         .await
         .expect("compaction should succeed");
