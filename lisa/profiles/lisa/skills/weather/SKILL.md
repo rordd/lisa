@@ -64,5 +64,16 @@ curl -s "wttr.in/Seoul+Gangseo-gu?format=%c+%t+(feels+like+%f),+wind+%w,+humidit
 ## Rules
 - Always try Open-Meteo first
 - If Open-Meteo returns error or empty, fall back to wttr.in
-- Present weather in a friendly, concise format with emoji
 - Include: temperature, feels like, wind, humidity, precipitation chance
+
+## Output Format
+Present weather like this example:
+
+**📅 월요일 (3/9) 서울 강서구**
+- ☁️ 흐림
+- 🌡️ 최고 **8.5°C** / 최저 **0.2°C**
+- 🥶 체감 5.6°C ~ -2.8°C
+- 💨 바람 10.7km/h
+- 🌧️ 강수 없음
+
+Use emoji for weather codes. Bold the temperatures. Keep it concise and pretty.
