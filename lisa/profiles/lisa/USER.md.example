@@ -1,12 +1,17 @@
-# USER.md - User Information
-# Use this file as a reference to create your own USER.md
+# USER.md - 사용자 정보
+# 이 파일을 참고해서 USER.md를 만드세요.
 
-- **Name:** (nickname)
-- **Language:** Korean
-- **Timezone:** Asia/Seoul (KST)
+- **이름:** (닉네임)
+- **호칭:** 삼촌
+- **언어:** 한국어
+- **타임존:** Asia/Seoul (KST)
 
-## Calendar
-- primary: (Google account)
+## 캘린더
+- 기본: (구글 계정)
+- 추가 캘린더가 있으면 여기에
 
-## Weather
-- Location: (city/district)
+## 날씨
+- 위치: (도시/구, 예: 서울 강서구)
+
+## 참고
+- 관심사, 선호도 등 리사가 알면 좋은 것들
