@@ -81,6 +81,27 @@ create_bundle() {
     cp "$binary" "$bundle_dir/zeroclaw"
     chmod +x "$bundle_dir/zeroclaw"
 
+    # Skill dependency binaries (gog, etc.)
+    mkdir -p "$bundle_dir/bin"
+    # gog — try local build first, then GitHub release
+    local gog_bin=""
+    case "$platform" in
+        *linux*)
+            gog_bin="$REPO_DIR/target/aarch64-unknown-linux-gnu/release/gog"
+            [[ ! -f "$gog_bin" ]] && gog_bin=""
+            ;;
+        *apple*|*darwin*)
+            gog_bin="$(command -v gog 2>/dev/null || true)"
+            ;;
+    esac
+    if [[ -n "$gog_bin" && -f "$gog_bin" ]]; then
+        cp "$gog_bin" "$bundle_dir/bin/gog"
+        chmod +x "$bundle_dir/bin/gog"
+        echo "  + gog binary included"
+    else
+        echo "  ! gog binary not found (skip)"
+    fi
+
     # Scripts
     cp "$LISA_DIR/scripts/setup.sh" "$bundle_dir/"
     chmod +x "$bundle_dir/setup.sh"

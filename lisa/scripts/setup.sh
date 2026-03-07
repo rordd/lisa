@@ -195,13 +195,31 @@ if [[ -n "$TARGET" ]]; then
     ensure_dir "$TARGET_DEPLOY_DIR"
     scp -q "$BINARY_PATH" "$TARGET_HOST:$TARGET_DEPLOY_DIR/zeroclaw"
     ssh "$TARGET_HOST" "chmod +x $TARGET_DEPLOY_DIR/zeroclaw"
-    echo "  Installed to $TARGET_HOST:$TARGET_DEPLOY_DIR/zeroclaw"
+    echo "  zeroclaw → $TARGET_HOST:$TARGET_DEPLOY_DIR/"
+    # Send dependency binaries (bin/)
+    if [[ -d "$BASE_DIR/bin" ]]; then
+        for dep in "$BASE_DIR/bin"/*; do
+            [[ -f "$dep" ]] || continue
+            scp -q "$dep" "$TARGET_HOST:$TARGET_DEPLOY_DIR/$(basename "$dep")"
+            ssh "$TARGET_HOST" "chmod +x $TARGET_DEPLOY_DIR/$(basename "$dep")"
+            echo "  $(basename "$dep") → $TARGET_HOST:$TARGET_DEPLOY_DIR/"
+        done
+    fi
 else
     cargo install --path "$REPO_DIR" --force 2>/dev/null || {
         mkdir -p "$HOME/.local/bin"
         cp "$BINARY_PATH" "$HOME/.local/bin/zeroclaw"
         chmod +x "$HOME/.local/bin/zeroclaw"
     }
+    # Install dependency binaries (bin/) to same location
+    if [[ -d "$BASE_DIR/bin" ]]; then
+        for dep in "$BASE_DIR/bin"/*; do
+            [[ -f "$dep" ]] || continue
+            cp "$dep" "$HOME/.local/bin/$(basename "$dep")"
+            chmod +x "$HOME/.local/bin/$(basename "$dep")"
+            echo "  $(basename "$dep") installed"
+        done
+    fi
     echo "  Installed"
 fi
 echo ""
