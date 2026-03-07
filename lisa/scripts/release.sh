@@ -12,7 +12,7 @@ REPO_DIR="$(cd "$LISA_DIR/.." && pwd)"
 VERSION=""
 SKIP_BUILD=false
 DRY_RUN=false
-TARGETS=("host")
+TARGETS=()
 
 usage() {
     cat << EOF
@@ -20,13 +20,14 @@ Usage: release.sh --version <tag> [options]
 
 Options:
   --version <tag>       Release version tag (required, e.g. v0.2.0)
-  --target <list>       Comma-separated: host, arm64, all (default: host)
+  --target <list>       Comma-separated: host, arm64, x86_64, all (default: all)
   --skip-build          Skip build, use existing binaries
   --dry-run             Preview without uploading
 
 Examples:
   release.sh --version v0.2.0                      # host only
-  release.sh --version v0.2.0 --target all         # host + arm64
+  release.sh --version v0.2.0                       # all platforms (default)
+  release.sh --version v0.2.0 --target host        # host only
   release.sh --version v0.2.0 --dry-run            # preview
 EOF
     exit 1
@@ -44,6 +45,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$VERSION" ]] && { echo "ERROR: --version required"; usage; }
+# Default: all platforms
+[[ ${#TARGETS[@]} -eq 0 ]] && TARGETS=("host" "arm64" "x86_64")
 [[ " ${TARGETS[*]} " =~ " all " ]] && TARGETS=("host" "arm64" "x86_64")
 
 echo ""

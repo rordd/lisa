@@ -148,11 +148,17 @@ lisa-v0.2.0-lisa-<platform>/
 ## Google Calendar 설정
 
 ```bash
-# gog CLI 설치 (macOS)
+# gog CLI 설치
+# macOS:
 brew install steipete/tap/gogcli
+# Linux (릴리즈 번들에 포함됨, 또는 수동):
+gh release download v0.11.0 --repo steipete/gogcli --pattern "*linux_amd64*"  # x86_64
+gh release download v0.11.0 --repo steipete/gogcli --pattern "*linux_arm64*"  # ARM64
+tar xzf gogcli_*.tar.gz && sudo mv gog /usr/local/bin/
 
 # 인증 (최초 1회, 브라우저 필요)
 GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog auth add you@gmail.com --services calendar --manual
+# 브라우저 없는 환경: 다른 기기에서 URL 열고 리다이렉트 URL 복사 → 붙여넣기
 
 # 테스트
 GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar list --from today --to tomorrow
