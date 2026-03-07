@@ -136,6 +136,9 @@ lisa-v0.2.0-lisa-<platform>/
 ├── .env.example        # 시크릿 템플릿
 ├── config/
 │   └── config.default.toml
+├── docs/               # 가이드 문서
+│   ├── guide.md
+│   └── gogcli-oauth-setup-guide.md
 ├── profiles/
 │   └── lisa/
 │       ├── SOUL.md

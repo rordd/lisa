@@ -136,6 +136,12 @@ create_bundle() {
     # .env example
     cp "$LISA_DIR/profiles/.env.example" "$bundle_dir/"
 
+    # Docs
+    if [[ -d "$LISA_DIR/docs" ]]; then
+        mkdir -p "$bundle_dir/docs"
+        cp "$LISA_DIR/docs/"*.md "$bundle_dir/docs/"
+    fi
+
     # Profiles
     cp -r "$LISA_DIR/profiles/lisa" "$bundle_dir/profiles/"
 
