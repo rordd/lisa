@@ -674,7 +674,8 @@ fn load_skill_md(path: &Path, dir: &Path, load_mode: SkillLoadMode) -> Result<Sk
         body.to_string()
     };
     let prompts = match load_mode {
-        SkillLoadMode::Full => vec![prompt_body],
+        SkillLoadMode::Full => vec![prompt_body.clone()],
+        SkillLoadMode::MetadataOnly if always => vec![prompt_body],
         SkillLoadMode::MetadataOnly => Vec::new(),
     };
 
