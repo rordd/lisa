@@ -6,10 +6,23 @@ set -euo pipefail
 # ─────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LISA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_DIR="$(cd "$LISA_DIR/.." && pwd)"
-CONFIG_TEMPLATE="$LISA_DIR/config/config.default.toml"
-ENV_EXAMPLE="$LISA_DIR/profiles/.env.example"
+
+# Auto-detect: bundle (flat) vs repo (lisa/scripts/)
+if [[ -d "$SCRIPT_DIR/config" && -d "$SCRIPT_DIR/profiles" ]]; then
+    # Bundle mode: setup.sh is in bundle root
+    BASE_DIR="$SCRIPT_DIR"
+    REPO_DIR="$SCRIPT_DIR"
+elif [[ -d "$SCRIPT_DIR/../config" && -d "$SCRIPT_DIR/../profiles" ]]; then
+    # Repo mode: setup.sh is in lisa/scripts/
+    BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+    REPO_DIR="$(cd "$BASE_DIR/.." && pwd)"
+else
+    echo "ERROR: Cannot find config/ and profiles/ directories"
+    exit 1
+fi
+
+CONFIG_TEMPLATE="$BASE_DIR/config/config.default.toml"
+ENV_EXAMPLE="$BASE_DIR/profiles/.env.example"
 
 # Defaults
 MODE=""
@@ -65,7 +78,7 @@ done
 [[ -z "$MODE" ]] && { echo "ERROR: mode is required (--source, --release, or --binary)"; usage; }
 [[ "$MODE" == "binary" && -z "$BINARY_PATH" ]] && { echo "ERROR: --binary requires a path"; usage; }
 
-PROFILE_DIR="$LISA_DIR/profiles/$PROFILE"
+PROFILE_DIR="$BASE_DIR/profiles/$PROFILE"
 if [[ ! -d "$PROFILE_DIR" ]]; then
     echo "ERROR: Profile not found: $PROFILE_DIR"
     exit 1
