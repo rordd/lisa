@@ -123,8 +123,8 @@ create_bundle() {
     fi
 
     # Scripts
-    cp "$LISA_DIR/scripts/setup.sh" "$bundle_dir/"
-    chmod +x "$bundle_dir/setup.sh"
+    cp "$LISA_DIR/scripts/onboard.sh" "$bundle_dir/"
+    chmod +x "$bundle_dir/onboard.sh"
 
     # Config
     mkdir -p "$bundle_dir/config"
@@ -201,7 +201,7 @@ $(for b in "${BUNDLES[@]}"; do echo "- $(basename "$b")"; done)
 tar xzf lisa-${VERSION}-<platform>.tar.gz
 cd lisa-${VERSION}-<platform>
 cp .env.example .env && vi .env   # fill in API key + bot token
-./setup.sh --binary ./zeroclaw
+./onboard.sh --binary ./zeroclaw
 \`\`\`
 "
 
