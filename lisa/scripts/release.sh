@@ -44,7 +44,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$VERSION" ]] && { echo "ERROR: --version required"; usage; }
-[[ " ${TARGETS[*]} " =~ " all " ]] && TARGETS=("host" "arm64")
+[[ " ${TARGETS[*]} " =~ " all " ]] && TARGETS=("host" "arm64" "x86_64")
 
 echo ""
 echo "Lisa Release"
@@ -149,6 +149,16 @@ for target in "${TARGETS[@]}"; do
             fi
             BIN="$REPO_DIR/target/aarch64-unknown-linux-gnu/release/zeroclaw"
             [[ -f "$BIN" ]] || { echo "  ERROR: ARM64 binary not found"; exit 1; }
+            create_bundle "$PLATFORM" "$BIN"
+            ;;
+        x86_64)
+            PLATFORM="x86_64-unknown-linux-gnu"
+            if [[ "$SKIP_BUILD" == false ]]; then
+                echo "  Cross-compiling x86_64..."
+                cross build --release --target x86_64-unknown-linux-gnu
+            fi
+            BIN="$REPO_DIR/target/x86_64-unknown-linux-gnu/release/zeroclaw"
+            [[ -f "$BIN" ]] || { echo "  ERROR: x86_64 binary not found"; exit 1; }
             create_bundle "$PLATFORM" "$BIN"
             ;;
         *)
