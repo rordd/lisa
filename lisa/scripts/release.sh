@@ -83,15 +83,35 @@ create_bundle() {
 
     # Skill dependency binaries (gog, etc.)
     mkdir -p "$bundle_dir/bin"
-    # gog — try local build first, then GitHub release
     local gog_bin=""
     case "$platform" in
-        *linux*)
-            gog_bin="$REPO_DIR/target/aarch64-unknown-linux-gnu/release/gog"
-            [[ ! -f "$gog_bin" ]] && gog_bin=""
-            ;;
         *apple*|*darwin*)
             gog_bin="$(command -v gog 2>/dev/null || true)"
+            ;;
+        aarch64*linux*)
+            # Try downloading from gogcli releases
+            local gog_tmp="$STAGE_DIR/gog-linux-arm64"
+            if [[ ! -f "$gog_tmp" ]]; then
+                echo "  Downloading gog (linux_arm64)..."
+                gh release download v0.11.0 --repo steipete/gogcli \
+                    --pattern "gogcli_0.11.0_linux_arm64.tar.gz" \
+                    --dir "$STAGE_DIR" 2>/dev/null && \
+                tar -xzf "$STAGE_DIR/gogcli_0.11.0_linux_arm64.tar.gz" -C "$STAGE_DIR" gog 2>/dev/null && \
+                mv "$STAGE_DIR/gog" "$gog_tmp"
+            fi
+            [[ -f "$gog_tmp" ]] && gog_bin="$gog_tmp"
+            ;;
+        x86_64*linux*)
+            local gog_tmp="$STAGE_DIR/gog-linux-amd64"
+            if [[ ! -f "$gog_tmp" ]]; then
+                echo "  Downloading gog (linux_amd64)..."
+                gh release download v0.11.0 --repo steipete/gogcli \
+                    --pattern "gogcli_0.11.0_linux_amd64.tar.gz" \
+                    --dir "$STAGE_DIR" 2>/dev/null && \
+                tar -xzf "$STAGE_DIR/gogcli_0.11.0_linux_amd64.tar.gz" -C "$STAGE_DIR" gog 2>/dev/null && \
+                mv "$STAGE_DIR/gog" "$gog_tmp"
+            fi
+            [[ -f "$gog_tmp" ]] && gog_bin="$gog_tmp"
             ;;
     esac
     if [[ -n "$gog_bin" && -f "$gog_bin" ]]; then
