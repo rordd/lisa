@@ -1,13 +1,13 @@
 ---
 name: weather
-description: "Check current weather and forecasts via wttr.in. Used when the user asks about weather, temperature, rain/snow."
-version: "1.0.0"
+description: "Check current weather and forecasts. Used when the user asks about weather, temperature, rain/snow."
+version: "2.0.0"
 always: true
 ---
 
 # Weather Skill
 
-Check weather via the wttr.in API. No API key required.
+Check weather using Open-Meteo API (primary) with wttr.in fallback.
 
 ## When to Use
 
@@ -18,46 +18,51 @@ Check weather via the wttr.in API. No API key required.
 
 ## Default Location
 
-Refer to USER.md for the weather location. If no location is specified, use the default.
+Seoul Gangseo-gu (latitude=37.55, longitude=126.85). Check USER.md for overrides.
 
-## Commands
+## Primary: Open-Meteo (try this first)
+
+No API key required. Returns JSON.
 
 ### Current Weather
 ```bash
-curl -s "wttr.in/Seoul+Gangseo-gu?format=%l:+%c+%t+(feels+like+%f),+wind+%w,+humidity+%h&lang=ko"
+curl -s "https://api.open-meteo.com/v1/forecast?latitude=37.55&longitude=126.85&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation&timezone=Asia/Seoul"
 ```
 
-### Today/Tomorrow/Day After
+### 3-Day Forecast
 ```bash
-# Today
-curl -s "wttr.in/Seoul+Gangseo-gu?0&lang=ko"
-
-# Tomorrow
-curl -s "wttr.in/Seoul+Gangseo-gu?1&lang=ko"
-
-# 3-day forecast
-curl -s "wttr.in/Seoul+Gangseo-gu?lang=ko"
+curl -s "https://api.open-meteo.com/v1/forecast?latitude=37.55&longitude=126.85&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code&timezone=Asia/Seoul&forecast_days=3"
 ```
 
-### JSON (for parsing)
+### Hourly (today)
 ```bash
-curl -s "wttr.in/Seoul+Gangseo-gu?format=j1&lang=ko"
+curl -s "https://api.open-meteo.com/v1/forecast?latitude=37.55&longitude=126.85&hourly=temperature_2m,precipitation_probability,weather_code&timezone=Asia/Seoul&forecast_days=1"
 ```
 
-### Other Cities
+### Other Locations
+Change latitude/longitude. Examples:
+- Busan: latitude=35.18, longitude=129.08
+- Jeju: latitude=33.50, longitude=126.53
+- New York: latitude=40.71, longitude=-74.01
+
+### Weather Codes
+- 0: Clear ☀️
+- 1-3: Partly cloudy ⛅
+- 45,48: Fog 🌫️
+- 51-55: Drizzle 🌦️
+- 61-65: Rain 🌧️
+- 71-75: Snow ❄️
+- 80-82: Showers 🌧️
+- 95: Thunderstorm ⛈️
+
+## Fallback: wttr.in (use ONLY if Open-Meteo fails)
+
 ```bash
-curl -s "wttr.in/Busan?format=3&lang=ko"
-curl -s "wttr.in/New+York?format=3"
+curl -s "wttr.in/Seoul+Gangseo-gu?format=%c+%t+(feels+like+%f),+wind+%w,+humidity+%h&lang=ko"
 ```
 
-## Format Codes
-- `%c` — weather emoji
-- `%t` — temperature
-- `%f` — feels like
-- `%w` — wind
-- `%h` — humidity
-- `%p` — precipitation
-
-## Notes
-- Avoid calling too frequently (rate limit)
-- Korean cities can be searched in Korean
+## Rules
+- Always try Open-Meteo first
+- If Open-Meteo returns error or empty, fall back to wttr.in
+- Present weather in a friendly, concise format with emoji
+- Include: temperature, feels like, wind, humidity, precipitation chance
