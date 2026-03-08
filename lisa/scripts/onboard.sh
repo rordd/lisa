@@ -248,49 +248,20 @@ install_config() {
         [[ -f "$CONFIG_PATH" ]] && cp "$CONFIG_PATH" "$CONFIG_PATH.bak.$(date +%s)"
     fi
 
-    cp "$CONFIG_TEMPLATE" "$CONFIG_PATH"
-
-    # Inject Telegram
-    if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
-        cat >> "$CONFIG_PATH" << EOF
-
-[channels_config.telegram]
-bot_token = "${TELEGRAM_BOT_TOKEN}"
-allowed_users = [$(if [ -n "${TELEGRAM_ALLOWED_USERS:-}" ]; then echo "${TELEGRAM_ALLOWED_USERS}" | sed 's/,/", "/g; s/^/"/; s/$/"/'; fi)]
-mention_only = ${TELEGRAM_MENTION_ONLY:-true}
-EOF
-        echo "  Telegram configured"
-    fi
-
-    # Inject Azure OpenAI
-    if [[ -n "${AZURE_OPENAI_BASE_URL:-}" ]]; then
-        local_key="${AZURE_OPENAI_API_KEY:-${ZEROCLAW_API_KEY:-}}"
-        local_auth="${AZURE_OPENAI_AUTH_HEADER:-api-key}"
-        cat >> "$CONFIG_PATH" << EOF
-
-[model_providers.azure]
-name = "openai"
-base_url = "${AZURE_OPENAI_BASE_URL}"
-auth_header = "${local_auth}"
-api_key = "${local_key}"
-EOF
-        echo "  Azure OpenAI configured"
-    fi
-
-    chmod 600 "$CONFIG_PATH"
-
     if [[ -n "$TARGET" ]]; then
-        scp -q "$CONFIG_PATH" "$TARGET_HOST:$TARGET_ZEROCLAW_DIR/config.toml"
+        # Target: copy config + .env
+        scp -q "$CONFIG_TEMPLATE" "$TARGET_HOST:$TARGET_ZEROCLAW_DIR/config.toml"
         ssh "$TARGET_HOST" "chmod 600 $TARGET_ZEROCLAW_DIR/config.toml"
-        rm -f "$CONFIG_PATH"
+        if [[ -n "$ENV_FILE" ]]; then
+            scp -q "$ENV_FILE" "$TARGET_HOST:$TARGET_DEPLOY_DIR/.env"
+            ssh "$TARGET_HOST" "chmod 600 $TARGET_DEPLOY_DIR/.env"
+            echo "  .env → $TARGET_HOST:$TARGET_DEPLOY_DIR/"
+        fi
+    else
+        # Local: symlink config.toml → config.default.toml
+        ln -sf "$CONFIG_TEMPLATE" "$CONFIG_PATH"
     fi
-
-    # .env to target
-    if [[ -n "$TARGET" && -n "$ENV_FILE" ]]; then
-        scp -q "$ENV_FILE" "$TARGET_HOST:$TARGET_DEPLOY_DIR/.env"
-        ssh "$TARGET_HOST" "chmod 600 $TARGET_DEPLOY_DIR/.env"
-        echo "  .env → $TARGET_HOST:$TARGET_DEPLOY_DIR/"
-    fi
+    echo "  config.toml → $(basename "$CONFIG_TEMPLATE")"
 
     # Profile files (SOUL.md, AGENTS.md)
     for f in SOUL.md AGENTS.md; do
