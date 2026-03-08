@@ -111,17 +111,43 @@ onboard.sh --target 192.168.1.50 --skills
 onboard.sh --target 192.168.1.50 --config
 ```
 
+## 설정 구조
+
+```
+config.default.toml (레포)  ← 앱 설정 (공유, 커밋 OK)
+.env (로컬)                 ← 개인정보/시크릿 (gitignore)
+USER.md (로컬)              ← 사용자 프로필 (gitignore)
+```
+
+- `config.default.toml`에 개인정보 없음 — 그대로 커밋 가능
+- 텔레그램 토큰, API 키 등은 전부 `.env` 환경변수로 주입
+- 로컬 개발 시 `~/.zeroclaw/config.toml` → `config.default.toml` 심링크 (onboard.sh가 자동 설정)
+- 설정 수정 → `config.default.toml` 직접 편집 → 즉시 반영 (복사 불필요)
+
+## 개발 워크플로우
+
+```bash
+# 코드 수정 후 빌드 + 바이너리 교체
+onboard.sh --build --binary
+
+# 스킬 수정 후 교체
+onboard.sh --skills
+
+# config 수정 → 이미 심링크이므로 daemon restart만
+pkill -f "zeroclaw daemon" && source .env && zeroclaw daemon
+```
+
 ## release.sh 사용법
 
 ```bash
-# macOS 번들만
+# 전 플랫폼 릴리즈 (기본: macOS + Linux ARM64 + Linux x86_64)
 release.sh --version v0.2.0-lisa
 
-# 전 플랫폼 (macOS + Linux ARM64 + Linux x86_64)
-release.sh --version v0.2.0-lisa --target all
+# macOS만
+release.sh --version v0.2.0-lisa --target host
 
 # 빌드 스킵 (이미 빌드됨)
-release.sh --version v0.2.0-lisa --target all --skip-build
+release.sh --version v0.2.0-lisa --skip-build
 
 # 드라이런 (업로드 안 함)
 release.sh --version v0.2.0-lisa --dry-run

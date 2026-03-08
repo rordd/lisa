@@ -549,3 +549,21 @@ When working in fast iterative mode:
 - **회사 (직접)**: 형님 → Claude Code 직접 사용. 작업 후 CLAUDE.md에 진행상황 반영하여 커밋. 추가 컨텍스트는 별도 전달.
 
 **동기화 규칙**: 작업 시작 전 반드시 `git pull`로 CLAUDE.md 최신 상태 확인.
+
+### 설정 구조
+
+```
+lisa/config/config.default.toml  ← 앱 설정 (커밋 OK, 개인정보 없음)
+.env                             ← 시크릿/개인정보 (gitignore)
+~/.zeroclaw/workspace/USER.md    ← 사용자 프로필 (로컬 전용)
+```
+
+- 로컬에서 `~/.zeroclaw/config.toml`은 `config.default.toml`로의 심링크
+- 텔레그램 토큰, API 키 등은 env var로 주입 (`apply_env_overrides()`)
+- config 수정 → `config.default.toml` 직접 편집 → daemon restart만 필요
+
+### 스크립트
+
+- `lisa/scripts/onboard.sh` — 설치+설정+개발반복 통합 (옵션: `--build`, `--binary`, `--skills`, `--config`, `--target IP`)
+- `lisa/scripts/release.sh` — 릴리즈 번들 생성 (기본: 3플랫폼 전부)
+- `lisa/scripts/issues.sh` — GitHub 이슈 유틸
