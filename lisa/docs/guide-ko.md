@@ -178,6 +178,9 @@ GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog auth add you@gmail.com --
 
 # 테스트
 GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar list --from today --to tomorrow
+
+# 캘린더 ID 목록 확인 (USER.md에 넣을 ID 조회)
+GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar calendars -a you@gmail.com
 ```
 
 ## 타겟 보드 배포
