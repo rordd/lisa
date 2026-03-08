@@ -133,6 +133,9 @@ export GOG_ACCOUNT=you@gmail.com
 
 # 5. Verify it works
 gog gmail labels list
+
+# 6. List all calendar IDs (for USER.md setup)
+gog calendar calendars -a you@gmail.com
 ```
 
 ---

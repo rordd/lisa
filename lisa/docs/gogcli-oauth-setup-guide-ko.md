@@ -112,6 +112,9 @@ export GOG_ACCOUNT=you@gmail.com
 
 # 5. 동작 확인
 gog gmail labels list
+
+# 6. 캘린더 ID 목록 확인 (USER.md 설정용)
+gog calendar calendars -a you@gmail.com
 ```
 
 ---
