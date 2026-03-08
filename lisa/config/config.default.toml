@@ -30,7 +30,6 @@ auto_save = true
 
 [skills]
 allow_scripts = true
-prompt_injection_mode = "compact"
 
 [security.url_access]
 enforce_domain_allowlist = false
