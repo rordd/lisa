@@ -264,6 +264,11 @@ install_config() {
     else
         # Local: symlink config.toml → config.default.toml
         ln -sf "$CONFIG_TEMPLATE" "$CONFIG_PATH"
+        # Local: symlink .env → repo .env
+        if [[ -n "$ENV_FILE" ]]; then
+            ln -sf "$ENV_FILE" "$ZEROCLAW_DIR/.env"
+            echo "  .env → $(basename "$ENV_FILE")"
+        fi
     fi
     echo "  config.toml → $(basename "$CONFIG_TEMPLATE")"
 
