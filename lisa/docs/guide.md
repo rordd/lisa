@@ -81,6 +81,11 @@ GOG_KEYRING_BACKEND=file
 - 위치: 서울 강서구 (latitude=37.55, longitude=126.85)
 ```
 
+캘린더 ID 확인:
+```bash
+GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar calendars -a you@gmail.com
+```
+
 **백업 필요한 파일 (릴리즈 업그레이드 시):**
 - `.env` — API 키, 토큰
 - `~/.zeroclaw/workspace/USER.md` — 개인정보
