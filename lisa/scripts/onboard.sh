@@ -209,9 +209,13 @@ install_binary() {
             done
         fi
     else
-        # If binary is already in PATH and not from build, just skip install
-        if [[ "$BINARY_PATH" == "$(command -v zeroclaw 2>/dev/null || true)" ]]; then
-            echo "  Already in PATH: $BINARY_PATH"
+        # Install: copy to existing location or ~/.local/bin
+        local existing
+        existing="$(command -v zeroclaw 2>/dev/null || true)"
+        if [[ -n "$existing" ]]; then
+            cp "$BINARY_PATH" "$existing"
+            chmod +x "$existing"
+            echo "  Updated: $existing"
         else
             mkdir -p "$HOME/.local/bin"
             cp "$BINARY_PATH" "$HOME/.local/bin/zeroclaw"
