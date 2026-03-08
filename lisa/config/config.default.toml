@@ -1,16 +1,11 @@
-# Lisa config — unified
-# Installed to ~/.zeroclaw/config.toml by install.sh.
-# Provider, model, API key are injected from .env via ZEROCLAW_* environment variables.
+# Lisa config
+# All secrets (API keys, bot tokens) are in .env via environment variables.
+# This file contains only app settings — safe to commit.
 default_temperature = 1.0
 
 [channels_config]
 cli = true
-
-# Telegram is activated by setup.sh after bot token injection from .env
-# [channels_config.telegram]
-# bot_token = "injected from environment variable"
-# allowed_users = ["YOUR_USER_ID"]
-# mention_only = true
+# Telegram: activated via TELEGRAM_BOT_TOKEN env var (see .env)
 
 [gateway]
 port = 42617
