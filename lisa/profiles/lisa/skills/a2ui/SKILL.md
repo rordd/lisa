@@ -1,7 +1,7 @@
 ---
 name: a2ui
-description: "A2UI v0.8 카드 렌더링. WS 채널에서 날씨, 태스크, 정보 등 시각적 UI 카드를 생성할 때 사용."
-version: "2.1.0"
+description: "A2UI v0.8 card rendering. Generate visual UI cards (weather, tasks, info) on the WebSocket channel."
+version: "2.2.0"
 channels: ws
 always: true
 ---
@@ -15,7 +15,7 @@ When presenting structured or visual information (weather, tasks, schedules, etc
 Your response MUST have two parts separated by the delimiter `---a2ui_JSON---`:
 
 ```
-자연스러운 텍스트 응답 (사용자에게 보이는 대화)
+Natural language response (visible to user)
 ---a2ui_JSON---
 [{surfaceUpdate: ...}, {dataModelUpdate: ...}, {beginRendering: ...}]
 ```
@@ -41,7 +41,7 @@ Your response MUST have two parts separated by the delimiter `---a2ui_JSON---`:
 - **Card** — `{child: "id"}`
 - **Column** — `{children: {explicitList: [...]}, alignment?: "center"|"start"|"end"}`
 - **Row** — `{children: {explicitList: [...]}, alignment?, distribution?: "spaceAround"|"spaceBetween"}`
-- **Text** — `{text: {literalString|path}, usageHint?: "h1"|"h2"|"h3"|"body"|"caption"}`
+- **Text** — `{text: {literalString|path}, usageHint?: "h1"|"h2"|"h3"|"h4"|"h5"|"body"|"caption"}`
 - **Icon** — `{name: {literalString|path}}`
 - **Image** — `{source: {literalString|path}, description?}`
 - **Button** — `{child: "text-component-id", action: {name: "action_name", context: [{key: "k", value: {literalString: "v"}}]}}`
@@ -51,18 +51,20 @@ Your response MUST have two parts separated by the delimiter `---a2ui_JSON---`:
 
 **IMPORTANT: Button requires `child` (id of a Text component for the label) and `action` (with `name` and `context`). Do NOT use `label` or `onClick` — those are invalid.**
 
+**IMPORTANT: `usageHint` MUST be exactly one of: h1, h2, h3, h4, h5, body, caption. No variations (e.g. "body1" is INVALID).**
+
 ## Example 1: Weather Card
 
 ```
-지금 서울 강서구 날씨야. 최고 5도, 최저 -2도로 좀 쌀쌀해!
+Here's the current weather for Seoul. High of 5°C, low of -2°C — pretty chilly!
 ---a2ui_JSON---
-[{"surfaceUpdate":{"surfaceId":"weather","components":[{"id":"root","component":{"Card":{"child":"col"}}},{"id":"col","component":{"Column":{"children":{"explicitList":["temp-row","location","desc"]},"alignment":"center"}}},{"id":"temp-row","component":{"Row":{"children":{"explicitList":["temp-high","temp-low"]},"alignment":"start"}}},{"id":"temp-high","component":{"Text":{"text":{"path":"/tempHigh"},"usageHint":"h1"}}},{"id":"temp-low","component":{"Text":{"text":{"path":"/tempLow"},"usageHint":"h2"}}},{"id":"location","component":{"Text":{"text":{"path":"/location"},"usageHint":"h3"}}},{"id":"desc","component":{"Text":{"text":{"path":"/description"},"usageHint":"caption"}}}]}},{"dataModelUpdate":{"surfaceId":"weather","contents":[{"key":"tempHigh","valueString":"5°C"},{"key":"tempLow","valueString":"-2°C"},{"key":"location","valueString":"서울 강서구"},{"key":"description","valueString":"맑음, 바람 9km/h"}]}},{"beginRendering":{"surfaceId":"weather","root":"root"}}]
+[{"surfaceUpdate":{"surfaceId":"weather","components":[{"id":"root","component":{"Card":{"child":"col"}}},{"id":"col","component":{"Column":{"children":{"explicitList":["temp-row","location","desc"]},"alignment":"center"}}},{"id":"temp-row","component":{"Row":{"children":{"explicitList":["temp-high","temp-low"]},"alignment":"start"}}},{"id":"temp-high","component":{"Text":{"text":{"path":"/tempHigh"},"usageHint":"h1"}}},{"id":"temp-low","component":{"Text":{"text":{"path":"/tempLow"},"usageHint":"h2"}}},{"id":"location","component":{"Text":{"text":{"path":"/location"},"usageHint":"h3"}}},{"id":"desc","component":{"Text":{"text":{"path":"/description"},"usageHint":"caption"}}}]}},{"dataModelUpdate":{"surfaceId":"weather","contents":[{"key":"tempHigh","valueString":"5°C"},{"key":"tempLow","valueString":"-2°C"},{"key":"location","valueString":"Seoul, Gangseo-gu"},{"key":"description","valueString":"Clear, wind 9km/h"}]}},{"beginRendering":{"surfaceId":"weather","root":"root"}}]
 ```
 
 ## Example 2: Button Card (structure only — generate your own content!)
 
 ```
-텍스트 응답 여기에
+Here's your options. Pick one!
 ---a2ui_JSON---
 [{"surfaceUpdate":{"surfaceId":"buttons-demo","components":[{"id":"root","component":{"Card":{"child":"col"}}},{"id":"col","component":{"Column":{"children":{"explicitList":["title","btn-row"]},"alignment":"center"}}},{"id":"title","component":{"Text":{"text":{"literalString":"YOUR TITLE HERE"},"usageHint":"h2"}}},{"id":"btn-row","component":{"Row":{"children":{"explicitList":["btn-a","btn-b"]},"distribution":"spaceAround"}}},{"id":"btn-a-text","component":{"Text":{"text":{"literalString":"Option A"}}}},{"id":"btn-a","component":{"Button":{"child":"btn-a-text","action":{"name":"select","context":[{"key":"choice","value":{"literalString":"a"}}]}}}},{"id":"btn-b-text","component":{"Text":{"text":{"literalString":"Option B"}}}},{"id":"btn-b","component":{"Button":{"child":"btn-b-text","action":{"name":"select","context":[{"key":"choice","value":{"literalString":"b"}}]}}}}]}},{"beginRendering":{"surfaceId":"buttons-demo","root":"root"}}]
 ```
