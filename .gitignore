@@ -48,7 +48,6 @@ result
 # Lisa — sensitive/local files (use .example templates instead)
 lisa/config/config.arm64.toml
 lisa/config/config.linux.toml
-lisa/profiles/lisa/lisa.env
 lisa/profiles/lisa/USER.md
 lisa/gogcli/
-lisa/release/
+*.patch

@@ -18,7 +18,8 @@ cp .env.example .env
 ./onboard.sh
 
 # 4. Run
-source .env && zeroclaw daemon
+source ~/.zeroclaw/.env && zeroclaw daemon   # Background daemon (Telegram, etc.)
+source ~/.zeroclaw/.env && zeroclaw agent    # Interactive CLI mode
 ```
 
 ### From Source
@@ -36,7 +37,8 @@ cp lisa/profiles/.env.example .env
 ./lisa/scripts/onboard.sh --build
 
 # 4. Run
-source .env && zeroclaw daemon
+source ~/.zeroclaw/.env && zeroclaw daemon   # Background daemon (Telegram, etc.)
+source ~/.zeroclaw/.env && zeroclaw agent    # Interactive CLI mode
 ```
 
 ## Config Structure
@@ -47,33 +49,49 @@ config.default.toml (repo)  ← App settings, no secrets (safe to commit)
 USER.md (local)             ← User profile (local only)
 ```
 
+After onboarding, files are installed to `~/.zeroclaw/`:
+```
+~/.zeroclaw/
+├── config.toml   ← Copied from config.default.toml
+├── .env          ← Copied from source .env
+└── workspace/
+    ├── USER.md
+    ├── SOUL.md
+    └── AGENTS.md
+```
+
 - `config.default.toml` contains no personal data — safe to commit
 - Telegram token, API keys, etc. are injected via `.env` environment variables
-- Local dev: `~/.zeroclaw/config.toml` symlinks to `config.default.toml` (auto-set by onboard.sh)
-- Edit `config.default.toml` directly — changes apply on daemon restart
+- `onboard.sh` copies config and `.env` to `~/.zeroclaw/` (repo can be removed after install)
+- After editing `config.default.toml` or `.env`, re-run `onboard.sh --config` to apply
 
 ## .env Configuration
 
-```bash
-# Required
-ZEROCLAW_API_KEY=<your-api-key>
-ZEROCLAW_PROVIDER=gemini          # gemini | openai | azure
-ZEROCLAW_MODEL=gemini-2.5-flash
+Pick one LLM provider section — either Gemini or Azure OpenAI.
 
-# Telegram (optional)
-TELEGRAM_BOT_TOKEN=<bot-token>
-TELEGRAM_ALLOWED_USERS=<user-id>  # Comma-separated
-TELEGRAM_MENTION_ONLY=true
+```bash
+# --- Google Gemini (default) ---
+export ZEROCLAW_API_KEY=<your-api-key>
+export ZEROCLAW_PROVIDER=gemini
+export ZEROCLAW_MODEL=gemini-2.5-flash
+
+# --- Azure OpenAI (alternative) ---
+# Uncomment and fill these, comment out the Gemini section above.
+# export ZEROCLAW_PROVIDER=custom:https://<resource>.openai.azure.com/openai/v1
+# export ZEROCLAW_MODEL=gpt-5-mini
+# export ZEROCLAW_API_KEY=<azure-api-key>
+# export ZEROCLAW_TEMPERATURE=1              # Required for reasoning models (gpt-5-mini, o-series)
+# export AZURE_PRIVATE_ENDPOINT=<private-ip>  # If using private endpoint
+
+# Telegram (optional — not available behind company firewalls)
+# export TELEGRAM_BOT_TOKEN=<bot-token>
+# export TELEGRAM_ALLOWED_USERS=<user-id>  # Comma-separated
+# export TELEGRAM_MENTION_ONLY=true
 
 # Google Calendar (optional)
-GOG_ACCOUNT=you@gmail.com
-GOG_KEYRING_PASSWORD=<password>
-GOG_KEYRING_BACKEND=file
-
-# Azure OpenAI (optional)
-# AZURE_OPENAI_BASE_URL=https://your-resource.openai.azure.com/openai/deployments/your-model
-# AZURE_OPENAI_API_KEY=<key>
-# AZURE_OPENAI_AUTH_HEADER=api-key
+export GOG_ACCOUNT=you@gmail.com
+export GOG_KEYRING_PASSWORD=<password>
+export GOG_KEYRING_BACKEND=file
 ```
 
 ## Personal Files
@@ -99,7 +117,7 @@ GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar calendars -a you
 ```
 
 **Backup these files when upgrading:**
-- `.env` — API keys, tokens
+- `~/.zeroclaw/.env` — API keys, tokens
 - `~/.zeroclaw/workspace/USER.md` — personal info
 
 ## onboard.sh
@@ -111,23 +129,53 @@ onboard.sh --binary               # Binary only (quick swap)
 onboard.sh --build --binary       # Build + binary only
 onboard.sh --skills               # Skills only
 onboard.sh --config               # Config only (config.toml + profile)
+onboard.sh --clear                # Remove all installed files
+onboard.sh --clear --target IP    # Remove all from target
 onboard.sh --target 192.168.1.50  # Deploy to target
 onboard.sh --build --target IP    # Cross-build + deploy
 onboard.sh --target IP --skills   # Skills only to target
 onboard.sh --target IP --config   # Config only to target
 ```
 
+### Full onboard tests
+
+Full onboard (`onboard.sh` without scope flags) runs automatic tests after installation.
+All skill tests go through zeroclaw (not direct API calls), so they verify the full pipeline.
+
+| Test | Method | Pass criteria |
+|---|---|---|
+| agent | Send "안녕~" via zeroclaw | Exit 0 |
+| weather | Ask zeroclaw for weather | Agent OK + valid response |
+| calendar | Ask zeroclaw for schedule | Agent OK + gog installed + valid response |
+| tv-control | Ask zeroclaw for foreground app | Agent OK + luna-send available |
+
+If the agent test fails (no LLM connection), skill tests are automatically skipped.
+
+### Clear (uninstall)
+
+`--clear` removes everything installed by onboard.sh:
+- Stops the zeroclaw daemon
+- Removes the binary from `~/.local/bin/`
+- Removes `~/.zeroclaw/` (config + workspace)
+- Removes Azure private endpoint from `/etc/hosts` (unmounts bind if used)
+
+Requires interactive confirmation before proceeding.
+
 ## Dev Workflow
 
+> **Note:** After any source code change, you must run a release build (`--build`) before installing.
+> `onboard.sh --binary` alone only copies the existing release binary — it does not rebuild.
+
 ```bash
-# After code change: build + replace binary
+# After code change: release build + replace binary (--build is required)
 onboard.sh --build --binary
 
 # After skill change: replace skills
 onboard.sh --skills
 
-# After config change: restart daemon (symlink, no copy needed)
-pkill -f "zeroclaw daemon" && source .env && zeroclaw daemon
+# After config/.env change: re-apply and restart
+onboard.sh --config
+pkill -f "zeroclaw daemon" && source ~/.zeroclaw/.env && zeroclaw daemon
 ```
 
 ## release.sh
@@ -163,15 +211,26 @@ lisa-v0.2.0-lisa-<platform>/
 
 ## Google Calendar Setup
 
-```bash
-# Install gog CLI
-# macOS:
-brew install steipete/tap/gogcli
-# Linux (included in release bundle, or manual):
-gh release download v0.11.0 --repo steipete/gogcli --pattern "*linux_amd64*"  # x86_64
-gh release download v0.11.0 --repo steipete/gogcli --pattern "*linux_arm64*"  # ARM64
-tar xzf gogcli_*.tar.gz && sudo mv gog /usr/local/bin/
+### gog CLI Installation
 
+`onboard.sh` automatically installs `gog` if it is not found:
+- **Bundle**: Uses the bundled `bin/gog` if present (release bundles include it)
+- **Source**: Downloads the lisa release bundle for your platform and extracts `bin/gog`
+- Installs to `~/.local/bin/gog` (local) or deploy directory (target)
+
+To install manually, download the lisa release bundle and extract the gog binary:
+
+```bash
+gh release download --repo rordd/lisa --pattern "*apple-darwin*"       # macOS
+gh release download --repo rordd/lisa --pattern "*x86_64*linux-gnu*"   # Linux x86_64
+gh release download --repo rordd/lisa --pattern "*aarch64*linux-gnu*"  # Linux ARM64
+tar xzf lisa-*.tar.gz
+cp lisa-*/bin/gog ~/.local/bin/gog && chmod +x ~/.local/bin/gog
+```
+
+### Authentication & Test
+
+```bash
 # Authenticate (once, requires browser)
 GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog auth add you@gmail.com --services calendar --manual
 # No browser? Open URL on another device, copy redirect URL and paste

@@ -5,27 +5,11 @@ description: Control this webOS TV via the exec tool. Supported actions: launch/
 
 # TV Control
 
-## Target TV
-
-- **Location**: local
-- **IP**: N/A
-
-### How to interpret these values
-
-| Location | IP | Meaning | How to execute commands |
-|----------|-----|---------|----------------------|
-| **N/A** | N/A | No target TV configured | Do NOT attempt any tv-control commands. Tell the user this skill is disabled. |
-| **local** | N/A | This device IS the TV | Run commands directly with the `exec` tool. No SSH, no IP needed. The `luna-send` commands below will work as-is. |
-| **remote** | `<IP>` | TV is on another device | Wrap every command with `ssh root@{IP} '<command>'` before passing to `exec`. |
-
-> **Important:** When Location is **local**, the IP field is always N/A because commands run on this device itself. This is the normal and correct state — it does NOT mean the skill is unavailable.
-
 ## Core Principles
 
 1. All operations in this skill MUST be executed using the `exec` tool.
 2. Never output commands as plain text. Always invoke the `exec` tool to run them.
 3. Every code block in this document is a command string to pass to the `exec` tool.
-4. For remote TVs, prefix every command with `ssh root@{ip}` before execution.
 
 ## Mandatory Rules
 

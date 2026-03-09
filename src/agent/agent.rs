@@ -682,6 +682,7 @@ impl Agent {
                             &turns,
                             self.memory.as_ref(),
                             self.session_id.as_deref(),
+                            self.temperature,
                         )
                         .await;
                         if result.stored > 0 || result.no_facts {
@@ -762,6 +763,7 @@ impl Agent {
             &turns,
             self.memory.as_ref(),
             self.session_id.as_deref(),
+            self.temperature,
         )
         .await;
         if result.stored > 0 || result.no_facts {

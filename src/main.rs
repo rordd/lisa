@@ -306,9 +306,9 @@ Examples:
         #[arg(long)]
         model: Option<String>,
 
-        /// Temperature (0.0 - 2.0)
-        #[arg(short, long, default_value = "0.7", value_parser = parse_temperature)]
-        temperature: f64,
+        /// Temperature (0.0 - 2.0). Defaults to config value if not specified.
+        #[arg(short, long, value_parser = parse_temperature)]
+        temperature: Option<f64>,
 
         /// Attach a peripheral (board:path, e.g. nucleo-f401re:/dev/ttyACM0)
         #[arg(long)]
@@ -1125,12 +1125,13 @@ async fn main() -> Result<()> {
             // Single-shot mode (-m) runs non-interactively: no TTY approval prompt,
             // so tools are not denied by a stdin read returning EOF.
             let interactive = message.is_none();
+            let effective_temperature = temperature.unwrap_or(config.default_temperature);
             Box::pin(agent::run(
                 config,
                 message,
                 provider,
                 model,
-                temperature,
+                effective_temperature,
                 peripheral,
                 interactive,
                 None,

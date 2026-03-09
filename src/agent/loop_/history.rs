@@ -109,6 +109,7 @@ pub(super) async fn auto_compact_history(
     memory: Option<&dyn Memory>,
     session_id: Option<&str>,
     post_turn_active: bool,
+    temperature: f64,
 ) -> Result<(bool, bool)> {
     let has_system = history.first().map_or(false, |m| m.role == "system");
     let non_system_count = if has_system {
@@ -154,7 +155,7 @@ pub(super) async fn auto_compact_history(
     let flush_ok = if post_turn_active {
         true
     } else if let Some(mem) = memory {
-        flush_durable_facts(provider, model, &transcript, mem, session_id).await
+        flush_durable_facts(provider, model, &transcript, mem, session_id, temperature).await
     } else {
         true
     };
@@ -167,7 +168,7 @@ pub(super) async fn auto_compact_history(
     );
 
     let summary_raw = provider
-        .chat_with_system(Some(summarizer_system), &summarizer_user, model, 0.2)
+        .chat_with_system(Some(summarizer_system), &summarizer_user, model, temperature)
         .await
         .unwrap_or_else(|_| {
             // Fallback to deterministic local truncation when summarization fails.
@@ -204,6 +205,7 @@ async fn flush_durable_facts(
     transcript: &str,
     memory: &dyn Memory,
     session_id: Option<&str>,
+    temperature: f64,
 ) -> bool {
     const FLUSH_SYSTEM: &str = "\
 You extract durable facts from a conversation that is about to be compacted. \
@@ -226,7 +228,7 @@ If there are no durable facts, output exactly: NONE";
     );
 
     let response = match provider
-        .chat_with_system(Some(FLUSH_SYSTEM), &flush_user, model, 0.2)
+        .chat_with_system(Some(FLUSH_SYSTEM), &flush_user, model, temperature)
         .await
     {
         Ok(r) => r,
@@ -416,6 +418,7 @@ pub(crate) async fn extract_facts_from_turns(
     turns: &[(String, String)],
     memory: &dyn Memory,
     session_id: Option<&str>,
+    temperature: f64,
 ) -> ExtractionResult {
     let empty = ExtractionResult {
         stored: 0,
@@ -491,7 +494,7 @@ pub(crate) async fn extract_facts_from_turns(
     );
 
     let response = match provider
-        .chat_with_system(Some(&system_prompt), &user_prompt, model, 0.2)
+        .chat_with_system(Some(&system_prompt), &user_prompt, model, temperature)
         .await
     {
         Ok(r) => r,
@@ -670,6 +673,7 @@ mod tests {
             None,
             None,
             false,
+            0.2,
         )
         .await
         .expect("compaction should succeed");
@@ -867,6 +871,7 @@ mod tests {
             Some(mem.as_ref()),
             None,
             false,
+            0.2,
         )
         .await
         .expect("compaction should succeed");
@@ -1007,6 +1012,7 @@ mod tests {
             Some(mem.as_ref()),
             None,
             false,
+            0.2,
         )
         .await
         .expect("compaction should succeed");
@@ -1223,6 +1229,7 @@ mod tests {
             &turns,
             mem.as_ref(),
             Some("session-42"),
+            0.2,
         )
         .await;
 
@@ -1319,7 +1326,7 @@ mod tests {
 
         let long_msg = "x".repeat(EXTRACT_MIN_CHARS);
         let turns = vec![(long_msg, "resp".to_string())];
-        let result = extract_facts_from_turns(&NoneProvider, "model", &turns, &NoopMem, None).await;
+        let result = extract_facts_from_turns(&NoneProvider, "model", &turns, &NoopMem, None, 0.2).await;
 
         assert_eq!(result.stored, 0);
         assert!(result.no_facts);
@@ -1376,7 +1383,7 @@ mod tests {
 
         let turns = vec![("hi".to_string(), "hey".to_string())];
         let result =
-            extract_facts_from_turns(&StaticSummaryProvider, "model", &turns, &NoopMem, None).await;
+            extract_facts_from_turns(&StaticSummaryProvider, "model", &turns, &NoopMem, None, 0.2).await;
 
         assert_eq!(result.stored, 0);
         assert!(result.no_facts);
@@ -1466,7 +1473,7 @@ mod tests {
         let long_msg = "x".repeat(EXTRACT_MIN_CHARS);
         let turns = vec![(long_msg, "resp".to_string())];
         let result =
-            extract_facts_from_turns(&GarbageProvider, "model", &turns, &NoopMem, None).await;
+            extract_facts_from_turns(&GarbageProvider, "model", &turns, &NoopMem, None, 0.2).await;
 
         assert_eq!(result.stored, 0);
         // Unparseable output should NOT be treated as "no facts" — compaction
@@ -1561,7 +1568,7 @@ mod tests {
 
         let long_msg = "x".repeat(EXTRACT_MIN_CHARS);
         let turns = vec![(long_msg, "resp".to_string())];
-        let result = extract_facts_from_turns(&FactProvider, "model", &turns, &FailMem, None).await;
+        let result = extract_facts_from_turns(&FactProvider, "model", &turns, &FailMem, None, 0.2).await;
 
         assert_eq!(result.stored, 0);
         assert!(
@@ -1686,6 +1693,7 @@ mod tests {
             Some(mem.as_ref()),
             None,
             true, // post_turn_active
+            0.2,
         )
         .await
         .expect("compaction should succeed");
