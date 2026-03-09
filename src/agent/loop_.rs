@@ -2774,7 +2774,10 @@ pub async fn run(
         .collect();
 
     // ── Build system prompt from workspace MD files (OpenClaw framework) ──
-    let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+    let skills = crate::skills::filter_skills_by_channel(
+        crate::skills::load_skills_with_config(&config.workspace_dir, &config),
+        Some("default"),
+    );
     let mut tool_descs: Vec<(&str, &str)> = vec![
         (
             "shell",
@@ -3473,7 +3476,10 @@ pub async fn process_message_with_session(
         .map(|b| b.board.clone())
         .collect();
 
-    let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+    let skills = crate::skills::filter_skills_by_channel(
+        crate::skills::load_skills_with_config(&config.workspace_dir, &config),
+        Some("default"),
+    );
     let mut tool_descs: Vec<(&str, &str)> = vec![
         ("shell", "Execute terminal commands."),
         ("file_read", "Read file contents."),
@@ -7637,5 +7643,4 @@ Let me check the result."#;
         assert!(completed.contains("✅ shell (2s)"));
         assert!(completed.contains("❌ web_search (1s)"));
     }
-
 }

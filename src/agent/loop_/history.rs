@@ -168,7 +168,12 @@ pub(super) async fn auto_compact_history(
     );
 
     let summary_raw = provider
-        .chat_with_system(Some(summarizer_system), &summarizer_user, model, temperature)
+        .chat_with_system(
+            Some(summarizer_system),
+            &summarizer_user,
+            model,
+            temperature,
+        )
         .await
         .unwrap_or_else(|_| {
             // Fallback to deterministic local truncation when summarization fails.
@@ -1326,7 +1331,8 @@ mod tests {
 
         let long_msg = "x".repeat(EXTRACT_MIN_CHARS);
         let turns = vec![(long_msg, "resp".to_string())];
-        let result = extract_facts_from_turns(&NoneProvider, "model", &turns, &NoopMem, None, 0.2).await;
+        let result =
+            extract_facts_from_turns(&NoneProvider, "model", &turns, &NoopMem, None, 0.2).await;
 
         assert_eq!(result.stored, 0);
         assert!(result.no_facts);
@@ -1383,7 +1389,8 @@ mod tests {
 
         let turns = vec![("hi".to_string(), "hey".to_string())];
         let result =
-            extract_facts_from_turns(&StaticSummaryProvider, "model", &turns, &NoopMem, None, 0.2).await;
+            extract_facts_from_turns(&StaticSummaryProvider, "model", &turns, &NoopMem, None, 0.2)
+                .await;
 
         assert_eq!(result.stored, 0);
         assert!(result.no_facts);
@@ -1568,7 +1575,8 @@ mod tests {
 
         let long_msg = "x".repeat(EXTRACT_MIN_CHARS);
         let turns = vec![(long_msg, "resp".to_string())];
-        let result = extract_facts_from_turns(&FactProvider, "model", &turns, &FailMem, None, 0.2).await;
+        let result =
+            extract_facts_from_turns(&FactProvider, "model", &turns, &FailMem, None, 0.2).await;
 
         assert_eq!(result.stored, 0);
         assert!(

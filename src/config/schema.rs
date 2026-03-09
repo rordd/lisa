@@ -309,6 +309,10 @@ pub struct Config {
     #[serde(default)]
     pub gateway: GatewayConfig,
 
+    /// A2UI card rendering configuration (`[a2ui]`).
+    #[serde(default)]
+    pub a2ui: A2uiConfig,
+
     /// Composio managed OAuth tools integration (`[composio]`).
     #[serde(default)]
     pub composio: ComposioConfig,
@@ -1251,6 +1255,15 @@ fn parse_skills_prompt_injection_mode(raw: &str) -> Option<SkillsPromptInjection
         "compact" => Some(SkillsPromptInjectionMode::Compact),
         _ => None,
     }
+}
+
+/// A2UI card rendering configuration (`[a2ui]` section).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct A2uiConfig {
+    /// Enable A2UI card rendering on the WebSocket channel.
+    /// When `false` (default), the A2UI skill is not loaded and card parsing is skipped.
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Skills loading configuration (`[skills]` section).
@@ -6586,6 +6599,7 @@ impl Default for Config {
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
             economic: EconomicConfig::default(),
+            a2ui: A2uiConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             coordination: CoordinationConfig::default(),
@@ -10560,6 +10574,7 @@ ws_url = "ws://127.0.0.1:3002"
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
             economic: EconomicConfig::default(),
+            a2ui: A2uiConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hooks: HooksConfig::default(),
@@ -10949,6 +10964,7 @@ denied_tools = ["shell"]
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
             economic: EconomicConfig::default(),
+            a2ui: A2uiConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hooks: HooksConfig::default(),

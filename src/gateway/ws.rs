@@ -316,10 +316,13 @@ fn build_ws_system_prompt(
         None
     };
 
-    let skills = crate::skills::filter_skills_by_channel(
+    let mut skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&config.workspace_dir, config),
         Some("ws"),
     );
+    if !config.a2ui.enabled {
+        skills.retain(|s| !s.name.eq_ignore_ascii_case("a2ui"));
+    }
 
     let mut prompt = crate::channels::build_system_prompt_with_mode(
         &config.workspace_dir,
@@ -417,15 +420,18 @@ pub async fn handle_ws_chat(
 async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: String) {
     let ws_session_id = format!("ws_{}", Uuid::new_v4());
 
-    // Build system prompt once for the session
-    let system_prompt = {
+    // Snapshot config once at connect time — both prompt and toggle use the same read.
+    // Toggle takes effect on next WS reconnect, not mid-session.
+    let (system_prompt, a2ui_enabled) = {
         let config_guard = state.config.lock();
-        build_ws_system_prompt(
+        let prompt = build_ws_system_prompt(
             &config_guard,
             &state.model,
             state.tools_registry_exec.as_ref(),
             state.provider.supports_native_tools(),
-        )
+        );
+        let a2ui = config_guard.a2ui.enabled;
+        (prompt, a2ui)
     };
 
     // Restore persisted history (if any) and replay to the client before processing new input.
@@ -462,6 +468,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
         // Extract content based on message type
         let content = match msg_type {
             "a2ui_action" => {
+                if !a2ui_enabled {
+                    let err = serde_json::json!({"type": "error", "message": "a2ui is disabled"});
+                    let _ = socket.send(Message::Text(err.to_string().into())).await;
+                    continue;
+                }
                 match parsed.get("payload") {
                     Some(payload) => super::a2ui::format_user_action(payload),
                     None => {
@@ -537,10 +548,16 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
                 persist_ws_history(&state, &session_id, &history).await;
 
                 // Parse A2UI and send as separate message before done
-                let (text, a2ui) = super::a2ui::parse_response(&safe_response);
+                let (text, a2ui) = if a2ui_enabled {
+                    super::a2ui::parse_response(&safe_response)
+                } else {
+                    (safe_response.clone(), vec![])
+                };
                 if !a2ui.is_empty() {
                     let a2ui_msg = serde_json::json!({"type": "a2ui", "messages": a2ui});
-                    let _ = socket.send(Message::Text(a2ui_msg.to_string().into())).await;
+                    let _ = socket
+                        .send(Message::Text(a2ui_msg.to_string().into()))
+                        .await;
                 }
                 let done = serde_json::json!({
                     "type": "done",
