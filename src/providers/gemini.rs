@@ -1966,7 +1966,7 @@ mod tests {
         assert_eq!(parts.len(), 1);
         match &parts[0] {
             Part::Text { text } => assert_eq!(text, content),
-            _ => panic!("text-only message must stay text-only"),
+            other => panic!("text-only message must stay text-only, got: {other:?}"),
         }
     }
 
@@ -1978,14 +1978,14 @@ mod tests {
         assert_eq!(parts.len(), 2);
         match &parts[0] {
             Part::Text { text } => assert_eq!(text, "Describe this image"),
-            _ => panic!("first part should be text"),
+            other => panic!("first part should be text, got: {other:?}"),
         }
         match &parts[1] {
             Part::InlineData { inline_data } => {
                 assert_eq!(inline_data.mime_type, "image/png");
                 assert_eq!(inline_data.data, "aGVsbG8=");
             }
-            _ => panic!("second part should be inline image data"),
+            other => panic!("second part should be inline image data, got: {other:?}"),
         }
     }
 
@@ -2009,7 +2009,7 @@ mod tests {
                 assert_eq!(inline_data.mime_type, "image/webp");
                 assert_eq!(inline_data.data, "YWJjZA==");
             }
-            _ => panic!("image-only message should create inline image part"),
+            other => panic!("image-only message should create inline image part, got: {other:?}"),
         }
     }
 
@@ -2019,11 +2019,11 @@ mod tests {
         assert_eq!(parts.len(), 2);
         match &parts[0] {
             Part::Text { text } => assert_eq!(text, "Inspect"),
-            _ => panic!("first part should be text"),
+            other => panic!("first part should be text, got: {other:?}"),
         }
         match &parts[1] {
             Part::Text { text } => assert_eq!(text, "[IMAGE:https://example.com/img.png]"),
-            _ => panic!("invalid markers should fall back to text"),
+            other => panic!("invalid markers should fall back to text, got: {other:?}"),
         }
     }
 
