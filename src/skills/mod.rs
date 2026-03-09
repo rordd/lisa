@@ -37,6 +37,9 @@ pub struct Skill {
     /// When true, include full skill instructions even in compact prompt mode.
     #[serde(default)]
     pub always: bool,
+    /// Channel restriction list (e.g. `["ws", "cli"]`). Empty = available on all channels.
+    #[serde(default)]
+    pub channels: Vec<String>,
 }
 
 /// A tool defined by a skill (shell command, HTTP call, etc.)
@@ -113,6 +116,19 @@ pub fn load_skills_with_config(workspace_dir: &Path, config: &crate::config::Con
         Some(&config.skills.trusted_skill_roots),
         SkillLoadMode::from_prompt_mode(config.skills.prompt_injection_mode),
     )
+}
+
+/// Filter skills by channel kind. Skills with an empty `channels` list are universal
+/// (available on all channels). Skills with a non-empty list are included only when
+/// `channel_kind` matches one of their entries.
+pub fn filter_skills_by_channel(skills: Vec<Skill>, channel_kind: Option<&str>) -> Vec<Skill> {
+    let Some(kind) = channel_kind else {
+        return skills;
+    };
+    skills
+        .into_iter()
+        .filter(|s| s.channels.is_empty() || s.channels.iter().any(|c| c == kind))
+        .collect()
 }
 
 fn load_skills_full_with_config(
@@ -598,6 +614,7 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 prompts: manifest.prompts,
                 location: Some(path.to_path_buf()),
                 always: false,
+                channels: Vec::new(),
             })
         }
         SkillLoadMode::MetadataOnly => {
@@ -612,6 +629,7 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 prompts: Vec::new(),
                 location: Some(path.to_path_buf()),
                 always: false,
+                channels: Vec::new(),
             })
         }
     }
@@ -668,6 +686,15 @@ fn load_skill_md(path: &Path, dir: &Path, load_mode: SkillLoadMode) -> Result<Sk
         }
     }
     let always = fm_bool(&fm, "always");
+    let channels: Vec<String> = fm
+        .get("channels")
+        .map(|v| {
+            v.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
     let prompt_body = if body.trim().is_empty() {
         content.clone()
     } else {
@@ -689,6 +716,7 @@ fn load_skill_md(path: &Path, dir: &Path, load_mode: SkillLoadMode) -> Result<Sk
         prompts,
         location: Some(path.to_path_buf()),
         always,
+        channels,
     })
 }
 
@@ -714,6 +742,7 @@ fn load_open_skill_md(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
         prompts,
         location: Some(path.to_path_buf()),
         always: false,
+        channels: Vec::new(),
     })
 }
 
@@ -2649,6 +2678,7 @@ command = "echo hello"
             prompts: vec!["Do the thing.".to_string()],
             location: None,
             always: false,
+            channels: vec![],
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("<available_skills>"));
@@ -2674,6 +2704,7 @@ command = "echo hello"
             prompts: vec!["Do the thing.".to_string()],
             location: Some(PathBuf::from("/tmp/workspace/skills/test/SKILL.md")),
             always: false,
+            channels: vec![],
         }];
         let prompt = skills_to_prompt_with_mode(
             &skills,
@@ -2708,6 +2739,7 @@ command = "echo hello"
             prompts: vec!["Do the thing every time.".to_string()],
             location: Some(PathBuf::from("/tmp/workspace/skills/always-skill/SKILL.md")),
             always: true,
+            channels: vec![],
         }];
         let prompt = skills_to_prompt_with_mode(
             &skills,
@@ -2940,6 +2972,7 @@ description = "Bare minimum"
             prompts: vec![],
             location: None,
             always: false,
+            channels: vec![],
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("weather"));
@@ -2960,6 +2993,7 @@ description = "Bare minimum"
             prompts: vec!["Use <tool> & check \"quotes\".".to_string()],
             location: None,
             always: false,
+            channels: vec![],
         }];
 
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));

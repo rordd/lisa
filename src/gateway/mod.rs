@@ -7,6 +7,7 @@
 //! - Request timeouts (30s) to prevent slow-loris attacks
 //! - Header sanitization (handled by axum/hyper)
 
+pub mod a2ui;
 pub mod api;
 mod mock_dashboard;
 mod openai_compat;

@@ -316,11 +316,16 @@ fn build_ws_system_prompt(
         None
     };
 
+    let skills = crate::skills::filter_skills_by_channel(
+        crate::skills::load_skills_with_config(&config.workspace_dir, config),
+        Some("ws"),
+    );
+
     let mut prompt = crate::channels::build_system_prompt_with_mode(
         &config.workspace_dir,
         model,
         &tool_descs,
-        &[],
+        &skills,
         Some(&config.identity),
         bootstrap_max_chars,
         native_tools,
@@ -453,14 +458,30 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
         };
 
         let msg_type = parsed["type"].as_str().unwrap_or("");
-        if msg_type != "message" {
-            continue;
-        }
 
-        let content = parsed["content"].as_str().unwrap_or("").to_string();
-        if content.is_empty() {
-            continue;
-        }
+        // Extract content based on message type
+        let content = match msg_type {
+            "a2ui_action" => {
+                match parsed.get("payload") {
+                    Some(payload) => super::a2ui::format_user_action(payload),
+                    None => {
+                        let err = serde_json::json!({"type": "error", "message": "a2ui_action missing payload"});
+                        let _ = socket.send(Message::Text(err.to_string().into())).await;
+                        continue;
+                    }
+                }
+            }
+            "message" => {
+                let c = parsed["content"].as_str().unwrap_or("").to_string();
+                if c.is_empty() {
+                    continue;
+                }
+                c
+            }
+            _ => continue,
+        };
+
+        // Security: adversarial input filter (applies to all message types)
         let perplexity_cfg = { state.config.lock().security.perplexity_filter.clone() };
         if let Some(assessment) =
             crate::security::detect_adversarial_suffix(&content, &perplexity_cfg)
@@ -501,7 +522,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
             "model": state.model,
         }));
 
-        // Full agentic loop with tools (includes WASM skills, shell, memory, etc.)
+        // Full agentic loop with tools
         match super::run_gateway_chat_with_tools(&state, &content, Some(&ws_session_id)).await {
             Ok(response) => {
                 let leak_guard_cfg = { state.config.lock().security.outbound_leak_guard.clone() };
@@ -511,14 +532,19 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
                     state.tools_registry_exec.as_ref(),
                     &leak_guard_cfg,
                 );
-                // Add assistant response to history
+                // Store original response (with A2UI) in history
                 history.push(ChatMessage::assistant(&safe_response));
                 persist_ws_history(&state, &session_id, &history).await;
 
-                // Send the full response as a done message
+                // Parse A2UI and send as separate message before done
+                let (text, a2ui) = super::a2ui::parse_response(&safe_response);
+                if !a2ui.is_empty() {
+                    let a2ui_msg = serde_json::json!({"type": "a2ui", "messages": a2ui});
+                    let _ = socket.send(Message::Text(a2ui_msg.to_string().into())).await;
+                }
                 let done = serde_json::json!({
                     "type": "done",
-                    "full_response": safe_response,
+                    "full_response": text,
                 });
                 let _ = socket.send(Message::Text(done.to_string().into())).await;
 

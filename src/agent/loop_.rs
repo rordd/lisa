@@ -7637,4 +7637,5 @@ Let me check the result."#;
         assert!(completed.contains("✅ shell (2s)"));
         assert!(completed.contains("❌ web_search (1s)"));
     }
+
 }

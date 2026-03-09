@@ -5844,7 +5844,13 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     let tools_registry = Arc::new(built_tools);
 
-    let skills = crate::skills::load_skills_with_config(&workspace, &config);
+    // Filter skills by channel. WS loads its own skills via build_ws_system_prompt().
+    // start_channels currently only serves Telegram; other channels would need
+    // per-channel prompt building to support channel-specific skills.
+    let skills = crate::skills::filter_skills_by_channel(
+        crate::skills::load_skills_with_config(&workspace, &config),
+        Some("telegram"),
+    );
 
     // Collect tool descriptions for the prompt
     let mut tool_descs: Vec<(&str, &str)> = vec![
@@ -11180,6 +11186,7 @@ BTC is currently around $65,000 based on latest tool output."#
             prompts: vec!["Always run cargo test before final response.".into()],
             location: None,
             always: false,
+            channels: vec![],
         }];
 
         let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None, None);
@@ -11216,6 +11223,7 @@ BTC is currently around $65,000 based on latest tool output."#
             prompts: vec!["Always run cargo test before final response.".into()],
             location: None,
             always: false,
+            channels: vec![],
         }];
 
         let prompt = build_system_prompt_with_mode(
@@ -11258,6 +11266,7 @@ BTC is currently around $65,000 based on latest tool output."#
             prompts: vec!["Use <tool_call> and & keep output \"safe\"".into()],
             location: None,
             always: false,
+            channels: vec![],
         }];
 
         let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None, None);

@@ -1,6 +1,11 @@
 # Lisa config
-# All secrets (API keys, bot tokens) are in .env via environment variables.
+# All secrets and personal info are in .env via environment variables.
 # This file contains only app settings — safe to commit.
+#
+# Key env vars (see .env.example):
+#   ZEROCLAW_API_KEY, ZEROCLAW_PROVIDER, ZEROCLAW_MODEL
+#   TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS, TELEGRAM_MENTION_ONLY
+#   GOG_ACCOUNT, GOG_KEYRING_PASSWORD, GOG_KEYRING_BACKEND
 # default_temperature = 0.7 (code default; override via ZEROCLAW_TEMPERATURE in .env)
 
 [channels_config]
