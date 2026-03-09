@@ -226,6 +226,7 @@ pub struct Config {
     #[serde(default)]
     pub provider: ProviderConfig,
     /// Default model temperature (0.0–2.0). Default: `0.7`.
+    #[serde(default = "default_temperature")]
     pub default_temperature: f64,
 
     /// Observability backend configuration (`[observability]`).
@@ -3117,6 +3118,10 @@ fn default_hygiene_enabled() -> bool {
 fn default_archive_after_days() -> u32 {
     7
 }
+fn default_temperature() -> f64 {
+    0.7
+}
+
 fn default_purge_after_days() -> u32 {
     30
 }

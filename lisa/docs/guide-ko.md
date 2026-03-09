@@ -18,7 +18,8 @@ cp .env.example .env
 ./onboard.sh
 
 # 4. 실행
-source .env && zeroclaw daemon
+source ~/.zeroclaw/.env && zeroclaw daemon   # 백그라운드 데몬 (텔레그램 등)
+source ~/.zeroclaw/.env && zeroclaw agent    # 대화형 CLI 모드
 ```
 
 ### 소스에서
@@ -36,7 +37,8 @@ cp lisa/profiles/.env.example .env
 ./lisa/scripts/onboard.sh --build
 
 # 4. 실행
-source .env && zeroclaw daemon
+source ~/.zeroclaw/.env && zeroclaw daemon   # 백그라운드 데몬 (텔레그램 등)
+source ~/.zeroclaw/.env && zeroclaw agent    # 대화형 CLI 모드
 ```
 
 ## 설정 구조
@@ -47,33 +49,49 @@ config.default.toml (레포)  ← 앱 설정, 시크릿 없음 (커밋 안전)
 USER.md (로컬)              ← 사용자 프로필 (로컬 전용)
 ```
 
+온보딩 후 `~/.zeroclaw/`에 설치되는 파일:
+```
+~/.zeroclaw/
+├── config.toml   ← config.default.toml에서 복사
+├── .env          ← 소스 .env에서 복사
+└── workspace/
+    ├── USER.md
+    ├── SOUL.md
+    └── AGENTS.md
+```
+
 - `config.default.toml`에 개인정보 없음 — 커밋 안전
 - 텔레그램 토큰, API 키 등은 `.env` 환경변수로 주입
-- 로컬 개발: `~/.zeroclaw/config.toml`은 `config.default.toml`로의 심링크 (onboard.sh가 자동 설정)
-- `config.default.toml` 직접 편집 — daemon restart 시 반영
+- `onboard.sh`가 config와 `.env`를 `~/.zeroclaw/`에 복사 (설치 후 repo 삭제 가능)
+- `config.default.toml`이나 `.env` 수정 후 `onboard.sh --config`로 재적용
 
 ## .env 설정
 
-```bash
-# 필수
-ZEROCLAW_API_KEY=<API 키>
-ZEROCLAW_PROVIDER=gemini          # gemini | openai | azure
-ZEROCLAW_MODEL=gemini-2.5-flash
+LLM 프로바이더를 하나 선택하세요 — Gemini 또는 Azure OpenAI.
 
-# 텔레그램 (선택)
-TELEGRAM_BOT_TOKEN=<봇 토큰>
-TELEGRAM_ALLOWED_USERS=<유저 ID>  # 쉼표 구분
-TELEGRAM_MENTION_ONLY=true
+```bash
+# --- Google Gemini (기본) ---
+export ZEROCLAW_API_KEY=<API 키>
+export ZEROCLAW_PROVIDER=gemini
+export ZEROCLAW_MODEL=gemini-2.5-flash
+
+# --- Azure OpenAI (대안) ---
+# 아래 주석을 해제하고 위의 Gemini 섹션을 주석 처리하세요.
+# export ZEROCLAW_PROVIDER=custom:https://<리소스>.openai.azure.com/openai/v1
+# export ZEROCLAW_MODEL=gpt-5-mini
+# export ZEROCLAW_API_KEY=<azure-api-key>
+# export ZEROCLAW_TEMPERATURE=1              # Reasoning 모델 필수 (gpt-5-mini, o-시리즈)
+# export AZURE_PRIVATE_ENDPOINT=<private-ip>  # Private endpoint 사용 시
+
+# 텔레그램 (선택 — 회사 내부망에서는 사용 불가)
+# export TELEGRAM_BOT_TOKEN=<봇 토큰>
+# export TELEGRAM_ALLOWED_USERS=<유저 ID>  # 쉼표 구분
+# export TELEGRAM_MENTION_ONLY=true
 
 # 구글 캘린더 (선택)
-GOG_ACCOUNT=you@gmail.com
-GOG_KEYRING_PASSWORD=<비밀번호>
-GOG_KEYRING_BACKEND=file
-
-# Azure OpenAI (선택)
-# AZURE_OPENAI_BASE_URL=https://<리소스>.openai.azure.com/openai/deployments/<모델>
-# AZURE_OPENAI_API_KEY=<키>
-# AZURE_OPENAI_AUTH_HEADER=api-key
+export GOG_ACCOUNT=you@gmail.com
+export GOG_KEYRING_PASSWORD=<비밀번호>
+export GOG_KEYRING_BACKEND=file
 ```
 
 ## 개인 파일
@@ -99,7 +117,7 @@ GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar calendars -a you
 ```
 
 **업그레이드 시 백업 필요:**
-- `.env` — API 키, 토큰
+- `~/.zeroclaw/.env` — API 키, 토큰
 - `~/.zeroclaw/workspace/USER.md` — 개인정보
 
 ## onboard.sh 사용법
@@ -111,23 +129,53 @@ onboard.sh --binary               # 바이너리만 교체
 onboard.sh --build --binary       # 빌드 + 바이너리만
 onboard.sh --skills               # 스킬만 교체
 onboard.sh --config               # 설정만 (config.toml + 프로필)
+onboard.sh --clear                # 설치된 파일 전체 제거
+onboard.sh --clear --target IP    # 타겟에서 전체 제거
 onboard.sh --target 192.168.1.50  # 타겟 배포
 onboard.sh --build --target IP    # 크로스빌드 + 배포
 onboard.sh --target IP --skills   # 타겟에 스킬만
 onboard.sh --target IP --config   # 타겟에 설정만
 ```
 
+### 풀 온보딩 자동 테스트
+
+풀 온보딩 (scope 플래그 없이 `onboard.sh` 실행) 시 설치 후 자동 테스트를 수행합니다.
+모든 스킬 테스트는 zeroclaw를 통해 실행되므로 전체 파이프라인을 검증합니다.
+
+| 테스트 | 방법 | 통과 기준 |
+|---|---|---|
+| agent | zeroclaw에 "안녕~" 전송 | Exit 0 |
+| weather | zeroclaw에 날씨 요청 | Agent OK + 유효한 응답 |
+| calendar | zeroclaw에 일정 요청 | Agent OK + gog 설치 + 유효한 응답 |
+| tv-control | zeroclaw에 실행 앱 요청 | Agent OK + luna-send 사용 가능 |
+
+Agent 테스트 실패 시 (LLM 연결 불가) 스킬 테스트는 자동 SKIP됩니다.
+
+### 제거 (--clear)
+
+`--clear`는 onboard.sh로 설치한 모든 것을 제거합니다:
+- zeroclaw daemon 중지
+- `~/.local/bin/zeroclaw` 바이너리 제거
+- `~/.zeroclaw/` 전체 제거 (설정 + 워크스페이스)
+- Azure private endpoint의 `/etc/hosts` 항목 제거 (bind mount 사용 시 해제)
+
+실행 전 확인 프롬프트가 표시됩니다.
+
 ## 개발 워크플로우
 
+> **주의:** 소스 코드 수정 후에는 반드시 릴리즈 빌드(`--build`)를 해야 합니다.
+> `onboard.sh --binary`만으로는 기존 릴리즈 바이너리를 복사할 뿐 다시 빌드하지 않습니다.
+
 ```bash
-# 코드 수정 후: 빌드 + 바이너리 교체
+# 코드 수정 후: 릴리즈 빌드 + 바이너리 교체 (--build 필수)
 onboard.sh --build --binary
 
 # 스킬 수정 후: 스킬 교체
 onboard.sh --skills
 
-# config 수정 후: daemon restart (심링크라 복사 불필요)
-pkill -f "zeroclaw daemon" && source .env && zeroclaw daemon
+# config/.env 수정 후: 재적용 + restart
+onboard.sh --config
+pkill -f "zeroclaw daemon" && source ~/.zeroclaw/.env && zeroclaw daemon
 ```
 
 ## release.sh 사용법
@@ -163,15 +211,26 @@ lisa-v0.2.0-lisa-<platform>/
 
 ## 구글 캘린더 설정
 
-```bash
-# gog CLI 설치
-# macOS:
-brew install steipete/tap/gogcli
-# Linux (릴리즈 번들에 포함됨, 또는 수동):
-gh release download v0.11.0 --repo steipete/gogcli --pattern "*linux_amd64*"  # x86_64
-gh release download v0.11.0 --repo steipete/gogcli --pattern "*linux_arm64*"  # ARM64
-tar xzf gogcli_*.tar.gz && sudo mv gog /usr/local/bin/
+### gog CLI 설치
 
+`onboard.sh`가 `gog`가 없으면 자동으로 설치합니다:
+- **번들**: 릴리즈 번들에 포함된 `bin/gog` 사용
+- **소스**: 플랫폼에 맞는 lisa 릴리즈 번들을 다운로드하여 `bin/gog` 추출
+- 로컬: `~/.local/bin/gog`에 설치, 타겟: 배포 디렉토리에 설치
+
+수동 설치 — lisa 릴리즈 번들에서 gog 바이너리 추출:
+
+```bash
+gh release download --repo rordd/lisa --pattern "*apple-darwin*"       # macOS
+gh release download --repo rordd/lisa --pattern "*x86_64*linux-gnu*"   # Linux x86_64
+gh release download --repo rordd/lisa --pattern "*aarch64*linux-gnu*"  # Linux ARM64
+tar xzf lisa-*.tar.gz
+cp lisa-*/bin/gog ~/.local/bin/gog && chmod +x ~/.local/bin/gog
+```
+
+### 인증 & 테스트
+
+```bash
 # 인증 (최초 1회, 브라우저 필요)
 GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog auth add you@gmail.com --services calendar --manual
 # 브라우저 없는 환경: 다른 기기에서 URL 열고 리다이렉트 URL 복사 → 붙여넣기

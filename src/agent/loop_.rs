@@ -3039,6 +3039,7 @@ pub async fn run(
                 &turns,
                 mem.as_ref(),
                 None,
+                temperature,
             )
             .await;
         }
@@ -3072,6 +3073,7 @@ pub async fn run(
                             &turns,
                             mem.as_ref(),
                             None,
+                            temperature,
                         )
                         .await;
                     }
@@ -3099,6 +3101,7 @@ pub async fn run(
                             &turns,
                             mem.as_ref(),
                             None,
+                            temperature,
                         )
                         .await;
                     }
@@ -3303,6 +3306,7 @@ pub async fn run(
                         &turns,
                         mem.as_ref(),
                         None,
+                        temperature,
                     )
                     .await;
                     if result.stored > 0 || result.no_facts {
@@ -3326,6 +3330,7 @@ pub async fn run(
                 Some(mem.as_ref()),
                 None,
                 post_turn_active,
+                temperature,
             )
             .await
             {
@@ -3612,6 +3617,7 @@ pub async fn process_message_with_session(
             &turns,
             mem.as_ref(),
             session_id,
+            config.default_temperature,
         )
         .await;
     }
