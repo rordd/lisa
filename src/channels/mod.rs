@@ -5849,7 +5849,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     // per-channel prompt building to support channel-specific skills.
     let skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&workspace, &config),
-        Some("telegram"),
+        Some("default"),
     );
 
     // Collect tool descriptions for the prompt

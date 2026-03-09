@@ -1514,11 +1514,9 @@ impl Provider for GeminiProvider {
             match self.convert_tools(tools) {
                 ToolsPayload::Gemini {
                     function_declarations,
-                } => {
-                    Some(vec![serde_json::json!({
-                        "functionDeclarations": function_declarations,
-                    })])
-                },
+                } => Some(vec![serde_json::json!({
+                    "functionDeclarations": function_declarations,
+                })]),
                 _ => None,
             }
         });
