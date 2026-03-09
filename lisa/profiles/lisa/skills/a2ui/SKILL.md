@@ -1,7 +1,7 @@
 ---
 name: a2ui
 description: "A2UI v0.8 card rendering. Generate visual UI cards (weather, tasks, info) on the WebSocket channel."
-version: "2.2.0"
+version: "2.3.0"
 channels: ws
 always: true
 ---
@@ -15,7 +15,7 @@ When presenting structured or visual information (weather, tasks, schedules, etc
 Your response MUST have two parts separated by the delimiter `---a2ui_JSON---`:
 
 ```
-Natural language response (visible to user)
+Your conversational text response here
 ---a2ui_JSON---
 [{surfaceUpdate: ...}, {dataModelUpdate: ...}, {beginRendering: ...}]
 ```
@@ -49,24 +49,48 @@ Natural language response (visible to user)
 - **Slider** — `{value: {literalNumber|path}, minValue?, maxValue?}`
 - **Divider** — `{}`
 
-**IMPORTANT: Button requires `child` (id of a Text component for the label) and `action` (with `name` and `context`). Do NOT use `label` or `onClick` — those are invalid.**
-
-**IMPORTANT: `usageHint` MUST be exactly one of: h1, h2, h3, h4, h5, body, caption. No variations (e.g. "body1" is INVALID).**
-
-## Example 1: Weather Card
+## Minimal Example (delimiter + 3-message pattern)
 
 ```
-Here's the current weather for Seoul. High of 5°C, low of -2°C — pretty chilly!
+Your text response here
 ---a2ui_JSON---
-[{"surfaceUpdate":{"surfaceId":"weather","components":[{"id":"root","component":{"Card":{"child":"col"}}},{"id":"col","component":{"Column":{"children":{"explicitList":["temp-row","location","desc"]},"alignment":"center"}}},{"id":"temp-row","component":{"Row":{"children":{"explicitList":["temp-high","temp-low"]},"alignment":"start"}}},{"id":"temp-high","component":{"Text":{"text":{"path":"/tempHigh"},"usageHint":"h1"}}},{"id":"temp-low","component":{"Text":{"text":{"path":"/tempLow"},"usageHint":"h2"}}},{"id":"location","component":{"Text":{"text":{"path":"/location"},"usageHint":"h3"}}},{"id":"desc","component":{"Text":{"text":{"path":"/description"},"usageHint":"caption"}}}]}},{"dataModelUpdate":{"surfaceId":"weather","contents":[{"key":"tempHigh","valueString":"5°C"},{"key":"tempLow","valueString":"-2°C"},{"key":"location","valueString":"Seoul, Gangseo-gu"},{"key":"description","valueString":"Clear, wind 9km/h"}]}},{"beginRendering":{"surfaceId":"weather","root":"root"}}]
+[{"surfaceUpdate":{"surfaceId":"demo","components":[{"id":"root","component":{"Card":{"child":"title"}}},{"id":"title","component":{"Text":{"text":{"literalString":"Title"},"usageHint":"h2"}}}]}},{"dataModelUpdate":{"surfaceId":"demo","contents":[]}},{"beginRendering":{"surfaceId":"demo","root":"root"}}]
 ```
 
-## Example 2: Button Card (structure only — generate your own content!)
+## Official JSON Schema (Button & Text)
 
-```
-Here's your options. Pick one!
----a2ui_JSON---
-[{"surfaceUpdate":{"surfaceId":"buttons-demo","components":[{"id":"root","component":{"Card":{"child":"col"}}},{"id":"col","component":{"Column":{"children":{"explicitList":["title","btn-row"]},"alignment":"center"}}},{"id":"title","component":{"Text":{"text":{"literalString":"YOUR TITLE HERE"},"usageHint":"h2"}}},{"id":"btn-row","component":{"Row":{"children":{"explicitList":["btn-a","btn-b"]},"distribution":"spaceAround"}}},{"id":"btn-a-text","component":{"Text":{"text":{"literalString":"Option A"}}}},{"id":"btn-a","component":{"Button":{"child":"btn-a-text","action":{"name":"select","context":[{"key":"choice","value":{"literalString":"a"}}]}}}},{"id":"btn-b-text","component":{"Text":{"text":{"literalString":"Option B"}}}},{"id":"btn-b","component":{"Button":{"child":"btn-b-text","action":{"name":"select","context":[{"key":"choice","value":{"literalString":"b"}}]}}}}]}},{"beginRendering":{"surfaceId":"buttons-demo","root":"root"}}]
+These are the authoritative schemas from the A2UI v0.8 specification. Follow them exactly.
+
+```json
+{
+  "Button": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "child": { "type": "string", "description": "The ID of the component to display in the button, typically a Text component." },
+      "primary": { "type": "boolean" },
+      "action": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "context": { "type": "array", "items": { "type": "object", "properties": { "key": { "type": "string" }, "value": { "type": "object", "properties": { "path": { "type": "string" }, "literalString": { "type": "string" }, "literalNumber": { "type": "number" }, "literalBoolean": { "type": "boolean" } } } }, "required": ["key", "value"] } }
+        },
+        "required": ["name"]
+      }
+    },
+    "required": ["child", "action"]
+  },
+  "Text": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "text": { "type": "object", "properties": { "literalString": { "type": "string" }, "path": { "type": "string" } } },
+      "usageHint": { "type": "string", "enum": ["h1", "h2", "h3", "h4", "h5", "caption", "body"] }
+    },
+    "required": ["text"]
+  }
+}
 ```
 
-**Note:** This is a structural template. Always generate unique content — different questions, options, surfaceIds, etc. Never copy examples verbatim.
+
