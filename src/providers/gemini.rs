@@ -7,8 +7,10 @@
 use crate::auth::AuthService;
 use crate::multimodal;
 use crate::providers::traits::{
-    ChatMessage, ChatResponse, NormalizedStopReason, Provider, TokenUsage,
+    ChatMessage, ChatResponse, NormalizedStopReason, Provider, ProviderCapabilities, TokenUsage,
+    ToolCall, ToolsPayload,
 };
+use crate::tools::ToolSpec;
 use async_trait::async_trait;
 use base64::Engine;
 use directories::UserDirs;
@@ -92,6 +94,8 @@ struct GenerateContentRequest {
     system_instruction: Option<Content>,
     #[serde(rename = "generationConfig")]
     generation_config: GenerationConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
 }
 
 /// Request envelope for the internal cloudcode-pa API.
@@ -128,6 +132,8 @@ struct InternalGenerateContentRequest {
     system_instruction: Option<Content>,
     #[serde(rename = "generationConfig", skip_serializing_if = "Option::is_none")]
     generation_config: Option<GenerationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -147,6 +153,31 @@ enum Part {
         #[serde(rename = "inlineData")]
         inline_data: InlineDataPart,
     },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: FunctionCallData,
+    },
+    FunctionResponse {
+        #[serde(rename = "functionResponse")]
+        function_response: FunctionResponseData,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct FunctionCallData {
+    name: String,
+    #[serde(default = "default_empty_object")]
+    args: serde_json::Value,
+}
+
+fn default_empty_object() -> serde_json::Value {
+    serde_json::json!({})
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct FunctionResponseData {
+    name: String,
+    response: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -208,6 +239,9 @@ struct ResponsePart {
     /// Thinking models (e.g. gemini-3-pro-preview) mark reasoning parts with `thought: true`.
     #[serde(default)]
     thought: bool,
+    /// Function call requested by the model.
+    #[serde(default, rename = "functionCall")]
+    function_call: Option<FunctionCallData>,
 }
 
 impl CandidateContent {
@@ -919,6 +953,7 @@ impl GeminiProvider {
                         } else {
                             None
                         },
+                        tools: request.tools.clone(),
                     },
                 };
                 self.http_client()
@@ -1015,6 +1050,26 @@ impl GeminiProvider {
         Option<NormalizedStopReason>,
         Option<String>,
     )> {
+        let (text, _tool_calls, usage, stop_reason, raw_stop_reason) = self
+            .send_generate_content_inner(contents, system_instruction, None, model, temperature)
+            .await?;
+        Ok((text, usage, stop_reason, raw_stop_reason))
+    }
+
+    async fn send_generate_content_inner(
+        &self,
+        contents: Vec<Content>,
+        system_instruction: Option<Content>,
+        tools: Option<Vec<serde_json::Value>>,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<(
+        Option<String>,
+        Vec<ToolCall>,
+        Option<TokenUsage>,
+        Option<NormalizedStopReason>,
+        Option<String>,
+    )> {
         let auth = self.auth.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
                 "Gemini API key not found. Options:\n\
@@ -1064,6 +1119,7 @@ impl GeminiProvider {
                 temperature,
                 max_output_tokens: 8192,
             },
+            tools,
         };
 
         let url = Self::build_generate_content_url(model, auth);
@@ -1216,14 +1272,68 @@ impl GeminiProvider {
             .as_deref()
             .map(NormalizedStopReason::from_gemini_finish_reason);
 
-        let text = candidate.content.and_then(|c| c.effective_text());
+        // Extract function calls and text from response parts
+        let mut tool_calls = Vec::new();
+        let mut text = None;
+        if let Some(content) = candidate.content {
+            let mut text_parts = Vec::new();
+            for part in &content.parts {
+                if let Some(ref fc) = part.function_call {
+                    let args_str = serde_json::to_string(&fc.args).unwrap_or_default();
+                    tool_calls.push(ToolCall {
+                        id: format!("gemini_{}", uuid::Uuid::new_v4()),
+                        name: fc.name.clone(),
+                        arguments: args_str,
+                    });
+                } else if let Some(ref t) = part.text {
+                    if !t.is_empty() && !part.thought {
+                        text_parts.push(t.as_str());
+                    }
+                }
+            }
+            if !text_parts.is_empty() {
+                text = Some(text_parts.join(""));
+            }
+        }
 
-        Ok((text, usage, stop_reason, raw_stop_reason))
+        // Override stop_reason to ToolCall when function calls are present
+        let stop_reason = if !tool_calls.is_empty() {
+            Some(NormalizedStopReason::ToolCall)
+        } else {
+            stop_reason
+        };
+
+        Ok((text, tool_calls, usage, stop_reason, raw_stop_reason))
     }
 }
 
 #[async_trait]
 impl Provider for GeminiProvider {
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            native_tool_calling: true,
+            vision: true,
+        }
+    }
+
+    fn convert_tools(&self, tools: &[ToolSpec]) -> ToolsPayload {
+        let function_declarations: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                // Use parameters_json_schema (accepts full JSON Schema)
+                // instead of parameters (limited Gemini Schema type)
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters_json_schema": t.parameters,
+                })
+            })
+            .collect();
+        ToolsPayload::Gemini {
+            function_declarations,
+        }
+    }
+
     async fn chat_with_system(
         &self,
         system_prompt: Option<&str>,
@@ -1317,12 +1427,70 @@ impl Provider for GeminiProvider {
                     role: Some("user".to_string()),
                     parts: Self::build_user_parts(&msg.content),
                 }),
-                "assistant" => contents.push(Content {
-                    role: Some("model".to_string()),
-                    parts: vec![Part::Text {
-                        text: msg.content.clone(),
-                    }],
-                }),
+                "assistant" => {
+                    // Check if this is a tool-call history message (JSON array of tool calls)
+                    if let Ok(tool_calls) = serde_json::from_str::<Vec<ToolCall>>(&msg.content) {
+                        let parts = tool_calls
+                            .iter()
+                            .map(|tc| {
+                                let args: serde_json::Value = serde_json::from_str(&tc.arguments)
+                                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                                Part::FunctionCall {
+                                    function_call: FunctionCallData {
+                                        name: tc.name.clone(),
+                                        args,
+                                    },
+                                }
+                            })
+                            .collect();
+                        contents.push(Content {
+                            role: Some("model".to_string()),
+                            parts,
+                        });
+                    } else {
+                        contents.push(Content {
+                            role: Some("model".to_string()),
+                            parts: vec![Part::Text {
+                                text: msg.content.clone(),
+                            }],
+                        });
+                    }
+                }
+                "tool" => {
+                    // Tool result message: parse as JSON to extract name and result
+                    // Expected format: {"tool_call_id":"...","name":"tool_name","content":"result"}
+                    if let Ok(result) = serde_json::from_str::<serde_json::Value>(&msg.content) {
+                        let name = result
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let content = result
+                            .get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&msg.content);
+                        let response_val = serde_json::json!({ "result": content });
+                        contents.push(Content {
+                            role: Some("user".to_string()),
+                            parts: vec![Part::FunctionResponse {
+                                function_response: FunctionResponseData {
+                                    name: name.to_string(),
+                                    response: response_val,
+                                },
+                            }],
+                        });
+                    } else {
+                        // Fallback: wrap raw content as function response
+                        contents.push(Content {
+                            role: Some("user".to_string()),
+                            parts: vec![Part::FunctionResponse {
+                                function_response: FunctionResponseData {
+                                    name: "unknown".to_string(),
+                                    response: serde_json::json!({ "result": msg.content }),
+                                },
+                            }],
+                        });
+                    }
+                }
                 _ => {}
             }
         }
@@ -1338,13 +1506,36 @@ impl Provider for GeminiProvider {
             })
         };
 
-        let (text, usage, stop_reason, raw_stop_reason) = self
-            .send_generate_content(contents, system_instruction, model, temperature)
+        // Convert tools to Gemini format if provided
+        let gemini_tools = request.tools.and_then(|tools| {
+            if tools.is_empty() {
+                return None;
+            }
+            match self.convert_tools(tools) {
+                ToolsPayload::Gemini {
+                    function_declarations,
+                } => {
+                    Some(vec![serde_json::json!({
+                        "functionDeclarations": function_declarations,
+                    })])
+                },
+                _ => None,
+            }
+        });
+
+        let (text, tool_calls, usage, stop_reason, raw_stop_reason) = self
+            .send_generate_content_inner(
+                contents,
+                system_instruction,
+                gemini_tools,
+                model,
+                temperature,
+            )
             .await?;
 
         Ok(ChatResponse {
             text,
-            tool_calls: Vec::new(),
+            tool_calls,
             usage,
             reasoning_content: None,
             quota_metadata: None,
@@ -1631,6 +1822,7 @@ mod tests {
                 temperature: 0.7,
                 max_output_tokens: 8192,
             },
+            tools: None,
         };
 
         let request = provider
@@ -1672,6 +1864,7 @@ mod tests {
                 temperature: 0.7,
                 max_output_tokens: 8192,
             },
+            tools: None,
         };
 
         let request = provider
@@ -1716,6 +1909,7 @@ mod tests {
                 temperature: 0.7,
                 max_output_tokens: 8192,
             },
+            tools: None,
         };
 
         let request = provider
@@ -1753,6 +1947,7 @@ mod tests {
                 temperature: 0.7,
                 max_output_tokens: 8192,
             },
+            tools: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -1771,7 +1966,7 @@ mod tests {
         assert_eq!(parts.len(), 1);
         match &parts[0] {
             Part::Text { text } => assert_eq!(text, content),
-            Part::InlineData { .. } => panic!("text-only message must stay text-only"),
+            _ => panic!("text-only message must stay text-only"),
         }
     }
 
@@ -1783,14 +1978,14 @@ mod tests {
         assert_eq!(parts.len(), 2);
         match &parts[0] {
             Part::Text { text } => assert_eq!(text, "Describe this image"),
-            Part::InlineData { .. } => panic!("first part should be text"),
+            _ => panic!("first part should be text"),
         }
         match &parts[1] {
             Part::InlineData { inline_data } => {
                 assert_eq!(inline_data.mime_type, "image/png");
                 assert_eq!(inline_data.data, "aGVsbG8=");
             }
-            Part::Text { .. } => panic!("second part should be inline image data"),
+            _ => panic!("second part should be inline image data"),
         }
     }
 
@@ -1814,7 +2009,7 @@ mod tests {
                 assert_eq!(inline_data.mime_type, "image/webp");
                 assert_eq!(inline_data.data, "YWJjZA==");
             }
-            Part::Text { .. } => panic!("image-only message should create inline image part"),
+            _ => panic!("image-only message should create inline image part"),
         }
     }
 
@@ -1824,11 +2019,11 @@ mod tests {
         assert_eq!(parts.len(), 2);
         match &parts[0] {
             Part::Text { text } => assert_eq!(text, "Inspect"),
-            Part::InlineData { .. } => panic!("first part should be text"),
+            _ => panic!("first part should be text"),
         }
         match &parts[1] {
             Part::Text { text } => assert_eq!(text, "[IMAGE:https://example.com/img.png]"),
-            Part::InlineData { .. } => panic!("invalid markers should fall back to text"),
+            _ => panic!("invalid markers should fall back to text"),
         }
     }
 
@@ -1850,6 +2045,7 @@ mod tests {
                     temperature: 0.7,
                     max_output_tokens: 8192,
                 }),
+                tools: None,
             },
         };
 
@@ -1879,6 +2075,7 @@ mod tests {
                 }],
                 system_instruction: None,
                 generation_config: None,
+                tools: None,
             },
         };
 
@@ -1902,6 +2099,7 @@ mod tests {
                 }],
                 system_instruction: None,
                 generation_config: None,
+                tools: None,
             },
         };
 
