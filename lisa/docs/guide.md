@@ -123,19 +123,28 @@ GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar calendars -a you
 ## onboard.sh
 
 ```bash
-onboard.sh                        # Full onboard (first install)
-onboard.sh --build                # Build + full onboard
-onboard.sh --binary               # Binary only (quick swap)
-onboard.sh --build --binary       # Build + binary only
-onboard.sh --skills               # Skills only
-onboard.sh --config               # Config only (config.toml + profile)
-onboard.sh --clear                # Remove all installed files
-onboard.sh --clear --target IP    # Remove all from target
-onboard.sh --target 192.168.1.50  # Deploy to target
-onboard.sh --build --target IP    # Cross-build + deploy
-onboard.sh --target IP --skills   # Skills only to target
-onboard.sh --target IP --config   # Config only to target
+onboard.sh                              # Full onboard (first install)
+onboard.sh --build                      # Build + full onboard
+onboard.sh --binary                     # Binary only (quick swap)
+onboard.sh --build --binary             # Build + binary only
+onboard.sh --skills                     # Skills only
+onboard.sh --config                     # Config only (config.toml + profile)
+onboard.sh --clear                      # Remove all installed files
+onboard.sh --target 192.168.1.50        # Deploy to target
+onboard.sh --target IP --build          # Cross-build + deploy to target
+onboard.sh --target IP --binary         # Binary only (quick swap) to target
+onboard.sh --target IP --build --binary # Build + binary only to target
+onboard.sh --target IP --skills         # Skills only to target
+onboard.sh --target IP --config         # Config only to target
+onboard.sh --target IP --clear          # Remove all from target
 ```
+
+### Binary replacement behavior
+
+`--binary`, `--skills`, and `--config` automatically handle running processes:
+- All zeroclaw processes (daemon, agent) are stopped before replacing the binary
+- If the **daemon** was running before replacement, it is restarted automatically
+- If only agent (or nothing) was running, no restart occurs
 
 ### Full onboard tests
 
@@ -213,12 +222,32 @@ lisa-v0.2.0-lisa-<platform>/
 
 ### gog CLI Installation
 
-`onboard.sh` automatically installs `gog` if it is not found:
-- **Bundle**: Uses the bundled `bin/gog` if present (release bundles include it)
-- **Source**: Downloads the lisa release bundle for your platform and extracts `bin/gog`
-- Installs to `~/.local/bin/gog` (local) or deploy directory (target)
+`onboard.sh` automatically installs `gog` if it is not found.
+It searches for a binary in this order:
+1. `bin/gog-linux-{arm64,amd64}` — arch-specific binary in `lisa/bin/` (local build)
+2. `bin/gog` — generic binary (release bundle)
+3. GitHub release download (fallback)
 
-To install manually, download the lisa release bundle and extract the gog binary:
+Installs to `~/.local/bin/gog` (local) or deploy directory (target).
+
+#### Build from source
+
+Build gog from the [gogcli](https://github.com/steipete/gogcli) source and place the binaries in `lisa/bin/` so that `onboard.sh` can find them:
+
+```bash
+# Clone gogcli anywhere (location is up to you)
+git clone https://github.com/steipete/gogcli.git
+cd gogcli
+
+# Static build for both architectures
+mkdir -p /path/to/lisa/lisa/bin
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o /path/to/lisa/lisa/bin/gog-linux-amd64 ./cmd/gog
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o /path/to/lisa/lisa/bin/gog-linux-arm64 ./cmd/gog
+```
+
+> `lisa/bin/` is gitignored — built binaries are local only.
+
+#### Manual install from release bundle
 
 ```bash
 gh release download --repo rordd/lisa --pattern "*apple-darwin*"       # macOS
@@ -236,7 +265,7 @@ GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog auth add you@gmail.com --
 # No browser? Open URL on another device, copy redirect URL and paste
 
 # Test
-GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar list --from today --to tomorrow
+GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar events primary --from today --to tomorrow
 
 # List all calendar IDs (for USER.md setup)
 GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar calendars -a you@gmail.com
@@ -257,10 +286,38 @@ cd ~/project/lisa
 ./lisa/scripts/onboard.sh --build --target <board-ip>
 ```
 
+### Target install layout
+
+Same directory structure as local — config and secrets in `~/.zeroclaw/`, binary in the deploy directory:
+
+```
+/home/root/lisa/            ← Binary + deps (deploy dir)
+├── zeroclaw
+└── gog
+
+/home/root/.zeroclaw/       ← Config + secrets + workspace (same as local ~/.zeroclaw/)
+├── config.toml
+├── .env
+└── workspace/
+    ├── USER.md
+    ├── SOUL.md
+    ├── AGENTS.md
+    └── skills/
+```
+
+### Running on target
+
+```bash
+# Via SSH
+ssh root@<board-ip> 'export PATH=/home/root/lisa:$PATH && source ~/.zeroclaw/.env && zeroclaw daemon'
+ssh root@<board-ip> 'export PATH=/home/root/lisa:$PATH && source ~/.zeroclaw/.env && zeroclaw agent'
+```
+
 ### Requirements
-- Docker Desktop (for cross-build)
-- `cross` CLI (`cargo install cross`)
 - SSH key-based access
+- Cross-build toolchain (one of the following):
+  - **Option A**: `cross` CLI + Docker (`cargo install cross`)
+  - **Option B**: Native musl toolchain (`sudo apt install gcc-aarch64-linux-gnu musl-tools` + `rustup target add aarch64-unknown-linux-musl`)
 
 ## Platform Bundles
 

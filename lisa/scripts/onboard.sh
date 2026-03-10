@@ -26,6 +26,7 @@ PROFILE="lisa"
 DO_BUILD=false
 SCOPE="full"     # full | binary | skills | config | clear
 TARGET=""
+DAEMON_WAS_RUNNING=false
 TARGET_USER="root"
 TARGET_DEPLOY_DIR="/home/root/lisa"
 TARGET_ZEROCLAW_DIR="/home/root/.zeroclaw"
@@ -151,14 +152,38 @@ copy_dir() {
     fi
 }
 
+detect_daemon_state() {
+    if [[ -n "$TARGET" ]]; then
+        if ssh "$TARGET_HOST" "pgrep -f 'zeroclaw daemon' >/dev/null 2>&1 || (pidof zeroclaw >/dev/null 2>&1 && cat /proc/\$(pidof -s zeroclaw)/cmdline 2>/dev/null | tr '\\0' ' ' | grep -q 'daemon')" 2>/dev/null; then
+            DAEMON_WAS_RUNNING=true
+        fi
+    else
+        if pgrep -u "$(id -u)" -f "zeroclaw daemon" >/dev/null 2>&1; then
+            DAEMON_WAS_RUNNING=true
+        fi
+    fi
+}
+
 restart_daemon() {
+    if [[ "$DAEMON_WAS_RUNNING" != true ]]; then
+        echo ""
+        echo "  Daemon was not running — skipping restart"
+        return 0
+    fi
     echo ""
     echo "  Restarting daemon..."
+    # Stop existing processes before starting new daemon
     if [[ -n "$TARGET" ]]; then
-        ssh "$TARGET_HOST" "pkill -9 -f zeroclaw 2>/dev/null; sleep 1; cd $TARGET_DEPLOY_DIR && source .env && nohup ./zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &"
+        ssh "$TARGET_HOST" "pidof zeroclaw >/dev/null 2>&1 && kill -9 \$(pidof zeroclaw) 2>/dev/null" || true
     else
-        pkill -9 -f "zeroclaw daemon" 2>/dev/null || true
-        sleep 1
+        pkill -9 -u "$(id -u)" -x zeroclaw 2>/dev/null || true
+    fi
+    sleep 1
+    if [[ -n "$TARGET" ]]; then
+        ssh "$TARGET_HOST" "cd $TARGET_DEPLOY_DIR && export PATH=$TARGET_DEPLOY_DIR:\$PATH && . $TARGET_ZEROCLAW_DIR/.env && nohup ./zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &"
+    else
+        source "$ZEROCLAW_DIR/.env" 2>/dev/null || true
+        nohup zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &
     fi
     echo "  Done"
 }
@@ -171,9 +196,14 @@ if [[ "$DO_BUILD" == true ]]; then
     echo "[Build]"
     cd "$REPO_DIR"
     if [[ -n "$TARGET" ]]; then
-        echo "  Cross-compiling for ARM64..."
-        cross build --release --target aarch64-unknown-linux-gnu
-        BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-gnu/release/zeroclaw"
+        echo "  Cross-compiling for ARM64 (musl/static)..."
+        if command -v cross &>/dev/null && (command -v docker &>/dev/null || command -v podman &>/dev/null); then
+            cross build --release --target aarch64-unknown-linux-musl
+        else
+            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
+                cargo build --release --target aarch64-unknown-linux-musl
+        fi
+        BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw"
     else
         echo "  Building from source..."
         cargo build --release
@@ -189,11 +219,24 @@ fi
 install_binary() {
     echo "[Binary]"
 
-    # Find binary: --build output > bundle > local build > PATH
+    # Check if daemon is running (save state for restart_daemon)
+    detect_daemon_state
+
+    # Stop ALL zeroclaw processes (current user only) before replacing binary (avoids "Text file busy")
+    if [[ -n "$TARGET" ]]; then
+        ssh "$TARGET_HOST" "pidof zeroclaw >/dev/null 2>&1 && kill -9 \$(pidof zeroclaw) 2>/dev/null" || true
+    else
+        pkill -9 -u "$(id -u)" -x zeroclaw 2>/dev/null || true
+    fi
+    sleep 1
+
+    # Find binary: --build output > bundle > cross-build (for target) > local build > PATH
     if [[ -n "$BINARY_PATH" ]]; then
         : # already set by --build
     elif [[ -f "$BASE_DIR/zeroclaw" ]]; then
         BINARY_PATH="$BASE_DIR/zeroclaw"  # bundle
+    elif [[ -n "$TARGET" && -f "$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw" ]]; then
+        BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw"  # cross-build for ARM64 (musl/static)
     elif [[ -f "$REPO_DIR/target/release/zeroclaw" ]]; then
         BINARY_PATH="$REPO_DIR/target/release/zeroclaw"  # local build
     elif command -v zeroclaw &>/dev/null; then
@@ -204,19 +247,27 @@ install_binary() {
     fi
 
     if [[ -n "$TARGET" ]]; then
+        # Architecture mismatch check
+        local target_arch
+        target_arch=$(ssh "$TARGET_HOST" "uname -m")
+        local binary_arch
+        binary_arch=$(file "$BINARY_PATH" 2>/dev/null | sed -n 's/.*ELF 64-bit.*\(x86-64\|ARM aarch64\).*/\1/p')
+        local mismatch=false
+        if [[ "$target_arch" == "aarch64" && "$binary_arch" == "x86-64" ]]; then
+            mismatch=true
+        elif [[ "$target_arch" == "x86_64" && "$binary_arch" == "ARM aarch64" ]]; then
+            mismatch=true
+        fi
+        if [[ "$mismatch" == true ]]; then
+            echo "  ERROR: Architecture mismatch — binary is $binary_arch but target is $target_arch"
+            echo "  Use --build --target to cross-compile for the target architecture."
+            exit 1
+        fi
+
         ensure_dir "$TARGET_DEPLOY_DIR"
         scp -q "$BINARY_PATH" "$TARGET_HOST:$TARGET_DEPLOY_DIR/zeroclaw"
         ssh "$TARGET_HOST" "chmod +x $TARGET_DEPLOY_DIR/zeroclaw"
         echo "  zeroclaw → $TARGET_HOST:$TARGET_DEPLOY_DIR/"
-        # Dependency binaries (bin/)
-        if [[ -d "$BASE_DIR/bin" ]]; then
-            for dep in "$BASE_DIR/bin"/*; do
-                [[ -f "$dep" ]] || continue
-                scp -q "$dep" "$TARGET_HOST:$TARGET_DEPLOY_DIR/$(basename "$dep")"
-                ssh "$TARGET_HOST" "chmod +x $TARGET_DEPLOY_DIR/$(basename "$dep")"
-                echo "  $(basename "$dep") → $TARGET_HOST:$TARGET_DEPLOY_DIR/"
-            done
-        fi
     else
         # Install: copy to existing location or ~/.local/bin
         local existing
@@ -230,14 +281,6 @@ install_binary() {
             cp "$BINARY_PATH" "$HOME/.local/bin/zeroclaw"
             chmod +x "$HOME/.local/bin/zeroclaw"
             echo "  Installed to ~/.local/bin/"
-        fi
-        if [[ -d "$BASE_DIR/bin" ]]; then
-            for dep in "$BASE_DIR/bin"/*; do
-                [[ -f "$dep" ]] || continue
-                cp "$dep" "$HOME/.local/bin/$(basename "$dep")"
-                chmod +x "$HOME/.local/bin/$(basename "$dep")"
-                echo "  $(basename "$dep") installed"
-            done
         fi
         echo "  Installed"
     fi
@@ -260,54 +303,89 @@ setup_hosts() {
     local hosts_entry="$private_ip $hostname"
     echo "[Hosts]"
 
-    setup_hosts_on() {
-        local run_cmd="$1"  # "" for local, "ssh $TARGET_HOST" for target
-        local home_dir="$2"
-
-        # Already configured?
-        if $run_cmd grep -q "$hostname" /etc/hosts 2>/dev/null; then
-            echo "  $hostname already in /etc/hosts ✓"
-            return 0
-        fi
-
-        # 1. Writable /etc/hosts → direct append (root user)
-        if $run_cmd test -w /etc/hosts 2>/dev/null; then
-            $run_cmd sh -c "echo '$hosts_entry' >> /etc/hosts"
-            echo "  Added $hosts_entry to /etc/hosts"
-            return 0
-        fi
-
-        # 2. Need elevated privileges
-        if [[ -z "$run_cmd" ]]; then
-            # Local: use sudo (prompts for password if needed)
-            echo "  sudo required to modify /etc/hosts"
-            if sudo sh -c "echo '$hosts_entry' >> /etc/hosts" 2>/dev/null; then
-                echo "  Added $hosts_entry to /etc/hosts (sudo)"
-                return 0
-            fi
-            # /etc/hosts append failed (read-only filesystem) → bind mount
-            local hosts_copy="$home_dir/.hosts"
-            cp /etc/hosts "$hosts_copy"
-            sh -c "echo '$hosts_entry' >> $hosts_copy"
-            sudo mountpoint -q /etc/hosts 2>/dev/null && sudo umount /etc/hosts 2>/dev/null || true
-            sudo mount --bind "$hosts_copy" /etc/hosts
-            echo "  Added $hosts_entry via bind mount ($hosts_copy → /etc/hosts)"
-        else
-            # Target (SSH, typically root) → bind mount for read-only
-            local hosts_copy="$home_dir/.hosts"
-            $run_cmd cp /etc/hosts "$hosts_copy"
-            $run_cmd sh -c "echo '$hosts_entry' >> $hosts_copy"
-            $run_cmd mountpoint -q /etc/hosts 2>/dev/null && $run_cmd umount /etc/hosts 2>/dev/null || true
-            $run_cmd mount --bind "$hosts_copy" /etc/hosts
-            echo "  Added $hosts_entry via bind mount ($hosts_copy → /etc/hosts)"
-        fi
-    }
-
     if [[ -n "$TARGET" ]]; then
-        setup_hosts_on "ssh $TARGET_HOST" "/home/$TARGET_USER"
+        # Target (SSH): /etc/hosts may be read-only → use .hosts + bind mount
+        local hosts_copy="/home/$TARGET_USER/.hosts"
+        ssh "$TARGET_HOST" "
+            if grep -q '$hostname' /etc/hosts 2>/dev/null; then
+                echo 'ALREADY_OK'
+            else
+                # Ensure .hosts exists (copy original only if not bind-mounted)
+                if ! mountpoint -q /etc/hosts 2>/dev/null; then
+                    cp /etc/hosts $hosts_copy
+                fi
+                echo '$hosts_entry' >> $hosts_copy
+                # (Re)apply bind mount
+                mountpoint -q /etc/hosts 2>/dev/null && umount /etc/hosts 2>/dev/null || true
+                mount --bind $hosts_copy /etc/hosts
+                echo 'DONE'
+            fi
+        " 2>/dev/null | {
+            read -r result
+            case "$result" in
+                ALREADY_OK) echo "  $hostname already in /etc/hosts ✓" ;;
+                DONE)       echo "  Added $hosts_entry to /etc/hosts" ;;
+                *)          echo "  WARNING: failed to configure /etc/hosts" ;;
+            esac
+        }
     else
-        setup_hosts_on "" "$HOME"
+        # Local
+        if grep -q "$hostname" /etc/hosts 2>/dev/null; then
+            echo "  $hostname already in /etc/hosts ✓"
+        elif sh -c "echo '$hosts_entry' >> /etc/hosts" 2>/dev/null; then
+            echo "  Added $hosts_entry to /etc/hosts"
+        else
+            echo "  sudo required to modify /etc/hosts"
+            sudo sh -c "echo '$hosts_entry' >> /etc/hosts"
+            echo "  Added $hosts_entry to /etc/hosts (sudo)"
+        fi
     fi
+    echo ""
+}
+
+# ══════════════════════════════════════════════
+# TARGET PROFILE — PATH + /etc/hosts on login
+# ══════════════════════════════════════════════
+setup_target_profile() {
+    [[ -z "$TARGET" ]] && return 0
+
+    echo "[Profile]"
+    local profile_path="/home/$TARGET_USER/.profile"
+    local marker="# --- lisa onboard ---"
+
+    # Check if already configured
+    if ssh "$TARGET_HOST" "grep -q '$marker' $profile_path 2>/dev/null"; then
+        echo "  .profile already configured ✓"
+        echo ""
+        return 0
+    fi
+
+    # Build the block to append
+    local block=""
+    block+="$marker"
+    block+=$'\n'"export PATH=$TARGET_DEPLOY_DIR:\$PATH"
+
+    # /etc/hosts bind mount (if Azure private endpoint is configured)
+    local private_ip="${AZURE_PRIVATE_ENDPOINT:-}"
+    local provider="${ZEROCLAW_PROVIDER:-}"
+    local hostname=""
+    hostname=$(echo "$provider" | sed -n 's|.*custom:https\?://\([^/:]*\).*|\1|p')
+    if [[ -n "$private_ip" && -n "$hostname" ]]; then
+        local hosts_copy="/home/$TARGET_USER/.hosts"
+        block+=$'\n'"# Ensure /etc/hosts has Azure private endpoint (bind mount for read-only fs)"
+        block+=$'\n'"if ! grep -q '$hostname' /etc/hosts 2>/dev/null; then"
+        block+=$'\n'"    [ -f $hosts_copy ] && mount --bind $hosts_copy /etc/hosts 2>/dev/null"
+        block+=$'\n'"fi"
+    fi
+
+    block+=$'\n'"$marker"
+
+    ssh "$TARGET_HOST" "cat >> $profile_path << 'PROFILE_EOF'
+$block
+PROFILE_EOF"
+    echo "  Updated $profile_path on target:"
+    echo "    - PATH += $TARGET_DEPLOY_DIR"
+    [[ -n "$private_ip" && -n "$hostname" ]] && echo "    - /etc/hosts bind mount on login"
     echo ""
 }
 
@@ -320,7 +398,7 @@ install_config() {
     if [[ -n "$TARGET" ]]; then
         ensure_dir "$TARGET_ZEROCLAW_DIR"
         ensure_dir "$WS"
-        CONFIG_PATH="/tmp/lisa-config-$$.toml"
+        CONFIG_PATH="$TARGET_ZEROCLAW_DIR/config.toml"
     else
         ensure_dir "$ZEROCLAW_DIR"
         ensure_dir "$WS"
@@ -333,9 +411,9 @@ install_config() {
         scp -q "$CONFIG_TEMPLATE" "$TARGET_HOST:$TARGET_ZEROCLAW_DIR/config.toml"
         ssh "$TARGET_HOST" "chmod 600 $TARGET_ZEROCLAW_DIR/config.toml"
         if [[ -n "$ENV_FILE" ]]; then
-            scp -q "$ENV_FILE" "$TARGET_HOST:$TARGET_DEPLOY_DIR/.env"
-            ssh "$TARGET_HOST" "chmod 600 $TARGET_DEPLOY_DIR/.env"
-            echo "  .env → $TARGET_HOST:$TARGET_DEPLOY_DIR/"
+            scp -q "$ENV_FILE" "$TARGET_HOST:$TARGET_ZEROCLAW_DIR/.env"
+            ssh "$TARGET_HOST" "chmod 600 $TARGET_ZEROCLAW_DIR/.env"
+            echo "  .env → $TARGET_HOST:$TARGET_ZEROCLAW_DIR/"
         fi
     else
         # Local: copy config + .env to ~/.zeroclaw/ (independent of repo)
@@ -347,7 +425,11 @@ install_config() {
             echo "  .env → $ZEROCLAW_DIR/.env"
         fi
     fi
-    echo "  config.toml → $CONFIG_PATH"
+    if [[ -n "$TARGET" ]]; then
+        echo "  config.toml → $TARGET_HOST:$CONFIG_PATH"
+    else
+        echo "  config.toml → $CONFIG_PATH"
+    fi
 
     # Profile files (SOUL.md, AGENTS.md)
     for f in SOUL.md AGENTS.md; do
@@ -361,9 +443,14 @@ install_config() {
         HAS_USER=$([[ -f "$WS/USER.md" ]] && echo yes || echo no)
     fi
 
-    if [[ "$HAS_USER" == "no" && -f "$PROFILE_DIR/USER.md.example" ]]; then
-        copy_file "$PROFILE_DIR/USER.md.example" "$WS/USER.md"
-        echo "  USER.md (from example — edit with your info)"
+    if [[ "$HAS_USER" == "no" ]]; then
+        if [[ -f "$PROFILE_DIR/USER.md" ]]; then
+            copy_file "$PROFILE_DIR/USER.md" "$WS/USER.md"
+            echo "  USER.md"
+        elif [[ -f "$PROFILE_DIR/USER.md.example" ]]; then
+            copy_file "$PROFILE_DIR/USER.md.example" "$WS/USER.md"
+            echo "  USER.md (from example — edit with your info)"
+        fi
     else
         echo "  USER.md (exists, kept)"
     fi
@@ -404,40 +491,57 @@ install_deps() {
     if [[ -d "$PROFILE_DIR/skills/calendar" ]]; then
         echo "  [gog] Google Calendar"
 
-        # Install gog if missing — use bundled bin/gog or download from lisa release
+        # Find arch-matched gog binary: bin/gog-linux-{arm64,amd64} > bin/gog > download
+        # arch_suffix: arm64 or amd64 (Go naming convention)
+        find_gog_bin() {
+            local arch="$1"  # aarch64 or x86_64
+            local suffix="amd64"
+            [[ "$arch" == "aarch64" || "$arch" == "arm64" ]] && suffix="arm64"
+
+            # 1. Arch-specific binary in bin/
+            if [[ -f "$BASE_DIR/bin/gog-linux-$suffix" ]]; then
+                echo "$BASE_DIR/bin/gog-linux-$suffix"; return
+            fi
+            # 2. Generic bin/gog (bundle)
+            if [[ -f "$BASE_DIR/bin/gog" ]]; then
+                echo "$BASE_DIR/bin/gog"; return
+            fi
+            # 3. Download from lisa release
+            local lisa_platform="x86_64-unknown-linux-gnu"
+            [[ "$suffix" == "arm64" ]] && lisa_platform="aarch64-unknown-linux-gnu"
+            local lisa_tag
+            lisa_tag=$(gh release view --repo rordd/lisa --json tagName -q '.tagName' 2>/dev/null || echo "v0.2.0-lisa")
+            local gog_tmp="/tmp/gog-install-$$"
+            mkdir -p "$gog_tmp"
+            local lisa_tar="lisa-${lisa_tag}-${lisa_platform}.tar.gz"
+            echo "  Downloading $lisa_tar ..." >&2
+            gh release download "$lisa_tag" --repo rordd/lisa --pattern "$lisa_tar" --dir "$gog_tmp" 2>/dev/null \
+                || timeout 30 curl -sfL "https://github.com/rordd/lisa/releases/download/${lisa_tag}/${lisa_tar}" -o "$gog_tmp/$lisa_tar" 2>/dev/null \
+                || true
+            if [[ -f "$gog_tmp/$lisa_tar" ]]; then
+                tar xzf "$gog_tmp/$lisa_tar" -C "$gog_tmp" 2>/dev/null || true
+                local found
+                found=$(find "$gog_tmp" -name gog -type f 2>/dev/null | head -1)
+                [[ -n "$found" ]] && { echo "$found"; return; }
+            fi
+        }
+
+        # Install gog if missing
         if [[ -n "$TARGET" ]]; then
             local gog_installed
             gog_installed=$(ssh "$TARGET_HOST" "test -x $TARGET_DEPLOY_DIR/gog && echo yes || echo no")
             if [[ "$gog_installed" == "no" ]]; then
                 echo "  Installing gog on target..."
-                local gog_bin=""
-                if [[ -f "$BASE_DIR/bin/gog" ]]; then
-                    gog_bin="$BASE_DIR/bin/gog"
-                else
-                    # Download from lisa release (contains statically linked gog)
-                    local target_arch
-                    target_arch=$(ssh "$TARGET_HOST" "uname -m")
-                    local lisa_platform="x86_64-unknown-linux-gnu"
-                    [[ "$target_arch" == "aarch64" || "$target_arch" == "arm64" ]] && lisa_platform="aarch64-unknown-linux-gnu"
-                    local lisa_tag
-                    lisa_tag=$(gh release view --repo rordd/lisa --json tagName -q '.tagName' 2>/dev/null || echo "v0.2.0-lisa")
-                    local gog_tmp="/tmp/gog-install-$$"
-                    mkdir -p "$gog_tmp"
-                    local lisa_tar="lisa-${lisa_tag}-${lisa_platform}.tar.gz"
-                    gh release download "$lisa_tag" --repo rordd/lisa --pattern "$lisa_tar" --dir "$gog_tmp" 2>/dev/null \
-                        || curl -sfL "https://github.com/rordd/lisa/releases/download/${lisa_tag}/${lisa_tar}" -o "$gog_tmp/$lisa_tar"
-                    tar xzf "$gog_tmp/$lisa_tar" -C "$gog_tmp" --wildcards "*/bin/gog" --strip-components=2 2>/dev/null \
-                        || tar xzf "$gog_tmp/$lisa_tar" -C "$gog_tmp" "$(tar tzf "$gog_tmp/$lisa_tar" | grep 'bin/gog$')" --strip-components=2
-                    if [[ -f "$gog_tmp/gog" ]]; then
-                        gog_bin="$gog_tmp/gog"
-                    fi
-                fi
+                local target_arch
+                target_arch=$(ssh "$TARGET_HOST" "uname -m")
+                local gog_bin
+                gog_bin=$(find_gog_bin "$target_arch")
                 if [[ -n "$gog_bin" ]]; then
                     scp -q "$gog_bin" "$TARGET_HOST:$TARGET_DEPLOY_DIR/gog"
                     ssh "$TARGET_HOST" "chmod +x $TARGET_DEPLOY_DIR/gog"
                     echo "  gog installed → $TARGET_HOST:$TARGET_DEPLOY_DIR/gog"
                 else
-                    echo "  WARNING: gog binary not found in bundle or lisa release"
+                    echo "  WARNING: gog binary not found in bin/ or lisa release"
                 fi
                 [[ -d "/tmp/gog-install-$$" ]] && rm -rf "/tmp/gog-install-$$"
             else
@@ -445,38 +549,10 @@ install_deps() {
             fi
         elif ! command -v gog &>/dev/null; then
             echo "  Installing gog locally..."
-            local gog_bin=""
-            if [[ -f "$BASE_DIR/bin/gog" ]]; then
-                gog_bin="$BASE_DIR/bin/gog"
-            else
-                # Download from lisa release
-                local host_arch
-                host_arch=$(uname -m)
-                local host_os
-                host_os=$(uname -s)
-                local lisa_platform=""
-                case "$host_os" in
-                    Darwin) lisa_platform="aarch64-apple-darwin" ;;
-                    Linux)
-                        if [[ "$host_arch" == "aarch64" || "$host_arch" == "arm64" ]]; then
-                            lisa_platform="aarch64-unknown-linux-gnu"
-                        else
-                            lisa_platform="x86_64-unknown-linux-gnu"
-                        fi ;;
-                esac
-                if [[ -n "$lisa_platform" ]]; then
-                    local lisa_tag
-                    lisa_tag=$(gh release view --repo rordd/lisa --json tagName -q '.tagName' 2>/dev/null || echo "v0.2.0-lisa")
-                    local gog_tmp="/tmp/gog-install-$$"
-                    mkdir -p "$gog_tmp"
-                    local lisa_tar="lisa-${lisa_tag}-${lisa_platform}.tar.gz"
-                    gh release download "$lisa_tag" --repo rordd/lisa --pattern "$lisa_tar" --dir "$gog_tmp" 2>/dev/null \
-                        || curl -sfL "https://github.com/rordd/lisa/releases/download/${lisa_tag}/${lisa_tar}" -o "$gog_tmp/$lisa_tar"
-                    tar xzf "$gog_tmp/$lisa_tar" -C "$gog_tmp" --wildcards "*/bin/gog" --strip-components=2 2>/dev/null \
-                        || tar xzf "$gog_tmp/$lisa_tar" -C "$gog_tmp" "$(tar tzf "$gog_tmp/$lisa_tar" | grep 'bin/gog$')" --strip-components=2
-                    [[ -f "$gog_tmp/gog" ]] && gog_bin="$gog_tmp/gog"
-                fi
-            fi
+            local host_arch
+            host_arch=$(uname -m)
+            local gog_bin
+            gog_bin=$(find_gog_bin "$host_arch")
             if [[ -n "$gog_bin" ]]; then
                 mkdir -p "$HOME/.local/bin"
                 cp "$gog_bin" "$HOME/.local/bin/gog"
@@ -522,8 +598,10 @@ install_deps() {
         if [[ -n "$GOG_ACCOUNT" ]]; then
             if [[ -n "$TARGET" ]]; then
                 GOG_CONFIG_LOCAL="${HOME}/.config/gogcli"
+                TARGET_GOG_CONFIG="/home/$TARGET_USER/.config/gogcli"
                 if [[ -d "$GOG_CONFIG_LOCAL" ]]; then
-                    copy_dir "$GOG_CONFIG_LOCAL" "$TARGET_ZEROCLAW_DIR/.config/gogcli"
+                    ensure_dir "$TARGET_GOG_CONFIG"
+                    copy_dir "$GOG_CONFIG_LOCAL"/* "$TARGET_GOG_CONFIG/"
                     echo "  gog config transferred"
                 else
                     echo "  WARNING: No local gog config. Run on target:"
@@ -552,9 +630,15 @@ run_tests() {
     # Helper: run command locally or on target (stdout only; stderr goes to terminal)
     run_cmd() {
         if [[ -n "$TARGET" ]]; then
-            ssh "$TARGET_HOST" "cd $TARGET_DEPLOY_DIR && [ -f .env ] && . .env && export ZEROCLAW_CONFIG_DIR=$TARGET_ZEROCLAW_DIR && $1"
+            # Ensure /etc/hosts bind mount for Azure private endpoint (non-login SSH skips .profile)
+            local hosts_setup=""
+            local hosts_copy="/home/$TARGET_USER/.hosts"
+            if [[ -n "${AZURE_PRIVATE_ENDPOINT:-}" ]]; then
+                hosts_setup="[ -f $hosts_copy ] && ! grep -q '${AZURE_PRIVATE_ENDPOINT}' /etc/hosts 2>/dev/null && mount --bind $hosts_copy /etc/hosts 2>/dev/null; "
+            fi
+            ssh "$TARGET_HOST" "${hosts_setup}cd $TARGET_DEPLOY_DIR && [ -f $TARGET_ZEROCLAW_DIR/.env ] && . $TARGET_ZEROCLAW_DIR/.env && export PATH=$TARGET_DEPLOY_DIR:\$PATH && export ZEROCLAW_CONFIG_DIR=$TARGET_ZEROCLAW_DIR && $1"
         else
-            eval "$1"
+            ( source "$ZEROCLAW_DIR/.env" 2>/dev/null; eval "$1" )
         fi
     }
 
@@ -577,8 +661,25 @@ run_tests() {
         fail=$((fail + 1))
     fi
 
+    # Helper: check if directory exists (locally or on target)
+    dir_exists() {
+        if [[ -n "$TARGET" ]]; then
+            ssh "$TARGET_HOST" "test -d '$1'" 2>/dev/null
+        else
+            [[ -d "$1" ]]
+        fi
+    }
+    # Helper: check if command exists (locally or on target)
+    cmd_exists() {
+        if [[ -n "$TARGET" ]]; then
+            ssh "$TARGET_HOST" "export PATH=$TARGET_DEPLOY_DIR:\$PATH && command -v '$1'" &>/dev/null
+        else
+            command -v "$1" &>/dev/null
+        fi
+    }
+
     # ── 2. Weather skill ──
-    if [[ -d "$WS/skills/weather" ]]; then
+    if dir_exists "$WS/skills/weather"; then
         if [[ "$agent_ok" == true ]]; then
             echo "  [weather] Asking zeroclaw for weather..."
             local weather_out
@@ -598,8 +699,8 @@ run_tests() {
     fi
 
     # ── 3. Calendar skill ──
-    if [[ -d "$WS/skills/calendar" ]]; then
-        if ! command -v gog &>/dev/null; then
+    if dir_exists "$WS/skills/calendar"; then
+        if ! cmd_exists gog; then
             echo "  [calendar] FAIL — gog not installed"
             echo "    Install: brew install steipete/tap/gogcli"
             fail=$((fail + 1))
@@ -622,17 +723,21 @@ run_tests() {
     fi
 
     # ── 4. TV Control skill ──
-    if [[ -d "$WS/skills/tv-control" ]]; then
-        if [[ "$agent_ok" == true ]]; then
+    if dir_exists "$WS/skills/tv-control"; then
+        if ! cmd_exists luna-send; then
+            echo "  [tv-control] SKIP — luna-send unavailable (not on webOS)"
+            skip=$((skip + 1))
+        elif [[ "$agent_ok" == true ]]; then
             echo "  [tv-control] Asking zeroclaw for foreground app..."
             local tv_out
             tv_out=$(run_cmd "zeroclaw agent -m 'what app is running on TV now, one line'") && EXIT=0 || EXIT=$?
-            if [[ $EXIT -eq 0 ]] && ! has_skill_failure "$tv_out"; then
+            if [[ $EXIT -eq 0 ]]; then
                 echo "  [tv-control] OK — $(echo "$tv_out" | tail -1 | head -c 80)"
                 pass=$((pass + 1))
             else
-                echo "  [tv-control] SKIP — luna-send unavailable (not on webOS)"
-                skip=$((skip + 1))
+                echo "  [tv-control] FAIL (exit=$EXIT)"
+                echo "$tv_out" | tail -2 | sed 's/^/    /'
+                fail=$((fail + 1))
             fi
         else
             echo "  [tv-control] SKIP — agent not connected"
@@ -656,11 +761,16 @@ clear_all() {
     echo "Lisa Clear"
     echo "=========="
 
+    # Dependency binaries installed by install_deps() — only remove from our install path
+    local DEP_INSTALL_DIR="$HOME/.local/bin"
+    local KNOWN_DEPS=("gog" "gog-linux-amd64" "gog-linux-arm64")
+
     if [[ -n "$TARGET" ]]; then
         echo "  Target: $TARGET_HOST"
         echo ""
         echo "  Will remove:"
-        echo "    $TARGET_DEPLOY_DIR/          (binary + deps + .env)"
+        echo "    $TARGET_DEPLOY_DIR/          (binary + deps)"
+        echo "    $TARGET_ZEROCLAW_DIR/.env    (secrets)"
         echo "    $TARGET_ZEROCLAW_DIR/        (config + workspace)"
         echo "    zeroclaw daemon process"
     else
@@ -670,12 +780,9 @@ clear_all() {
         local bin_path
         bin_path="$(command -v zeroclaw 2>/dev/null || echo "$HOME/.local/bin/zeroclaw")"
         echo "    $bin_path"
-        if [[ -d "$BASE_DIR/bin" ]]; then
-            for dep in "$BASE_DIR/bin"/*; do
-                [[ -f "$dep" ]] || continue
-                echo "    $HOME/.local/bin/$(basename "$dep")"
-            done
-        fi
+        for dep_name in "${KNOWN_DEPS[@]}"; do
+            [[ -f "$DEP_INSTALL_DIR/$dep_name" ]] && echo "    $DEP_INSTALL_DIR/$dep_name"
+        done
         echo "    $ZEROCLAW_DIR/               (config + workspace)"
         echo "    zeroclaw daemon process"
     fi
@@ -691,12 +798,12 @@ clear_all() {
 
     echo ""
 
-    # 1. Stop daemon
+    # 1. Stop all zeroclaw processes (daemon + agent)
     echo "[Daemon]"
     if [[ -n "$TARGET" ]]; then
-        ssh "$TARGET_HOST" "pkill -9 -f zeroclaw 2>/dev/null || true"
+        ssh "$TARGET_HOST" "pidof zeroclaw >/dev/null 2>&1 && kill -9 \$(pidof zeroclaw) 2>/dev/null || true"
     else
-        pkill -9 -f "zeroclaw daemon" 2>/dev/null || true
+        pkill -9 -u "$(id -u)" -x zeroclaw 2>/dev/null || true
     fi
     echo "  Stopped"
 
@@ -714,16 +821,13 @@ clear_all() {
         else
             echo "  Not found (skipped)"
         fi
-        # Remove dep binaries
-        if [[ -d "$BASE_DIR/bin" ]]; then
-            for dep in "$BASE_DIR/bin"/*; do
-                [[ -f "$dep" ]] || continue
-                local dep_name
-                dep_name="$(basename "$dep")"
-                rm -f "$HOME/.local/bin/$dep_name"
-                echo "  Removed ~/.local/bin/$dep_name"
-            done
-        fi
+        # Remove dependency binaries (only from our install path)
+        for dep_name in "${KNOWN_DEPS[@]}"; do
+            if [[ -f "$DEP_INSTALL_DIR/$dep_name" ]]; then
+                rm -f "$DEP_INSTALL_DIR/$dep_name"
+                echo "  Removed $DEP_INSTALL_DIR/$dep_name"
+            fi
+        done
     fi
 
     # 3. Remove config + workspace
@@ -772,6 +876,20 @@ clear_all() {
         echo "  No custom provider hostname (skipped)"
     fi
 
+    # 5. Clean up .profile (target only)
+    echo "[Profile]"
+    if [[ -n "$TARGET" ]]; then
+        local marker="# --- lisa onboard ---"
+        if ssh "$TARGET_HOST" "grep -q '$marker' /home/$TARGET_USER/.profile 2>/dev/null"; then
+            ssh "$TARGET_HOST" "sed -i '/$marker/,/$marker/d' /home/$TARGET_USER/.profile"
+            echo "  Removed lisa block from .profile"
+        else
+            echo "  No lisa block in .profile (skipped)"
+        fi
+    else
+        echo "  Local (no .profile changes needed)"
+    fi
+
     echo ""
 }
 
@@ -782,6 +900,7 @@ case "$SCOPE" in
     full)
         install_binary
         setup_hosts
+        setup_target_profile
         install_config
         install_skills
         install_deps
@@ -792,11 +911,14 @@ case "$SCOPE" in
         restart_daemon
         ;;
     skills)
+        detect_daemon_state
         install_skills
         restart_daemon
         ;;
     config)
+        detect_daemon_state
         setup_hosts
+        setup_target_profile
         install_config
         restart_daemon
         ;;
@@ -818,7 +940,7 @@ echo "  Scope:   $SCOPE"
 echo "  Profile: $PROFILE"
 if [[ -n "$TARGET" ]]; then
     echo "  Target:  $TARGET_HOST"
-    echo "  Run:     ssh $TARGET_HOST 'cd $TARGET_DEPLOY_DIR && source .env && ./zeroclaw daemon'"
+    echo "  Run:     ssh $TARGET_HOST 'export PATH=$TARGET_DEPLOY_DIR:\$PATH && source $TARGET_ZEROCLAW_DIR/.env && zeroclaw daemon'"
 else
     echo "  Run:     source ~/.zeroclaw/.env && zeroclaw daemon"
 fi
