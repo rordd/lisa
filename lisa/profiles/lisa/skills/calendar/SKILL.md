@@ -11,13 +11,8 @@ Manage Google Calendar via the gog CLI.
 
 ## Prerequisites
 
-gog must be installed and OAuth authentication completed:
-```bash
-brew install steipete/tap/gogcli
-gog auth credentials /path/to/client_secret.json
-gog auth keyring file
-gog auth add <email> --services calendar --manual
-```
+gog is installed automatically by onboard.sh.
+For manual setup, see docs/gogcli-oauth-setup-guide.md.
 
 ## When to Use
 

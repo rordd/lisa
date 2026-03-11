@@ -123,19 +123,28 @@ GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar calendars -a you
 ## onboard.sh 사용법
 
 ```bash
-onboard.sh                        # 풀 온보딩 (첫 설치)
-onboard.sh --build                # 빌드 + 풀 온보딩
-onboard.sh --binary               # 바이너리만 교체
-onboard.sh --build --binary       # 빌드 + 바이너리만
-onboard.sh --skills               # 스킬만 교체
-onboard.sh --config               # 설정만 (config.toml + 프로필)
-onboard.sh --clear                # 설치된 파일 전체 제거
-onboard.sh --clear --target IP    # 타겟에서 전체 제거
-onboard.sh --target 192.168.1.50  # 타겟 배포
-onboard.sh --build --target IP    # 크로스빌드 + 배포
-onboard.sh --target IP --skills   # 타겟에 스킬만
-onboard.sh --target IP --config   # 타겟에 설정만
+onboard.sh                              # 풀 온보딩 (첫 설치)
+onboard.sh --build                      # 빌드 + 풀 온보딩
+onboard.sh --binary                     # 바이너리만 교체
+onboard.sh --build --binary             # 빌드 + 바이너리만
+onboard.sh --skills                     # 스킬만 교체
+onboard.sh --config                     # 설정만 (config.toml + 프로필)
+onboard.sh --clear                      # 설치된 파일 전체 제거
+onboard.sh --target 192.168.1.50        # 타겟 배포
+onboard.sh --target IP --build          # 타겟에 크로스빌드 + 배포
+onboard.sh --target IP --binary         # 타겟에 바이너리만 교체
+onboard.sh --target IP --build --binary # 타겟에 빌드 + 바이너리만
+onboard.sh --target IP --skills         # 타겟에 스킬만
+onboard.sh --target IP --config         # 타겟에 설정만
+onboard.sh --target IP --clear          # 타겟에서 전체 제거
 ```
+
+### 바이너리 교체 동작
+
+`--binary`, `--skills`, `--config`는 실행 중인 프로세스를 자동으로 처리합니다:
+- 바이너리 교체 전 모든 zeroclaw 프로세스(daemon, agent)를 중지
+- **daemon**이 실행 중이었으면 교체 후 자동 재시작
+- agent만 실행 중이었거나 아무것도 없었으면 재시작 안 함
 
 ### 풀 온보딩 자동 테스트
 
@@ -213,12 +222,32 @@ lisa-v0.2.0-lisa-<platform>/
 
 ### gog CLI 설치
 
-`onboard.sh`가 `gog`가 없으면 자동으로 설치합니다:
-- **번들**: 릴리즈 번들에 포함된 `bin/gog` 사용
-- **소스**: 플랫폼에 맞는 lisa 릴리즈 번들을 다운로드하여 `bin/gog` 추출
-- 로컬: `~/.local/bin/gog`에 설치, 타겟: 배포 디렉토리에 설치
+`onboard.sh`가 `gog`가 없으면 자동으로 설치합니다.
+바이너리 탐색 순서:
+1. `bin/gog-linux-{arm64,amd64}` — `lisa/bin/`의 아키텍처별 바이너리 (로컬 빌드)
+2. `bin/gog` — 범용 바이너리 (릴리즈 번들)
+3. GitHub 릴리즈 다운로드 (fallback)
 
-수동 설치 — lisa 릴리즈 번들에서 gog 바이너리 추출:
+로컬: `~/.local/bin/gog`에 설치, 타겟: 배포 디렉토리에 설치
+
+#### 소스에서 빌드
+
+[gogcli](https://github.com/steipete/gogcli) 소스에서 빌드하고 `lisa/bin/`에 복사하면 `onboard.sh`가 자동으로 인식합니다:
+
+```bash
+# gogcli 소스를 원하는 위치에 클론
+git clone https://github.com/steipete/gogcli.git
+cd gogcli
+
+# 양쪽 아키텍처로 static 빌드
+mkdir -p /path/to/lisa/lisa/bin
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o /path/to/lisa/lisa/bin/gog-linux-amd64 ./cmd/gog
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o /path/to/lisa/lisa/bin/gog-linux-arm64 ./cmd/gog
+```
+
+> `lisa/bin/`은 gitignore 대상 — 빌드된 바이너리는 로컬에만 존재합니다.
+
+#### 수동 설치 (릴리즈 번들에서 추출)
 
 ```bash
 gh release download --repo rordd/lisa --pattern "*apple-darwin*"       # macOS
@@ -236,7 +265,7 @@ GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog auth add you@gmail.com --
 # 브라우저 없는 환경: 다른 기기에서 URL 열고 리다이렉트 URL 복사 → 붙여넣기
 
 # 테스트
-GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar list --from today --to tomorrow
+GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar events primary --from today --to tomorrow
 
 # 캘린더 ID 목록 확인 (USER.md에 넣을 ID 조회)
 GOG_KEYRING_BACKEND=file GOG_KEYRING_PASSWORD=<pw> gog calendar calendars -a you@gmail.com
@@ -257,10 +286,38 @@ cd ~/project/lisa
 ./lisa/scripts/onboard.sh --build --target <보드IP>
 ```
 
+### 타겟 설치 구조
+
+로컬과 동일한 디렉토리 구조 — 설정과 시크릿은 `~/.zeroclaw/`, 바이너리는 배포 디렉토리:
+
+```
+/home/root/lisa/            ← 바이너리 + 의존성 (배포 디렉토리)
+├── zeroclaw
+└── gog
+
+/home/root/.zeroclaw/       ← 설정 + 시크릿 + 워크스페이스 (로컬 ~/.zeroclaw/과 동일)
+├── config.toml
+├── .env
+└── workspace/
+    ├── USER.md
+    ├── SOUL.md
+    ├── AGENTS.md
+    └── skills/
+```
+
+### 타겟에서 실행
+
+```bash
+# SSH로 실행
+ssh root@<보드IP> 'export PATH=/home/root/lisa:$PATH && source ~/.zeroclaw/.env && zeroclaw daemon'
+ssh root@<보드IP> 'export PATH=/home/root/lisa:$PATH && source ~/.zeroclaw/.env && zeroclaw agent'
+```
+
 ### 요구사항
-- Docker Desktop (크로스 빌드 시)
-- `cross` CLI (`cargo install cross`)
 - SSH 키 기반 접속 설정
+- 크로스 빌드 툴체인 (택 1):
+  - **방법 A**: `cross` CLI + Docker (`cargo install cross`)
+  - **방법 B**: 네이티브 musl 툴체인 (`sudo apt install gcc-aarch64-linux-gnu musl-tools` + `rustup target add aarch64-unknown-linux-musl`)
 
 ## 플랫폼별 번들
 

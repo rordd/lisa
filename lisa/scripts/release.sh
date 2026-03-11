@@ -25,7 +25,6 @@ Options:
   --dry-run             Preview without uploading
 
 Examples:
-  release.sh --version v0.2.0                      # host only
   release.sh --version v0.2.0                       # all platforms (default)
   release.sh --version v0.2.0 --target host        # host only
   release.sh --version v0.2.0 --dry-run            # preview
