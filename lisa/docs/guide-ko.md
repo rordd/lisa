@@ -82,6 +82,7 @@ export ZEROCLAW_MODEL=gemini-2.5-flash
 # export ZEROCLAW_API_KEY=<azure-api-key>
 # export ZEROCLAW_TEMPERATURE=1              # Reasoning 모델 필수 (gpt-5-mini, o-시리즈)
 # export AZURE_PRIVATE_ENDPOINT=<private-ip>  # Private endpoint 사용 시
+# export ZEROCLAW_PROVIDER_REASONING_LEVEL=minimal  # Reasoning effort: minimal, low, medium(default), high
 
 # 텔레그램 (선택 — 회사 내부망에서는 사용 불가)
 # export TELEGRAM_BOT_TOKEN=<봇 토큰>
@@ -93,6 +94,30 @@ export GOG_ACCOUNT=you@gmail.com
 export GOG_KEYRING_PASSWORD=<비밀번호>
 export GOG_KEYRING_BACKEND=file
 ```
+
+### Reasoning Level (Azure OpenAI)
+
+`ZEROCLAW_PROVIDER_REASONING_LEVEL`은 모델이 응답 전에 수행하는 추론 수준을 제어합니다.
+`gpt-5-mini`, o-시리즈 등 reasoning 모델에 적용됩니다.
+
+| 레벨 | Reasoning 토큰 | 속도 | 권장 용도 |
+|---|---|---|---|
+| `minimal` | 0 | 가장 빠름 | 단순 작업 — 날씨, 인사, 빠른 조회 |
+| `low` | ~64 | 빠름 | 가벼운 추론 — 요약, 기본 Q&A |
+| `medium` | ~192 | 기본값 | 일반 용도 (미설정 시 기본값) |
+| `high` | 전체 | 가장 느림 | 복잡한 분석, 다단계 추론 |
+
+> **팁:** 일상적인 홈 어시스턴트 용도(날씨, 일정, 기기 제어)에는
+> `minimal` 권장 — 추론을 완전히 생략하여 응답 속도가 크게 빨라집니다.
+
+`config.default.toml`에서도 설정 가능:
+```toml
+[provider]
+reasoning_level = "minimal"
+```
+
+> **참고:** 현재 `custom:` 프로바이더(예: Azure OpenAI)에서만 지원됩니다.
+> 빌트인 프로바이더 프리셋(openai, gemini 등)에서는 이 설정이 적용되지 않습니다.
 
 ## 개인 파일
 
