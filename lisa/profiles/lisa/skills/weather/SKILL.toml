@@ -1,0 +1,14 @@
+[skill]
+name = "weather"
+description = "Check current weather and forecasts using Open-Meteo API."
+version = "2.0.0"
+
+[[tools]]
+name = "weather_check"
+description = "Fetch current weather from Open-Meteo API. Returns temperature, apparent temperature, weather code, wind speed, humidity, and precipitation."
+kind = "shell"
+command = "curl -s 'https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation&timezone=Asia/Seoul'"
+
+[tools.args]
+latitude = "Latitude of the location (default: 37.55 for Seoul Gangseo-gu)"
+longitude = "Longitude of the location (default: 126.85 for Seoul Gangseo-gu)"
