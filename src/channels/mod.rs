@@ -5842,6 +5842,19 @@ pub async fn start_channels(config: Config) -> Result<()> {
         }
     }
 
+    // ── Register SKILL.toml-defined tools (channel scope: "default") ──
+    {
+        let skills_for_tools = crate::skills::filter_skills_by_channel(
+            crate::skills::load_skills(&workspace),
+            Some("default"),
+        );
+        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        if !skill_tools.is_empty() {
+            tracing::info!(count = skill_tools.len(), "Channel skill tools registered");
+            built_tools.extend(skill_tools);
+        }
+    }
+
     let tools_registry = Arc::new(built_tools);
 
     // Filter skills by channel. WS loads its own skills via build_ws_system_prompt().
