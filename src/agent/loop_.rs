@@ -2712,9 +2712,12 @@ pub async fn run(
 
     // ── Register SKILL.toml-defined tools into native tool calling ──
     // Always use Full mode: Compact/MetadataOnly skips [[tools]] definitions.
+    // Use load_skills_with_config (not load_skills) so that config options such as
+    // allow_scripts are respected when auditing skill directories.
     {
-        let skills_for_tools = crate::skills::load_skills(
+        let skills_for_tools = crate::skills::load_skills_with_config(
             &config.workspace_dir,
+            &config,
         );
         let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
         if !skill_tools.is_empty() {
@@ -3449,9 +3452,12 @@ pub async fn process_message_with_session(
     // ── Register SKILL.toml-defined tools into native tool calling ──
     // Always use Full mode here: Compact/MetadataOnly skips [[tools]] definitions,
     // but we need them for native function calling regardless of prompt injection mode.
+    // Use load_skills_with_config (not load_skills) so that config options such as
+    // allow_scripts are respected when auditing skill directories.
     {
-        let skills_for_tools = crate::skills::load_skills(
+        let skills_for_tools = crate::skills::load_skills_with_config(
             &config.workspace_dir,
+            &config,
         );
         let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
         if !skill_tools.is_empty() {

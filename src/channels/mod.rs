@@ -5843,9 +5843,11 @@ pub async fn start_channels(config: Config) -> Result<()> {
     }
 
     // ── Register SKILL.toml-defined tools (channel scope: "default") ──
+    // Use load_skills_with_config (not load_skills) so that config options such as
+    // allow_scripts are respected when auditing skill directories.
     {
         let skills_for_tools = crate::skills::filter_skills_by_channel(
-            crate::skills::load_skills(&workspace),
+            crate::skills::load_skills_with_config(&workspace, &config),
             Some("default"),
         );
         let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
