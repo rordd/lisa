@@ -82,6 +82,7 @@ export ZEROCLAW_MODEL=gemini-2.5-flash
 # export ZEROCLAW_API_KEY=<azure-api-key>
 # export ZEROCLAW_TEMPERATURE=1              # Required for reasoning models (gpt-5-mini, o-series)
 # export AZURE_PRIVATE_ENDPOINT=<private-ip>  # If using private endpoint
+# export ZEROCLAW_PROVIDER_REASONING_LEVEL=minimal  # Reasoning effort: minimal, low, medium(default), high
 
 # Telegram (optional — not available behind company firewalls)
 # export TELEGRAM_BOT_TOKEN=<bot-token>
@@ -93,6 +94,30 @@ export GOG_ACCOUNT=you@gmail.com
 export GOG_KEYRING_PASSWORD=<password>
 export GOG_KEYRING_BACKEND=file
 ```
+
+### Reasoning Level (Azure OpenAI)
+
+`ZEROCLAW_PROVIDER_REASONING_LEVEL` controls how much reasoning the model performs before responding.
+Applies to reasoning models like `gpt-5-mini` and o-series.
+
+| Level | Reasoning tokens | Speed | Recommended use |
+|---|---|---|---|
+| `minimal` | 0 | Fastest | Simple tasks — weather, greetings, quick lookups |
+| `low` | ~64 | Fast | Light reasoning — summaries, basic Q&A |
+| `medium` | ~192 | Default | General use (default when not set) |
+| `high` | Full | Slowest | Complex analysis, multi-step reasoning |
+
+> **Tip:** For everyday home assistant use (weather, schedules, device control),
+> `minimal` is recommended — it skips reasoning entirely and responds significantly faster.
+
+Can also be set in `config.default.toml`:
+```toml
+[provider]
+reasoning_level = "minimal"
+```
+
+> **Note:** Currently supported for `custom:` providers only (e.g. Azure OpenAI).
+> Built-in provider presets (openai, gemini, etc.) do not use this setting.
 
 ## Personal Files
 

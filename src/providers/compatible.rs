@@ -53,6 +53,8 @@ pub struct OpenAiCompatibleProvider {
     api_mode: CompatibleApiMode,
     /// Optional max token cap propagated to outbound requests.
     max_tokens_override: Option<u32>,
+    /// Optional reasoning effort level for reasoning models (e.g. "low", "medium", "high").
+    pub(crate) reasoning_level: Option<String>,
 }
 
 /// How the provider expects the API key to be sent.
@@ -256,6 +258,7 @@ impl OpenAiCompatibleProvider {
             native_tool_calling: !merge_system_into_user,
             api_mode,
             max_tokens_override: max_tokens_override.filter(|value| *value > 0),
+            reasoning_level: None,
         }
     }
 
@@ -447,6 +450,17 @@ impl OpenAiCompatibleProvider {
     }
 }
 
+/// Clamp reasoning level to values accepted by OpenAI-compatible APIs.
+/// Supported values: "minimal", "low", "medium", "high" (pass-through).
+/// "xhigh" is mapped to "high" for compatibility.
+/// Note: "minimal" is supported by gpt-5-mini and o-series (produces reasoning_tokens=0).
+fn clamp_compatible_reasoning_effort(level: &str) -> String {
+    match level {
+        "xhigh" => "high".to_string(),
+        other => other.to_string(),
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ApiChatRequest {
     model: String,
@@ -460,6 +474,8 @@ struct ApiChatRequest {
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -656,6 +672,8 @@ struct NativeChatRequest {
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -674,6 +692,13 @@ struct NativeMessage {
 }
 
 #[derive(Debug, Serialize)]
+struct ReasoningOptions {
+    effort: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct ResponsesRequest {
     model: String,
     input: Vec<ResponsesInput>,
@@ -687,6 +712,8 @@ struct ResponsesRequest {
     tools: Option<Vec<Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<ReasoningOptions>,
 }
 
 #[derive(Debug, Serialize)]
@@ -745,6 +772,8 @@ struct ResponsesWebSocketCreateEvent {
     tools: Option<Vec<Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<ReasoningOptions>,
 }
 
 // ---------------------------------------------------------------
@@ -1362,6 +1391,10 @@ impl OpenAiCompatibleProvider {
             max_output_tokens: self.effective_max_tokens(),
             tool_choice: tools.as_ref().map(|_| "auto".to_string()),
             tools,
+            reasoning: self.reasoning_level.as_deref().map(|level| ReasoningOptions {
+                effort: clamp_compatible_reasoning_effort(level),
+                summary: Some("auto".to_string()),
+            }),
         };
 
         let ws_url = self.responses_websocket_url(model)?;
@@ -1435,6 +1468,10 @@ impl OpenAiCompatibleProvider {
             stream: Some(false),
             tool_choice: tools.as_ref().map(|_| "auto".to_string()),
             tools,
+            reasoning: self.reasoning_level.as_deref().map(|level| ReasoningOptions {
+                effort: clamp_compatible_reasoning_effort(level),
+                summary: Some("auto".to_string()),
+            }),
         };
 
         let url = self.responses_url();
@@ -1970,6 +2007,7 @@ impl Provider for OpenAiCompatibleProvider {
             stream: Some(false),
             tools: None,
             tool_choice: None,
+            reasoning_effort: self.reasoning_level.as_deref().map(clamp_compatible_reasoning_effort),
         };
 
         let url = self.chat_completions_url();
@@ -2099,6 +2137,7 @@ impl Provider for OpenAiCompatibleProvider {
             stream: Some(false),
             tools: None,
             tool_choice: None,
+            reasoning_effort: self.reasoning_level.as_deref().map(clamp_compatible_reasoning_effort),
         };
 
         if self.should_use_responses_mode() {
@@ -2224,6 +2263,7 @@ impl Provider for OpenAiCompatibleProvider {
             } else {
                 Some("auto".to_string())
             },
+            reasoning_effort: self.reasoning_level.as_deref().map(clamp_compatible_reasoning_effort),
         };
 
         if self.should_use_responses_mode() {
@@ -2373,6 +2413,7 @@ impl Provider for OpenAiCompatibleProvider {
             stream: Some(false),
             tool_choice: tools.as_ref().map(|_| "auto".to_string()),
             tools,
+            reasoning_effort: self.reasoning_level.as_deref().map(clamp_compatible_reasoning_effort),
         };
 
         if self.should_use_responses_mode() {
@@ -2524,6 +2565,7 @@ impl Provider for OpenAiCompatibleProvider {
             stream: Some(options.enabled),
             tools: None,
             tool_choice: None,
+            reasoning_effort: self.reasoning_level.as_deref().map(clamp_compatible_reasoning_effort),
         };
 
         let url = self.chat_completions_url();
@@ -2670,6 +2712,7 @@ mod tests {
             stream: Some(false),
             tools: None,
             tool_choice: None,
+            reasoning_effort: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("llama-3.3-70b"));
@@ -2678,6 +2721,59 @@ mod tests {
         // tools/tool_choice should be omitted when None
         assert!(!json.contains("tools"));
         assert!(!json.contains("tool_choice"));
+        // reasoning_effort should be omitted when None
+        assert!(!json.contains("reasoning_effort"));
+    }
+
+    #[test]
+    fn reasoning_effort_included_when_set() {
+        let req = ApiChatRequest {
+            model: "gpt-5-mini".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: MessageContent::Text("hello".to_string()),
+            }],
+            temperature: 0.7,
+            max_tokens: None,
+            stream: Some(false),
+            tools: None,
+            tool_choice: None,
+            reasoning_effort: Some("low".to_string()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"reasoning_effort\":\"low\""));
+    }
+
+    #[test]
+    fn reasoning_effort_omitted_when_none() {
+        let req = ApiChatRequest {
+            model: "gpt-5-mini".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: MessageContent::Text("hello".to_string()),
+            }],
+            temperature: 0.7,
+            max_tokens: None,
+            stream: Some(false),
+            tools: None,
+            tool_choice: None,
+            reasoning_effort: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("reasoning_effort"));
+    }
+
+    #[test]
+    fn clamp_reasoning_effort_passthrough() {
+        assert_eq!(clamp_compatible_reasoning_effort("minimal"), "minimal");
+        assert_eq!(clamp_compatible_reasoning_effort("low"), "low");
+        assert_eq!(clamp_compatible_reasoning_effort("medium"), "medium");
+        assert_eq!(clamp_compatible_reasoning_effort("high"), "high");
+    }
+
+    #[test]
+    fn clamp_reasoning_effort_xhigh_mapped_to_high() {
+        assert_eq!(clamp_compatible_reasoning_effort("xhigh"), "high");
     }
 
     #[test]
@@ -3983,6 +4079,7 @@ mod tests {
             stream: Some(false),
             tools: Some(tools),
             tool_choice: Some("auto".to_string()),
+            reasoning_effort: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"tools\""));
