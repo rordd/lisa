@@ -2709,6 +2709,20 @@ pub async fn run(
         tracing::info!(count = peripheral_tools.len(), "Peripheral tools added");
         tools_registry.extend(peripheral_tools);
     }
+
+    // ── Register SKILL.toml-defined tools into native tool calling ──
+    // Always use Full mode: Compact/MetadataOnly skips [[tools]] definitions.
+    {
+        let skills_for_tools = crate::skills::load_skills(
+            &config.workspace_dir,
+        );
+        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        if !skill_tools.is_empty() {
+            tracing::info!(count = skill_tools.len(), "Skill tools registered");
+            tools_registry.extend(skill_tools);
+        }
+    }
+
     let tools_registry = filter_primary_agent_tools_or_fail(&config, tools_registry)?;
 
     // ── Resolve provider ─────────────────────────────────────────
@@ -3431,6 +3445,21 @@ pub async fn process_message_with_session(
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
     tools_registry.extend(peripheral_tools);
+
+    // ── Register SKILL.toml-defined tools into native tool calling ──
+    // Always use Full mode here: Compact/MetadataOnly skips [[tools]] definitions,
+    // but we need them for native function calling regardless of prompt injection mode.
+    {
+        let skills_for_tools = crate::skills::load_skills(
+            &config.workspace_dir,
+        );
+        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        if !skill_tools.is_empty() {
+            tracing::info!(count = skill_tools.len(), "Skill tools registered");
+            tools_registry.extend(skill_tools);
+        }
+    }
+
     let tools_registry = filter_primary_agent_tools_or_fail(&config, tools_registry)?;
 
     let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
