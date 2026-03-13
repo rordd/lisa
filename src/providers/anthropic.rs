@@ -1278,6 +1278,7 @@ mod tests {
             }],
             temperature: 0.7,
             tools: None,
+            tool_choice: None,
         };
 
         let json = serde_json::to_string(&req).unwrap();

@@ -3,6 +3,7 @@ name: calendar
 description: "Google Calendar event lookup/creation. Uses gog CLI. Used when the user asks about schedules, meetings, or events."
 version: "1.0.0"
 always: true
+tool_choice_required: false
 ---
 
 # Calendar Skill

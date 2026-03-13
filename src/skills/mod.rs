@@ -744,7 +744,7 @@ fn load_skill_md(path: &Path, dir: &Path, load_mode: SkillLoadMode) -> Result<Sk
         location: Some(path.to_path_buf()),
         always,
         channels,
-        tool_choice_required: false,
+        tool_choice_required: fm_bool(&fm, "tool_choice_required"),
     })
 }
 
@@ -2714,6 +2714,7 @@ command = "echo hello"
             location: None,
             always: false,
             channels: vec![],
+            tool_choice_required: false,
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("<available_skills>"));
@@ -2740,6 +2741,7 @@ command = "echo hello"
             location: Some(PathBuf::from("/tmp/workspace/skills/test/SKILL.md")),
             always: false,
             channels: vec![],
+            tool_choice_required: false,
         }];
         let prompt = skills_to_prompt_with_mode(
             &skills,
@@ -2775,6 +2777,7 @@ command = "echo hello"
             location: Some(PathBuf::from("/tmp/workspace/skills/always-skill/SKILL.md")),
             always: true,
             channels: vec![],
+            tool_choice_required: false,
         }];
         let prompt = skills_to_prompt_with_mode(
             &skills,
@@ -3008,6 +3011,7 @@ description = "Bare minimum"
             location: None,
             always: false,
             channels: vec![],
+            tool_choice_required: false,
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("weather"));
@@ -3029,6 +3033,7 @@ description = "Bare minimum"
             location: None,
             always: false,
             channels: vec![],
+            tool_choice_required: false,
         }];
 
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));

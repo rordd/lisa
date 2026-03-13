@@ -4,6 +4,7 @@ description: "Google A2UI v0.9 protocol. ALWAYS use A2UI cards to visually prese
 version: "1.1.0"
 channels: ws
 always: true
+tool_choice_required: false
 ---
 
 # Google A2UI v0.9 — Agent-to-User Interface Card Rendering
