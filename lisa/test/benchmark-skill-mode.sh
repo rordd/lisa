@@ -26,7 +26,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ONBOARD="$SCRIPT_DIR/onboard.sh"
+ONBOARD="$(cd "$SCRIPT_DIR/../scripts" && pwd)/onboard.sh"
 
 TARGET_IP="192.168.0.10"
 TARGET_USER="root"
@@ -282,6 +282,11 @@ if ! command -v bc &>/dev/null; then
 fi
 
 rm -f "$RESULTS_FILE"
+
+# Ensure config + .env are present on target (idempotent)
+echo ""
+echo "[Setup] Deploying config to target..."
+bash "$ONBOARD" --config --target "$TARGET_IP" 2>&1 | sed 's/^/  /'
 
 # Enable runtime trace on target; restore on exit (normal or error)
 enable_runtime_trace

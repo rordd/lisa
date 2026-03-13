@@ -1201,7 +1201,12 @@ pub async fn run_tool_call_loop(
         .collect();
     // When forced tool use is active, inject the respond sentinel so the LLM can
     // handle general conversation without invoking a skill action.
-    if force_tool_use {
+    // Respect excluded_tools: if "respond" is excluded, do not inject it.
+    if force_tool_use
+        && !excluded_tools
+            .iter()
+            .any(|ex| ex == crate::tools::respond::RESPOND_TOOL_NAME)
+    {
         tool_specs.push(crate::tools::respond::respond_tool_spec());
     }
     let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
@@ -1538,10 +1543,11 @@ pub async fn run_tool_call_loop(
         let (
             response_text,
             parsed_text,
-            tool_calls,
-            assistant_history_content,
-            native_tool_calls,
+            mut tool_calls,
+            mut assistant_history_content,
+            mut native_tool_calls,
             parse_issue_detected,
+            reasoning_content_for_history,
         ) = match chat_result {
             Ok(resp) => {
                 let mut response_text = resp.text_or_empty().to_string();
@@ -1830,6 +1836,7 @@ pub async fn run_tool_call_loop(
                     assistant_history_content,
                     native_calls,
                     parse_issue.is_some(),
+                    reasoning_content,
                 )
             }
             Err(e) => {
@@ -2017,35 +2024,101 @@ pub async fn run_tool_call_loop(
 
         // Detect respond sentinel — LLM chose general conversation over a skill action.
         if force_tool_use {
-            if let Some(respond_call) = tool_calls
+            if let Some(respond_idx) = tool_calls
                 .iter()
-                .find(|c| c.name == crate::tools::respond::RESPOND_TOOL_NAME)
+                .position(|c| c.name == crate::tools::respond::RESPOND_TOOL_NAME)
             {
-                let text = crate::tools::respond::extract_respond_text(&respond_call.arguments)
-                    .unwrap_or_default();
-                if let Some(ref tx) = on_delta {
-                    let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
-                    let mut chunk = String::new();
-                    for word in text.split_inclusive(char::is_whitespace) {
-                        if cancellation_token
-                            .as_ref()
-                            .is_some_and(CancellationToken::is_cancelled)
-                        {
-                            return Err(ToolLoopCancelled.into());
+                if tool_calls.len() == 1 {
+                    // Only the respond sentinel was called — return as plain conversation.
+                    let text =
+                        crate::tools::respond::extract_respond_text(&tool_calls[respond_idx].arguments)
+                            .unwrap_or_default();
+                    if text.is_empty() {
+                        tracing::warn!("respond sentinel called with empty text");
+                    }
+                    if let Some(ref tx) = on_delta {
+                        let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                        let mut chunk = String::new();
+                        for word in text.split_inclusive(char::is_whitespace) {
+                            if cancellation_token
+                                .as_ref()
+                                .is_some_and(CancellationToken::is_cancelled)
+                            {
+                                return Err(ToolLoopCancelled.into());
+                            }
+                            chunk.push_str(word);
+                            if chunk.len() >= STREAM_CHUNK_MIN_CHARS
+                                && tx.send(std::mem::take(&mut chunk)).await.is_err()
+                            {
+                                break;
+                            }
                         }
-                        chunk.push_str(word);
-                        if chunk.len() >= STREAM_CHUNK_MIN_CHARS
-                            && tx.send(std::mem::take(&mut chunk)).await.is_err()
-                        {
-                            break;
+                        if !chunk.is_empty() {
+                            let _ = tx.send(chunk).await;
                         }
                     }
-                    if !chunk.is_empty() {
-                        let _ = tx.send(chunk).await;
+                    // Push a plain text message so history stays valid for future turns
+                    // (no dangling tool_use block without a matching tool_result).
+                    history.push(ChatMessage::assistant(text.clone()));
+                    return Ok(text);
+                }
+                // respond + skill tools — stream the respond text to the user, then
+                // strip the sentinel and let skill tools execute.
+                if let Some(respond_text) =
+                    crate::tools::respond::extract_respond_text(&tool_calls[respond_idx].arguments)
+                {
+                    if !respond_text.is_empty() {
+                        if let Some(ref tx) = on_delta {
+                            let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                            let mut chunk = String::new();
+                            for word in respond_text.split_inclusive(char::is_whitespace) {
+                                if cancellation_token
+                                    .as_ref()
+                                    .is_some_and(CancellationToken::is_cancelled)
+                                {
+                                    return Err(ToolLoopCancelled.into());
+                                }
+                                chunk.push_str(word);
+                                if chunk.len() >= STREAM_CHUNK_MIN_CHARS
+                                    && tx.send(std::mem::take(&mut chunk)).await.is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            if !chunk.is_empty() {
+                                let _ = tx.send(chunk).await;
+                            }
+                        }
                     }
                 }
-                history.push(ChatMessage::assistant(assistant_history_content));
-                return Ok(text);
+                // Strip from both vectors. Use name-based lookup for native_tool_calls
+                // since the two vectors may diverge when native calls with invalid JSON
+                // are skipped during parsing.
+                tool_calls.remove(respond_idx);
+                if let Some(native_idx) = native_tool_calls
+                    .iter()
+                    .position(|tc| tc.name == crate::tools::respond::RESPOND_TOOL_NAME)
+                {
+                    native_tool_calls.remove(native_idx);
+                }
+                // Rebuild assistant history without the respond tool_use block,
+                // preserving reasoning_content from the original response.
+                let rc = reasoning_content_for_history.as_deref();
+                if !native_tool_calls.is_empty() {
+                    assistant_history_content = build_native_assistant_history(
+                        &response_text,
+                        &native_tool_calls,
+                        rc,
+                    );
+                } else if use_native_tools {
+                    assistant_history_content =
+                        build_native_assistant_history_from_parsed_calls(
+                            &response_text,
+                            &tool_calls,
+                            rc,
+                        )
+                        .unwrap_or_else(|| response_text.clone());
+                }
             }
         }
 

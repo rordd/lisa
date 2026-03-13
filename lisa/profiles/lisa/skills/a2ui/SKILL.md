@@ -4,6 +4,7 @@ description: "A2UI v0.8 card rendering. Generate visual UI cards (weather, tasks
 version: "2.2.0"
 channels: ws
 always: true
+tool_choice_required: false
 ---
 
 # A2UI v0.8 — Agent-to-UI Card Rendering

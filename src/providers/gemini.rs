@@ -1832,6 +1832,7 @@ mod tests {
                 max_output_tokens: 8192,
             },
             tools: None,
+            tool_config: None,
         };
 
         let request = provider
@@ -1874,6 +1875,7 @@ mod tests {
                 max_output_tokens: 8192,
             },
             tools: None,
+            tool_config: None,
         };
 
         let request = provider
@@ -1919,6 +1921,7 @@ mod tests {
                 max_output_tokens: 8192,
             },
             tools: None,
+            tool_config: None,
         };
 
         let request = provider
@@ -1957,6 +1960,7 @@ mod tests {
                 max_output_tokens: 8192,
             },
             tools: None,
+            tool_config: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();

@@ -1371,6 +1371,7 @@ impl OpenAiCompatibleProvider {
         messages: &[ChatMessage],
         model: &str,
         tools: Option<Vec<Value>>,
+        tool_choice: Option<&str>,
     ) -> anyhow::Result<ResponsesResponse> {
         let (instructions, input) = build_responses_prompt(messages);
         if input.is_empty() {
@@ -1389,7 +1390,7 @@ impl OpenAiCompatibleProvider {
             instructions,
             store: Some(false),
             max_output_tokens: self.effective_max_tokens(),
-            tool_choice: tools.as_ref().map(|_| "auto".to_string()),
+            tool_choice: tools.as_ref().map(|_| tool_choice.unwrap_or("auto").to_string()),
             tools,
             reasoning: self.reasoning_level.as_deref().map(|level| ReasoningOptions {
                 effort: clamp_compatible_reasoning_effort(level),
@@ -1450,6 +1451,7 @@ impl OpenAiCompatibleProvider {
         messages: &[ChatMessage],
         model: &str,
         tools: Option<Vec<Value>>,
+        tool_choice: Option<&str>,
     ) -> anyhow::Result<ResponsesResponse> {
         let (instructions, input) = build_responses_prompt(messages);
         if input.is_empty() {
@@ -1466,7 +1468,7 @@ impl OpenAiCompatibleProvider {
             instructions,
             max_output_tokens: self.effective_max_tokens(),
             stream: Some(false),
-            tool_choice: tools.as_ref().map(|_| "auto".to_string()),
+            tool_choice: tools.as_ref().map(|_| tool_choice.unwrap_or("auto").to_string()),
             tools,
             reasoning: self.reasoning_level.as_deref().map(|level| ReasoningOptions {
                 effort: clamp_compatible_reasoning_effort(level),
@@ -1498,10 +1500,11 @@ impl OpenAiCompatibleProvider {
         messages: &[ChatMessage],
         model: &str,
         tools: Option<Vec<Value>>,
+        tool_choice: Option<&str>,
     ) -> anyhow::Result<ResponsesResponse> {
         if self.should_try_responses_websocket() {
             match self
-                .send_responses_websocket_request(credential, messages, model, tools.clone())
+                .send_responses_websocket_request(credential, messages, model, tools.clone(), tool_choice)
                 .await
             {
                 Ok(response) => return Ok(response),
@@ -1515,7 +1518,7 @@ impl OpenAiCompatibleProvider {
             }
         }
 
-        self.send_responses_http_request(credential, messages, model, tools)
+        self.send_responses_http_request(credential, messages, model, tools, tool_choice)
             .await
     }
 
@@ -1539,7 +1542,7 @@ impl OpenAiCompatibleProvider {
         temperature: f64,
     ) -> anyhow::Result<String> {
         let responses = match self
-            .send_responses_request(credential, messages, model, None)
+            .send_responses_request(credential, messages, model, None, None)
             .await
         {
             Ok(response) => response,
@@ -1577,10 +1580,11 @@ impl OpenAiCompatibleProvider {
         messages: &[ChatMessage],
         model: &str,
         tools: Option<Vec<Value>>,
+        tool_choice: Option<&str>,
         temperature: f64,
     ) -> anyhow::Result<ProviderChatResponse> {
         let responses = match self
-            .send_responses_request(credential, messages, model, tools.clone())
+            .send_responses_request(credential, messages, model, tools.clone(), tool_choice)
             .await
         {
             Ok(response) => response,
@@ -1607,7 +1611,7 @@ impl OpenAiCompatibleProvider {
                             ProviderChatRequest {
                                 messages,
                                 tools: fallback_tools,
-                                tool_choice: None,
+                                tool_choice,
                             },
                             model,
                             temperature,
@@ -2274,6 +2278,7 @@ impl Provider for OpenAiCompatibleProvider {
                     &effective_messages,
                     model,
                     (!tools.is_empty()).then(|| tools.to_vec()),
+                    None,
                     temperature,
                 )
                 .await;
@@ -2328,6 +2333,7 @@ impl Provider for OpenAiCompatibleProvider {
                         &effective_messages,
                         model,
                         (!tools.is_empty()).then(|| tools.to_vec()),
+                        None,
                         temperature,
                     )
                     .await;
@@ -2424,6 +2430,7 @@ impl Provider for OpenAiCompatibleProvider {
                     &effective_messages,
                     model,
                     response_tools.clone(),
+                    request.tool_choice,
                     temperature,
                 )
                 .await;
@@ -2448,6 +2455,7 @@ impl Provider for OpenAiCompatibleProvider {
                             &effective_messages,
                             model,
                             response_tools.clone(),
+                            request.tool_choice,
                             temperature,
                         )
                         .await
@@ -2486,6 +2494,7 @@ impl Provider for OpenAiCompatibleProvider {
                         &effective_messages,
                         model,
                         response_tools.clone(),
+                        request.tool_choice,
                         temperature,
                     )
                     .await
@@ -3314,6 +3323,7 @@ mod tests {
                 ProviderChatRequest {
                     messages: &messages,
                     tools: Some(&tools),
+                    tool_choice: None,
                 },
                 "test-model",
                 0.2,
@@ -4394,6 +4404,7 @@ mod tests {
                 ProviderChatRequest {
                     messages: &messages,
                     tools: Some(&tools),
+                    tool_choice: None,
                 },
                 "test-model",
                 0.7,
@@ -4561,6 +4572,7 @@ mod tests {
                 ProviderChatRequest {
                     messages: &messages,
                     tools: Some(&tools),
+                    tool_choice: None,
                 },
                 "test-model",
                 0.7,
