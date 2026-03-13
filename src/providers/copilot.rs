@@ -357,6 +357,7 @@ impl CopilotProvider {
         tools: Option<&[ToolSpec]>,
         model: &str,
         temperature: f64,
+        tool_choice: Option<&str>,
     ) -> anyhow::Result<ProviderChatResponse> {
         let (token, endpoint) = self.get_api_key().await?;
         let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
@@ -366,7 +367,7 @@ impl CopilotProvider {
             model: model.to_string(),
             messages,
             temperature,
-            tool_choice: native_tools.as_ref().map(|_| "auto".to_string()),
+            tool_choice: native_tools.as_ref().map(|_| tool_choice.unwrap_or("auto").to_string()),
             tools: native_tools,
         };
 
@@ -645,7 +646,7 @@ impl Provider for CopilotProvider {
         });
 
         let response = self
-            .send_chat_request(messages, None, model, temperature)
+            .send_chat_request(messages, None, model, temperature, None)
             .await?;
         Ok(response.text.unwrap_or_default())
     }
@@ -657,7 +658,7 @@ impl Provider for CopilotProvider {
         temperature: f64,
     ) -> anyhow::Result<String> {
         let response = self
-            .send_chat_request(Self::convert_messages(messages), None, model, temperature)
+            .send_chat_request(Self::convert_messages(messages), None, model, temperature, None)
             .await?;
         Ok(response.text.unwrap_or_default())
     }
@@ -673,6 +674,7 @@ impl Provider for CopilotProvider {
             request.tools,
             model,
             temperature,
+            request.tool_choice,
         )
         .await
     }

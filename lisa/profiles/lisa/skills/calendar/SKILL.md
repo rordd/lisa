@@ -3,6 +3,7 @@ name: calendar
 description: "Google Calendar event lookup/creation. Uses gog CLI. Used when the user asks about schedules, meetings, or events."
 version: "1.0.0"
 always: true
+tool_choice_required: false
 ---
 
 # Calendar Skill
@@ -78,7 +79,8 @@ for cal in "primary" "cal_id_1" "cal_id_2"; do
 done
 ```
 
-## Notes
+## Rules
+
 - Always confirm with the user before creating/updating events
 - Use `--json` flag for parseable output
 - Without `GOG_ACCOUNT`, `--account` is required each time

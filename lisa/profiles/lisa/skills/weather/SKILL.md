@@ -3,6 +3,7 @@ name: weather
 description: "Check current weather and forecasts. Used when the user asks about weather, temperature, rain/snow."
 version: "2.0.0"
 always: true
+tool_choice_required: false
 ---
 
 # Weather Skill
@@ -62,6 +63,7 @@ curl -s "wttr.in/Seoul+Gangseo-gu?format=%c+%t+(feels+like+%f),+wind+%w,+humidit
 ```
 
 ## Rules
+
 - Always try Open-Meteo first
 - If Open-Meteo returns error or empty, fall back to wttr.in
 - Include: temperature, feels like, wind, humidity, precipitation chance

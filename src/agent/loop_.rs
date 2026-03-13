@@ -1193,11 +1193,22 @@ pub async fn run_tool_call_loop(
         max_tool_iterations
     };
 
-    let tool_specs: Vec<crate::tools::ToolSpec> = tools_registry
+    let force_tool_use = tools_registry.iter().any(|t| t.force_tool_use());
+    let mut tool_specs: Vec<crate::tools::ToolSpec> = tools_registry
         .iter()
         .filter(|tool| !excluded_tools.iter().any(|ex| ex == tool.name()))
         .map(|tool| tool.spec())
         .collect();
+    // When forced tool use is active, inject the respond sentinel so the LLM can
+    // handle general conversation without invoking a skill action.
+    // Respect excluded_tools: if "respond" is excluded, do not inject it.
+    if force_tool_use
+        && !excluded_tools
+            .iter()
+            .any(|ex| ex == crate::tools::respond::RESPOND_TOOL_NAME)
+    {
+        tool_specs.push(crate::tools::respond::respond_tool_spec());
+    }
     let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
     let turn_id = Uuid::new_v4().to_string();
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
@@ -1510,6 +1521,11 @@ pub async fn run_tool_call_loop(
             ChatRequest {
                 messages: &request_messages,
                 tools: request_tools,
+                tool_choice: if force_tool_use && iteration == 0 {
+                    Some("required")
+                } else {
+                    None
+                },
             },
             active_model.as_str(),
             temperature,
@@ -1527,7 +1543,7 @@ pub async fn run_tool_call_loop(
         let (
             response_text,
             parsed_text,
-            tool_calls,
+            mut tool_calls,
             assistant_history_content,
             native_tool_calls,
             parse_issue_detected,
@@ -1598,6 +1614,7 @@ pub async fn run_tool_call_loop(
                         ChatRequest {
                             messages: &continuation_messages,
                             tools: request_tools,
+                            tool_choice: None,
                         },
                         active_model.as_str(),
                         temperature,
@@ -2001,6 +2018,48 @@ pub async fn run_tool_call_loop(
             }
             history.push(ChatMessage::assistant(response_text.clone()));
             return Ok(display_text);
+        }
+
+        // Detect respond sentinel — LLM chose general conversation over a skill action.
+        if force_tool_use {
+            if let Some(respond_idx) = tool_calls
+                .iter()
+                .position(|c| c.name == crate::tools::respond::RESPOND_TOOL_NAME)
+            {
+                if tool_calls.len() == 1 {
+                    // Only the respond sentinel was called — return as plain conversation.
+                    let text =
+                        crate::tools::respond::extract_respond_text(&tool_calls[respond_idx].arguments)
+                            .unwrap_or_default();
+                    if let Some(ref tx) = on_delta {
+                        let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                        let mut chunk = String::new();
+                        for word in text.split_inclusive(char::is_whitespace) {
+                            if cancellation_token
+                                .as_ref()
+                                .is_some_and(CancellationToken::is_cancelled)
+                            {
+                                return Err(ToolLoopCancelled.into());
+                            }
+                            chunk.push_str(word);
+                            if chunk.len() >= STREAM_CHUNK_MIN_CHARS
+                                && tx.send(std::mem::take(&mut chunk)).await.is_err()
+                            {
+                                break;
+                            }
+                        }
+                        if !chunk.is_empty() {
+                            let _ = tx.send(chunk).await;
+                        }
+                    }
+                    // Push a plain text message so history stays valid for future turns
+                    // (no dangling tool_use block without a matching tool_result).
+                    history.push(ChatMessage::assistant(text.clone()));
+                    return Ok(text);
+                }
+                // respond + skill tools — strip the sentinel and let skill tools execute.
+                tool_calls.remove(respond_idx);
+            }
         }
 
         // Print any text the LLM produced alongside tool calls (unless silent)
