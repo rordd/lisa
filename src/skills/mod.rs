@@ -42,6 +42,9 @@ pub struct Skill {
     /// Channel restriction list (e.g. `["ws", "cli"]`). Empty = available on all channels.
     #[serde(default)]
     pub channels: Vec<String>,
+    /// When true, the LLM is required to call a tool on the first turn (tool_choice: "required").
+    #[serde(default)]
+    pub tool_choice_required: bool,
 }
 
 /// A tool defined by a skill (shell command, HTTP call, etc.)
@@ -83,6 +86,8 @@ struct SkillMeta {
     author: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    tool_choice_required: bool,
 }
 
 fn default_version() -> String {
@@ -632,6 +637,7 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 location: Some(path.to_path_buf()),
                 always: false,
                 channels: Vec::new(),
+                tool_choice_required: manifest.skill.tool_choice_required,
             })
         }
         SkillLoadMode::MetadataOnly => {
@@ -650,6 +656,7 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 location: Some(path.to_path_buf()),
                 always: false,
                 channels: Vec::new(),
+                tool_choice_required: manifest.skill.tool_choice_required,
             })
         }
     }
@@ -737,6 +744,7 @@ fn load_skill_md(path: &Path, dir: &Path, load_mode: SkillLoadMode) -> Result<Sk
         location: Some(path.to_path_buf()),
         always,
         channels,
+        tool_choice_required: false,
     })
 }
 
@@ -763,6 +771,7 @@ fn load_open_skill_md(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
         location: Some(path.to_path_buf()),
         always: false,
         channels: Vec::new(),
+        tool_choice_required: false,
     })
 }
 
@@ -989,7 +998,7 @@ pub fn create_skill_tools(
 
     for skill in skills {
         for tool_def in &skill.tools {
-            match SkillToolHandler::new(skill.name.clone(), tool_def.clone(), security.clone()) {
+            match SkillToolHandler::new(skill.name.clone(), tool_def.clone(), security.clone(), skill.tool_choice_required) {
                 Ok(handler) => {
                     tracing::debug!(
                         skill = %skill.name,

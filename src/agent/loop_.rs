@@ -2370,6 +2370,7 @@ pub(crate) async fn run_tool_call_loop(
         max_tool_iterations
     };
 
+    let force_tool_use = tools_registry.iter().any(|t| t.force_tool_use());
     let turn_id = Uuid::new_v4().to_string();
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
 
@@ -2393,6 +2394,11 @@ pub(crate) async fn run_tool_call_loop(
                     tool_specs.push(spec);
                 }
             }
+        }
+        // When forced tool use is active, inject the respond sentinel so the LLM can
+        // handle general conversation without invoking a skill action.
+        if force_tool_use {
+            tool_specs.push(crate::tools::respond::respond_tool_spec());
         }
         let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
 
@@ -2459,6 +2465,11 @@ pub(crate) async fn run_tool_call_loop(
             ChatRequest {
                 messages: &prepared_messages.messages,
                 tools: request_tools,
+                tool_choice: if force_tool_use && iteration == 0 {
+                    Some("required")
+                } else {
+                    None
+                },
             },
             model,
             temperature,
@@ -2666,6 +2677,40 @@ pub(crate) async fn run_tool_call_loop(
             }
             history.push(ChatMessage::assistant(response_text.clone()));
             return Ok(display_text);
+        }
+
+        // Detect respond sentinel — LLM chose general conversation over a skill action.
+        if force_tool_use {
+            if let Some(respond_call) = tool_calls
+                .iter()
+                .find(|c| c.name == crate::tools::respond::RESPOND_TOOL_NAME)
+            {
+                let text = crate::tools::respond::extract_respond_text(&respond_call.arguments)
+                    .unwrap_or_default();
+                if let Some(ref tx) = on_delta {
+                    let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                    let mut chunk = String::new();
+                    for word in text.split_inclusive(char::is_whitespace) {
+                        if cancellation_token
+                            .as_ref()
+                            .is_some_and(CancellationToken::is_cancelled)
+                        {
+                            return Err(ToolLoopCancelled.into());
+                        }
+                        chunk.push_str(word);
+                        if chunk.len() >= STREAM_CHUNK_MIN_CHARS
+                            && tx.send(std::mem::take(&mut chunk)).await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    if !chunk.is_empty() {
+                        let _ = tx.send(chunk).await;
+                    }
+                }
+                history.push(ChatMessage::assistant(assistant_history_content));
+                return Ok(text);
+            }
         }
 
         // Print any text the LLM produced alongside tool calls (unless silent)

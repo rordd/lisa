@@ -678,6 +678,7 @@ impl Provider for ReliableProvider {
                     let req = ChatRequest {
                         messages: request.messages,
                         tools: request.tools,
+                        tool_choice: request.tool_choice,
                     };
                     match provider.chat(req, current_model, temperature).await {
                         Ok(resp) => {

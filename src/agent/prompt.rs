@@ -372,6 +372,7 @@ mod tests {
             location: None,
             always: false,
             channels: vec![],
+            tool_choice_required: false,
         }];
 
         let ctx = PromptContext {
@@ -412,6 +413,7 @@ mod tests {
             location: Some(Path::new("/tmp/workspace/skills/deploy/SKILL.md").to_path_buf()),
             always: false,
             channels: vec![],
+            tool_choice_required: false,
         }];
 
         let ctx = PromptContext {
@@ -474,6 +476,7 @@ mod tests {
             location: None,
             always: false,
             channels: vec![],
+            tool_choice_required: false,
         }];
         let ctx = PromptContext {
             workspace_dir: Path::new("/tmp/workspace"),

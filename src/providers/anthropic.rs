@@ -52,6 +52,8 @@ struct NativeChatRequest<'a> {
     temperature: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<NativeToolSpec<'a>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -590,13 +592,19 @@ impl Provider for AnthropicProvider {
             Self::apply_cache_to_last_message(&mut messages);
         }
 
+        let converted_tools = Self::convert_tools(request.tools);
         let native_request = NativeChatRequest {
             model: model.to_string(),
             max_tokens: 4096,
             system: system_prompt,
             messages,
             temperature,
-            tools: Self::convert_tools(request.tools),
+            tool_choice: if request.tool_choice == Some("required") && converted_tools.is_some() {
+                Some(serde_json::json!({"type": "any"}))
+            } else {
+                None
+            },
+            tools: converted_tools,
         };
 
         let req = self
@@ -670,6 +678,7 @@ impl Provider for AnthropicProvider {
             } else {
                 Some(&tool_specs)
             },
+            tool_choice: None,
         };
         self.chat(request, model, temperature).await
     }
