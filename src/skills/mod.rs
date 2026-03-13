@@ -724,7 +724,7 @@ fn load_skill_md(path: &Path, dir: &Path, load_mode: SkillLoadMode) -> Result<Sk
         location: Some(path.to_path_buf()),
         always,
         channels,
-        tool_choice_required: false,
+        tool_choice_required: fm_bool(&fm, "tool_choice_required"),
     })
 }
 

@@ -1,6 +1,7 @@
 ---
 name: tv-control
 description: Control this webOS TV via the exec tool. Supported actions: change channels, adjust volume, and manage apps.
+tool_choice_required: false
 ---
 
 # TV Control
