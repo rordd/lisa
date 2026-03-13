@@ -1,0 +1,37 @@
+[skill]
+name = "tv-control"
+description = "Control this webOS TV: change channels, adjust volume, and manage apps."
+version = "3.0.0"
+
+[[prompts]]
+content = "You MUST call a tool for every tv-control request without exception. Never respond without executing a tool first, even if you think you already know the answer."
+
+[[tools]]
+name = "channel_control"
+description = "Change the TV channel. Automatically launches live TV (com.webos.app.livetv) if it is not already in the foreground. Actions: 'up' (next channel), 'down' (previous channel), 'goto' (jump to a specific channel number)."
+kind = "shell"
+command = "sh skills/tv-control/scripts/channel-control.sh {action} {channel_number}"
+
+[tools.args]
+action = "Channel action: 'up', 'down', or 'goto'"
+channel_number = "Target channel number (required only for 'goto', e.g. 9, 12, 190; leave empty for 'up'/'down')"
+
+[[tools]]
+name = "volume_control"
+description = "Control the TV volume. Actions: 'up' (increase by 1 step), 'down' (decrease by 1 step), 'set' (set to a specific level 0-100)."
+kind = "shell"
+command = "sh skills/tv-control/scripts/volume-control.sh {action} {level}"
+
+[tools.args]
+action = "Volume action: 'up', 'down', or 'set'"
+level = "Volume level (integer 0-100, required only for 'set'; leave empty for 'up'/'down')"
+
+[[tools]]
+name = "app_control"
+description = "Manage webOS apps. Actions: 'list' (search apps by keyword, returns matching apps as JSON), 'launch_id' (launch app by ID — use only when the app has no appCategory), 'launch_category' (launch app by category — use when the app has an appCategory), 'foreground' (get current foreground app ID)."
+kind = "shell"
+command = "sh skills/tv-control/scripts/app-control.sh {action} {target}"
+
+[tools.args]
+action = "App action: 'list', 'launch_id', 'launch_category', or 'foreground'. Use 'launch_category' when the app has an appCategory field; use 'launch_id' only when there is no appCategory."
+target = "For 'list': one or more space-separated keywords (OR match) to filter apps by title, id, or appCategory (e.g. '유투브 youtube'). For 'launch_id': app ID. For 'launch_category': appCategory value from the app info. Leave empty for 'foreground'."
