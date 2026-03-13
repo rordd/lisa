@@ -9139,11 +9139,11 @@ impl Config {
             }
         }
 
-        // Canonical provider reasoning level: ZEROCLAW_PROVIDER_REASONING_LEVEL
-        if let Ok(level) = std::env::var("ZEROCLAW_PROVIDER_REASONING_LEVEL") {
+        // Custom provider reasoning effort: ZEROCLAW_CUSTOM_REASONING_EFFORT
+        if let Ok(level) = std::env::var("ZEROCLAW_CUSTOM_REASONING_EFFORT") {
             if let Some(normalized) = Self::normalize_reasoning_level_override(
                 Some(&level),
-                "ZEROCLAW_PROVIDER_REASONING_LEVEL",
+                "ZEROCLAW_CUSTOM_REASONING_EFFORT",
             ) {
                 self.provider.reasoning_level = Some(normalized);
             }
@@ -9165,7 +9165,7 @@ impl Config {
                 tracing::warn!(
                     env_name,
                     reasoning_level = %normalized,
-                    "{env_name} is deprecated; prefer ZEROCLAW_PROVIDER_REASONING_LEVEL or provider.reasoning_level in config"
+                    "{env_name} is deprecated; prefer ZEROCLAW_CUSTOM_REASONING_EFFORT or provider.reasoning_level in config"
                 );
                 self.runtime.reasoning_level = Some(normalized);
             }
@@ -14012,12 +14012,12 @@ default_model = "legacy-model"
     }
 
     #[test]
-    async fn env_override_provider_reasoning_level_canonical() {
+    async fn env_override_custom_reasoning_effort_canonical() {
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
         assert_eq!(config.provider.reasoning_level, None);
 
-        std::env::set_var("ZEROCLAW_PROVIDER_REASONING_LEVEL", "minimal");
+        std::env::set_var("ZEROCLAW_CUSTOM_REASONING_EFFORT", "minimal");
         config.apply_env_overrides();
         assert_eq!(config.provider.reasoning_level.as_deref(), Some("minimal"));
         assert_eq!(
@@ -14025,28 +14025,28 @@ default_model = "legacy-model"
             Some("minimal")
         );
 
-        std::env::remove_var("ZEROCLAW_PROVIDER_REASONING_LEVEL");
+        std::env::remove_var("ZEROCLAW_CUSTOM_REASONING_EFFORT");
     }
 
     #[test]
-    async fn env_override_provider_reasoning_level_invalid_ignored() {
+    async fn env_override_custom_reasoning_effort_invalid_ignored() {
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
         config.provider.reasoning_level = Some("high".to_string());
 
-        std::env::set_var("ZEROCLAW_PROVIDER_REASONING_LEVEL", "bogus");
+        std::env::set_var("ZEROCLAW_CUSTOM_REASONING_EFFORT", "bogus");
         config.apply_env_overrides();
         assert_eq!(config.provider.reasoning_level.as_deref(), Some("high"));
 
-        std::env::remove_var("ZEROCLAW_PROVIDER_REASONING_LEVEL");
+        std::env::remove_var("ZEROCLAW_CUSTOM_REASONING_EFFORT");
     }
 
     #[test]
-    async fn env_override_provider_reasoning_level_takes_precedence_over_runtime() {
+    async fn env_override_custom_reasoning_effort_takes_precedence_over_runtime() {
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
 
-        std::env::set_var("ZEROCLAW_PROVIDER_REASONING_LEVEL", "high");
+        std::env::set_var("ZEROCLAW_CUSTOM_REASONING_EFFORT", "high");
         std::env::set_var("ZEROCLAW_REASONING_LEVEL", "minimal");
         config.apply_env_overrides();
         assert_eq!(config.provider.reasoning_level.as_deref(), Some("high"));
@@ -14056,7 +14056,7 @@ default_model = "legacy-model"
             Some("high")
         );
 
-        std::env::remove_var("ZEROCLAW_PROVIDER_REASONING_LEVEL");
+        std::env::remove_var("ZEROCLAW_CUSTOM_REASONING_EFFORT");
         std::env::remove_var("ZEROCLAW_REASONING_LEVEL");
     }
 
@@ -14065,7 +14065,7 @@ default_model = "legacy-model"
         let _env_guard = env_override_lock().await;
         let mut config = Config::default();
 
-        std::env::remove_var("ZEROCLAW_PROVIDER_REASONING_LEVEL");
+        std::env::remove_var("ZEROCLAW_CUSTOM_REASONING_EFFORT");
         std::env::set_var("ZEROCLAW_REASONING_LEVEL", "low");
         config.apply_env_overrides();
         assert_eq!(config.provider.reasoning_level, None);

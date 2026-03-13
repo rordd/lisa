@@ -82,7 +82,7 @@ export ZEROCLAW_MODEL=gemini-2.5-flash
 # export ZEROCLAW_API_KEY=<azure-api-key>
 # export ZEROCLAW_TEMPERATURE=1              # Required for reasoning models (gpt-5-mini, o-series)
 # export AZURE_PRIVATE_ENDPOINT=<private-ip>  # If using private endpoint
-# export ZEROCLAW_PROVIDER_REASONING_LEVEL=minimal  # Reasoning effort: minimal, low, medium(default), high
+# export ZEROCLAW_CUSTOM_REASONING_EFFORT=minimal  # Reasoning effort: minimal, low, medium(default), high
 
 # Telegram (optional — not available behind company firewalls)
 # export TELEGRAM_BOT_TOKEN=<bot-token>
@@ -97,7 +97,7 @@ export GOG_KEYRING_BACKEND=file
 
 ### Reasoning Level (Azure OpenAI)
 
-`ZEROCLAW_PROVIDER_REASONING_LEVEL` controls how much reasoning the model performs before responding.
+`ZEROCLAW_CUSTOM_REASONING_EFFORT` controls how much reasoning the model performs before responding.
 Applies to reasoning models like `gpt-5-mini` and o-series.
 
 | Level | Reasoning tokens | Speed | Recommended use |

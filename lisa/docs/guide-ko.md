@@ -82,7 +82,7 @@ export ZEROCLAW_MODEL=gemini-2.5-flash
 # export ZEROCLAW_API_KEY=<azure-api-key>
 # export ZEROCLAW_TEMPERATURE=1              # Reasoning 모델 필수 (gpt-5-mini, o-시리즈)
 # export AZURE_PRIVATE_ENDPOINT=<private-ip>  # Private endpoint 사용 시
-# export ZEROCLAW_PROVIDER_REASONING_LEVEL=minimal  # Reasoning effort: minimal, low, medium(default), high
+# export ZEROCLAW_CUSTOM_REASONING_EFFORT=minimal  # Reasoning effort: minimal, low, medium(default), high
 
 # 텔레그램 (선택 — 회사 내부망에서는 사용 불가)
 # export TELEGRAM_BOT_TOKEN=<봇 토큰>
@@ -97,7 +97,7 @@ export GOG_KEYRING_BACKEND=file
 
 ### Reasoning Level (Azure OpenAI)
 
-`ZEROCLAW_PROVIDER_REASONING_LEVEL`은 모델이 응답 전에 수행하는 추론 수준을 제어합니다.
+`ZEROCLAW_CUSTOM_REASONING_EFFORT`은 모델이 응답 전에 수행하는 추론 수준을 제어합니다.
 `gpt-5-mini`, o-시리즈 등 reasoning 모델에 적용됩니다.
 
 | 레벨 | Reasoning 토큰 | 속도 | 권장 용도 |
