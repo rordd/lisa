@@ -1607,6 +1607,7 @@ impl OpenAiCompatibleProvider {
                             ProviderChatRequest {
                                 messages,
                                 tools: fallback_tools,
+                                tool_choice: None,
                             },
                             model,
                             temperature,
@@ -2411,7 +2412,7 @@ impl Provider for OpenAiCompatibleProvider {
             temperature,
             max_tokens: self.effective_max_tokens(),
             stream: Some(false),
-            tool_choice: tools.as_ref().map(|_| "auto".to_string()),
+            tool_choice: tools.as_ref().map(|_| request.tool_choice.unwrap_or("auto").to_string()),
             tools,
             reasoning_effort: self.reasoning_level.as_deref().map(clamp_compatible_reasoning_effort),
         };

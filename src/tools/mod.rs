@@ -66,6 +66,7 @@ pub mod pdf_read;
 pub mod pptx_read;
 pub mod process;
 pub mod proxy_config;
+pub mod respond;
 pub mod pushover;
 pub mod quota_tools;
 pub mod schedule;

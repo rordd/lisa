@@ -483,6 +483,14 @@ struct InferenceConfig {
 #[serde(rename_all = "camelCase")]
 struct ToolConfig {
     tools: Vec<ToolDefinition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<BedrockToolChoice>,
+}
+
+/// Bedrock tool_choice equivalent: `{"any": {}}` forces at least one tool call.
+#[derive(Debug, Serialize)]
+struct BedrockToolChoice {
+    any: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -915,7 +923,7 @@ impl BedrockProvider {
 
     // ── Tool conversion ─────────────────────────────────────────
 
-    fn convert_tools_to_converse(tools: Option<&[ToolSpec]>) -> Option<ToolConfig> {
+    fn convert_tools_to_converse(tools: Option<&[ToolSpec]>, force_tool_use: bool) -> Option<ToolConfig> {
         let items = tools?;
         if items.is_empty() {
             return None;
@@ -932,7 +940,14 @@ impl BedrockProvider {
                 },
             })
             .collect();
-        Some(ToolConfig { tools: tool_defs })
+        Some(ToolConfig {
+            tools: tool_defs,
+            tool_choice: if force_tool_use {
+                Some(BedrockToolChoice { any: serde_json::json!({}) })
+            } else {
+                None
+            },
+        })
     }
 
     // ── Response parsing ────────────────────────────────────────
@@ -1417,7 +1432,7 @@ impl Provider for BedrockProvider {
             }
         }
 
-        let tool_config = Self::convert_tools_to_converse(request.tools);
+        let tool_config = Self::convert_tools_to_converse(request.tools, request.tool_choice == Some("required"));
 
         let converse_request = ConverseRequest {
             system,
@@ -1962,7 +1977,7 @@ mod tests {
             description: "Run commands".to_string(),
             parameters: serde_json::json!({"type": "object", "properties": {"command": {"type": "string"}}}),
         }];
-        let config = BedrockProvider::convert_tools_to_converse(Some(&tools));
+        let config = BedrockProvider::convert_tools_to_converse(Some(&tools), false);
         assert!(config.is_some());
         let config = config.unwrap();
         assert_eq!(config.tools.len(), 1);
@@ -1971,8 +1986,8 @@ mod tests {
 
     #[test]
     fn convert_tools_to_converse_empty_returns_none() {
-        assert!(BedrockProvider::convert_tools_to_converse(Some(&[])).is_none());
-        assert!(BedrockProvider::convert_tools_to_converse(None).is_none());
+        assert!(BedrockProvider::convert_tools_to_converse(Some(&[]), false).is_none());
+        assert!(BedrockProvider::convert_tools_to_converse(None, false).is_none());
     }
 
     // ── Serde tests ─────────────────────────────────────────────
