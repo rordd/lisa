@@ -3,6 +3,9 @@ name = "weather"
 description = "Check current weather and forecasts using Open-Meteo API."
 version = "2.0.0"
 
+[[prompts]]
+content = "You MUST call the weather_check tool for every weather request without exception. Never respond without executing the tool first, even if you think you already know the answer."
+
 [[tools]]
 name = "weather_check"
 description = "Fetch current weather from Open-Meteo API. Returns temperature, apparent temperature, weather code, wind speed, humidity, and precipitation."
