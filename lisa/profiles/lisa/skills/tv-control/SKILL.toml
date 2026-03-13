@@ -1,61 +1,37 @@
 [skill]
 name = "tv-control"
-description = "Control this webOS TV. Supported actions: launch/open apps, get foreground app, change channels, and control volume."
-version = "1.0.0"
+description = "Control this webOS TV: change channels, adjust volume, and manage apps."
+version = "3.0.0"
+
+[[prompts]]
+content = "You MUST call a tool for every tv-control request without exception. Never respond without executing a tool first, even if you think you already know the answer."
 
 [[tools]]
-name = "tv_launch_app"
-description = "Launch an app on the TV by app ID."
+name = "channel_control"
+description = "Change the TV channel. Automatically launches live TV (com.webos.app.livetv) if it is not already in the foreground. Actions: 'up' (next channel), 'down' (previous channel), 'goto' (jump to a specific channel number)."
 kind = "shell"
-command = "luna-send -n 1 luna://com.webos.applicationManager/launch '{\"id\":\"{app_id}\"}'"
+command = "sh skills/tv-control/scripts/channel-control.sh {action} {channel_number}"
 
 [tools.args]
-app_id = "The ID of the app to launch (e.g., 'com.webos.app.livetv', 'youtube.leanback.v4')"
+action = "Channel action: 'up', 'down', or 'goto'"
+channel_number = "Target channel number (required only for 'goto', e.g. 9, 12, 190; leave empty for 'up'/'down')"
 
 [[tools]]
-name = "tv_get_foreground"
-description = "Get the app ID of the currently running foreground app."
+name = "volume_control"
+description = "Control the TV volume. Actions: 'up' (increase by 1 step), 'down' (decrease by 1 step), 'set' (set to a specific level 0-100)."
 kind = "shell"
-command = "luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}'"
-
-[[tools]]
-name = "tv_channel_up"
-description = "Switch to the next channel (only works when Live TV is in foreground)."
-kind = "shell"
-command = "luna-send -n 1 -f luna://com.lge.inputgenerator/pushKeyEvent '{\"eventtype\":\"key\",\"keycodenum\":402}'"
-
-[[tools]]
-name = "tv_channel_down"
-description = "Switch to the previous channel (only works when Live TV is in foreground)."
-kind = "shell"
-command = "luna-send -n 1 -f luna://com.lge.inputgenerator/pushKeyEvent '{\"eventtype\":\"key\",\"keycodenum\":403}'"
-
-[[tools]]
-name = "tv_go_to_channel"
-description = "Switch to a specific channel number (only works when Live TV is in foreground)."
-kind = "shell"
-command = "bash skills/tv-control/scripts/go-to-channel.sh {channel_number}"
+command = "sh skills/tv-control/scripts/volume-control.sh {action} {level}"
 
 [tools.args]
-channel_number = "Channel number to switch to (e.g., '9', '12', '190')"
+action = "Volume action: 'up', 'down', or 'set'"
+level = "Volume level (integer 0-100, required only for 'set'; leave empty for 'up'/'down')"
 
 [[tools]]
-name = "tv_volume_up"
-description = "Increase the TV volume by 1 step."
+name = "app_control"
+description = "Manage webOS apps. Actions: 'list' (search apps by keyword, returns matching apps as JSON), 'launch_id' (launch app by ID — use only when the app has no appCategory), 'launch_category' (launch app by category — use when the app has an appCategory), 'foreground' (get current foreground app ID)."
 kind = "shell"
-command = "luna-send -n 1 luna://com.webos.service.audio/master/volumeUp '{}'"
-
-[[tools]]
-name = "tv_volume_down"
-description = "Decrease the TV volume by 1 step."
-kind = "shell"
-command = "luna-send -n 1 luna://com.webos.service.audio/master/volumeDown '{}'"
-
-[[tools]]
-name = "tv_set_volume"
-description = "Set the TV volume to a specific level (0-100)."
-kind = "shell"
-command = "luna-send -n 1 luna://com.webos.service.audio/master/setVolume '{\"volume\":{volume}}'"
+command = "sh skills/tv-control/scripts/app-control.sh {action} {target}"
 
 [tools.args]
-volume = "Volume level to set (0-100)"
+action = "App action: 'list', 'launch_id', 'launch_category', or 'foreground'. Use 'launch_category' when the app has an appCategory field; use 'launch_id' only when there is no appCategory."
+target = "For 'list': one or more space-separated keywords (OR match) to filter apps by title, id, or appCategory (e.g. '유투브 youtube'). For 'launch_id': app ID. For 'launch_category': appCategory value from the app info. Leave empty for 'foreground'."
