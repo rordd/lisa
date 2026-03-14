@@ -434,6 +434,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
         (prompt, a2ui)
     };
 
+    // Track last A2UI data model so button actions include context (e.g., option A = "사하라 사막").
+    let mut last_a2ui_data: Vec<serde_json::Value> = vec![];
+
     // Restore persisted history (if any) and replay to the client before processing new input.
     let mut history = load_ws_history(&state, &session_id, &system_prompt).await;
     let persisted_turns = ws_history_turns_from_chat(&history);
@@ -474,7 +477,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
                     continue;
                 }
                 match parsed.get("payload") {
-                    Some(payload) => super::a2ui::format_user_action(payload),
+                    Some(payload) => super::a2ui::format_user_action_with_context(payload, &last_a2ui_data),
                     None => {
                         let err = serde_json::json!({"type": "error", "message": "a2ui_action missing payload"});
                         let _ = socket.send(Message::Text(err.to_string().into())).await;
@@ -534,7 +537,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
         }));
 
         // Full agentic loop with tools
-        match super::run_gateway_chat_with_tools(&state, &content, Some(&ws_session_id)).await {
+        match super::run_gateway_chat_with_tools(&state, &content, Some(&ws_session_id), Some("ws")).await {
             Ok(response) => {
                 let leak_guard_cfg = { state.config.lock().security.outbound_leak_guard.clone() };
                 let safe_response = finalize_ws_response(
@@ -543,16 +546,32 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
                     state.tools_registry_exec.as_ref(),
                     &leak_guard_cfg,
                 );
-                // Store original response (with A2UI) in history
-                history.push(ChatMessage::assistant(&safe_response));
-                persist_ws_history(&state, &session_id, &history).await;
-
                 // Parse A2UI and send as separate message before done
                 let (text, a2ui) = if a2ui_enabled {
                     super::a2ui::parse_response(&safe_response)
                 } else {
                     (safe_response.clone(), vec![])
                 };
+
+                // Store text + A2UI data model summary in history.
+                // Strip bulky component definitions but keep data values
+                // so the LLM remembers what was shown (e.g. option A = "사하라 사막").
+                let history_text = if !a2ui.is_empty() {
+                    let summary = super::a2ui::summarize_for_history(&a2ui);
+                    if summary.is_empty() {
+                        text.clone()
+                    } else {
+                        format!("{text}\n{summary}")
+                    }
+                } else {
+                    text.clone()
+                };
+                history.push(ChatMessage::assistant(&history_text));
+                persist_ws_history(&state, &session_id, &history).await;
+                // Save A2UI data for next action context
+                if !a2ui.is_empty() {
+                    last_a2ui_data = a2ui.clone();
+                }
                 if !a2ui.is_empty() {
                     let a2ui_msg = serde_json::json!({"type": "a2ui", "messages": a2ui});
                     let _ = socket

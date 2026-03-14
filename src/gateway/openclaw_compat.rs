@@ -191,7 +191,7 @@ pub async fn handle_api_chat(
         });
 
     // ── Run the full agent loop ──
-    match run_gateway_chat_with_tools(&state, &enriched_message, session_id).await {
+    match run_gateway_chat_with_tools(&state, &enriched_message, session_id, None).await {
         Ok(response) => {
             let leak_guard_cfg = state.config.lock().security.outbound_leak_guard.clone();
             let safe_response = sanitize_gateway_response(
@@ -572,7 +572,7 @@ pub async fn handle_v1_chat_completions_with_tools(
     );
 
     // ── Run the full agent loop ──
-    let reply = match run_gateway_chat_with_tools(&state, &enriched_message, session_id).await {
+    let reply = match run_gateway_chat_with_tools(&state, &enriched_message, session_id, None).await {
         Ok(response) => {
             let leak_guard_cfg = state.config.lock().security.outbound_leak_guard.clone();
             let safe = sanitize_gateway_response(

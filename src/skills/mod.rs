@@ -924,7 +924,11 @@ pub fn skills_to_prompt_with_mode(
             if !skill.prompts.is_empty() {
                 let _ = writeln!(prompt, "    <instructions>");
                 for instruction in &skill.prompts {
-                    write_xml_text_element(&mut prompt, 6, "instruction", instruction);
+                    // Use raw content (not XML-escaped) so JSON examples, angle brackets,
+                    // and quotes in skill instructions are preserved for the LLM.
+                    let _ = write!(prompt, "      ");
+                    prompt.push_str(instruction);
+                    prompt.push('\n');
                 }
                 let _ = writeln!(prompt, "    </instructions>");
             }
