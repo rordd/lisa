@@ -491,19 +491,26 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 
     // Register SKILL.toml native tools for the WS gateway (fixes #43).
     {
-        let loaded = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        tracing::debug!(count = loaded.len(), "WS loaded skills");
-        for s in &loaded {
-            tracing::debug!(name = %s.name, tools = s.tools.len(), "WS skill detail");
-        }
-        let skills_for_tools = crate::skills::filter_skills_by_channel(loaded, None);
-        tracing::debug!(count = skills_for_tools.len(), "WS skills after filter");
+        let skills_for_tools = crate::skills::filter_skills_by_channel(
+            crate::skills::load_skills_with_config(&config.workspace_dir, &config),
+            None,
+        );
         let skill_tools =
             crate::skills::create_skill_tools(&skills_for_tools, security.clone());
-        tracing::debug!(count = skill_tools.len(), "WS skill tools created");
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "WS skill tools registered");
             all_tools.extend(skill_tools);
+        }
+
+        // In Compact mode, register read_skill tool for on-demand skill loading.
+        if matches!(
+            config.skills.prompt_injection_mode,
+            crate::config::SkillsPromptInjectionMode::Compact
+        ) {
+            let read_skill_tool =
+                crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
+            all_tools.push(Box::new(read_skill_tool));
+            tracing::debug!("read_skill tool registered (compact mode, ws)");
         }
     }
 
