@@ -67,19 +67,58 @@ export function buildSurface(messages: any[]): A2UISurface | null {
   let rootId = 'root';
 
   for (const msg of messages) {
-    if (msg.createSurface) {
-      surfaceId = msg.createSurface.surfaceId || '@default';
+    // Support both v0.9 key names: createSurface / beginRendering
+    const surface = msg.createSurface || msg.beginRendering;
+    if (surface) {
+      surfaceId = surface.surfaceId || '@default';
+      if (surface.root) rootId = surface.root;
     }
-    if (msg.updateComponents) {
-      for (const c of msg.updateComponents.components) {
-        components.set(c.id, c);
-        // First Card or first component is root
-        if (c.id === 'root') rootId = 'root';
+    // Support both v0.9 key names: updateComponents / surfaceUpdate
+    const update = msg.updateComponents || msg.surfaceUpdate;
+    if (update) {
+      for (const c of update.components) {
+        // Normalize v0.9 nested component format:
+        // {"component": {"Column": {"children": {"explicitList": [...]}}}, "id": "..."}
+        // → flatten to {"component": "Column", "children": [...], "id": "..."}
+        const normalized: any = { id: c.id };
+        if (c.component && typeof c.component === 'object') {
+          const keys = Object.keys(c.component);
+          if (keys.length === 1) {
+            const typeName = keys[0];
+            normalized.component = typeName;
+            const props = c.component[typeName];
+            if (props && typeof props === 'object') {
+              for (const [k, v] of Object.entries(props)) {
+                if (k === 'children' && v && typeof v === 'object' && (v as any).explicitList) {
+                  normalized.children = (v as any).explicitList;
+                } else if (k === 'text' && v && typeof v === 'object' && (v as any).literalString != null) {
+                  normalized.text = (v as any).literalString;
+                } else if (k === 'label' && v && typeof v === 'object' && (v as any).literalString != null) {
+                  normalized.label = (v as any).literalString;
+                } else if (k === 'name' && v && typeof v === 'object' && (v as any).literalString != null) {
+                  normalized.name = (v as any).literalString;
+                } else if (k === 'description' && v && typeof v === 'object' && (v as any).literalString != null) {
+                  normalized.description = (v as any).literalString;
+                } else if (k === 'url' && v && typeof v === 'object' && (v as any).literalString != null) {
+                  normalized.url = (v as any).literalString;
+                } else {
+                  normalized[k] = v;
+                }
+              }
+            }
+          }
+        } else {
+          Object.assign(normalized, c);
+        }
+        components.set(normalized.id, normalized);
+        if (normalized.id === 'root') rootId = 'root';
       }
     }
-    if (msg.updateDataModel) {
-      if (!msg.updateDataModel.path || msg.updateDataModel.path === '/') {
-        dataModel = { ...dataModel, ...msg.updateDataModel.value };
+    // Support both v0.9 key names: updateDataModel / dataModelUpdate
+    const dm = msg.updateDataModel || msg.dataModelUpdate;
+    if (dm) {
+      if (!dm.path || dm.path === '/') {
+        dataModel = { ...dataModel, ...dm.value };
       }
     }
   }
@@ -265,6 +304,7 @@ export class A2UISurfaceElement extends LitElement {
 
     /* Icon */
     .a2ui-icon { font-family: 'Material Symbols Outlined', sans-serif; font-size: 24px; color: #5f6368; }
+    .a2ui-icon-emoji { font-size: 20px; }
 
     /* Tabs */
     .tabs-header { display: flex; border-bottom: 2px solid #e0e0e0; gap: 0; }
@@ -567,7 +607,23 @@ export class A2UISurfaceElement extends LitElement {
     const name = resolveText(comp.name as any, this.surface!.dataModel);
     // Convert camelCase to snake_case for Material Symbols
     const iconName = name.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
-    return html`<span class="a2ui-icon">${iconName}</span>`;
+    // Emoji fallback map for common weather/UI icons
+    const emojiMap: Record<string, string> = {
+      'cloud': '☁️', 'sunny': '☀️', 'clear': '☀️', 'sun': '☀️',
+      'umbrella': '☂️', 'rain': '🌧️', 'rainy': '🌧️', 'snow': '❄️',
+      'thunderstorm': '⛈️', 'fog': '🌫️', 'wind': '💨', 'partly_cloudy': '⛅',
+      'partly_cloudy_day': '⛅', 'partly_cloudy_night': '⛅',
+      'check': '✅', 'close': '❌', 'star': '⭐', 'favorite': '❤️',
+      'home': '🏠', 'settings': '⚙️', 'search': '🔍', 'info': 'ℹ️',
+      'warning': '⚠️', 'error': '❗', 'calendar': '📅', 'schedule': '📅',
+      'location': '📍', 'place': '📍', 'restaurant': '🍽️', 'music': '🎵',
+      'play': '▶️', 'pause': '⏸️', 'stop': '⏹️',
+    };
+    const emoji = emojiMap[iconName];
+    if (emoji) {
+      return html`<span class="a2ui-icon-emoji">${emoji}</span>`;
+    }
+    return html`<span class="material-symbols-outlined a2ui-icon">${iconName}</span>`;
   }
 
   // ── Tabs ──
