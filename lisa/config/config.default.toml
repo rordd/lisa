@@ -9,7 +9,7 @@
 # default_temperature = 0.7 (code default; override via ZEROCLAW_TEMPERATURE in .env)
 
 [a2ui]
-enabled = false
+enabled = true
 
 [channels_config]
 cli = true
@@ -17,7 +17,7 @@ cli = true
 
 [gateway]
 port = 42617
-bind = "127.0.0.1"
+bind = "0.0.0.0"
 require_pairing = false
 
 [autonomy]

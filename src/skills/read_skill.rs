@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tracing::info;
 
 /// Tool that reads a skill's full SKILL.md content by name.
 /// Only registered when `prompt_injection_mode = Compact`.
@@ -58,6 +59,8 @@ impl Tool for ReadSkillTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required 'name' parameter"))?;
 
+        info!(skill_name = name, "read_skill called");
+
         let path = match self.skill_locations.get(name) {
             Some(p) => p,
             None => {
@@ -75,11 +78,14 @@ impl Tool for ReadSkillTool {
         };
 
         match tokio::fs::read_to_string(path).await {
-            Ok(content) => Ok(ToolResult {
-                success: true,
-                output: content,
-                error: None,
-            }),
+            Ok(content) => {
+                info!(skill_name = name, bytes = content.len(), "read_skill loaded");
+                Ok(ToolResult {
+                    success: true,
+                    output: content,
+                    error: None,
+                })
+            }
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: format!("Failed to read skill file: {e}"),
