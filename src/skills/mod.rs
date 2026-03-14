@@ -7,9 +7,11 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 mod audit;
+pub mod read_skill;
 mod templates;
 mod tool_handler;
 
+pub use read_skill::ReadSkillTool;
 pub use tool_handler::SkillToolHandler;
 
 const OPEN_SKILLS_REPO_URL: &str = "https://github.com/besoeasy/open-skills";
@@ -910,7 +912,7 @@ pub fn skills_to_prompt_with_mode(
         crate::config::SkillsPromptInjectionMode::Compact => String::from(
             "## Available Skills\n\n\
              Skill summaries are preloaded below to keep context compact.\n\
-             Skill instructions are loaded on demand: read the skill file in `location` when needed. \
+             Skill instructions are loaded on demand: use the `read_skill` tool with the skill name to load full instructions when needed. \
              Skills marked `always` include full instructions below even in compact mode.\n\n\
              <available_skills>\n",
         ),
