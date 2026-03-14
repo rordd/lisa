@@ -3477,6 +3477,18 @@ pub async fn process_message_with_session(
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);
         }
+
+        // In Compact mode, register read_skill tool so the LLM can load skill
+        // instructions on demand (non-always skills have metadata only).
+        if matches!(
+            config.skills.prompt_injection_mode,
+            crate::config::SkillsPromptInjectionMode::Compact
+        ) {
+            let read_skill_tool =
+                crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
+            tools_registry.push(Box::new(read_skill_tool));
+            tracing::debug!("read_skill tool registered (compact mode, gateway)");
+        }
     }
 
     let tools_registry = filter_primary_agent_tools_or_fail(&config, tools_registry)?;
