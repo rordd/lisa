@@ -434,9 +434,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
         (prompt, a2ui)
     };
 
-    // Track last A2UI data model so button actions include context (e.g., option A = "Sahara Desert").
-    let mut last_a2ui_data: Vec<serde_json::Value> = vec![];
-
     // Restore persisted history (if any) and replay to the client before processing new input.
     let mut history = load_ws_history(&state, &session_id, &system_prompt).await;
     let persisted_turns = ws_history_turns_from_chat(&history);
@@ -477,7 +474,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
                     continue;
                 }
                 match parsed.get("payload") {
-                    Some(payload) => super::a2ui::format_user_action_with_context(payload, &last_a2ui_data),
+                    Some(payload) => super::a2ui::format_user_action_with_context(payload, &[]),
                     None => {
                         let err = serde_json::json!({"type": "error", "message": "a2ui_action missing payload"});
                         let _ = socket.send(Message::Text(err.to_string().into())).await;
@@ -568,10 +565,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
                 };
                 history.push(ChatMessage::assistant(&history_text));
                 persist_ws_history(&state, &session_id, &history).await;
-                // Save A2UI data for next action context
-                if !a2ui.is_empty() {
-                    last_a2ui_data = a2ui.clone();
-                }
                 if !a2ui.is_empty() {
                     let a2ui_msg = serde_json::json!({"type": "a2ui", "messages": a2ui});
                     let _ = socket

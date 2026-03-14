@@ -111,8 +111,6 @@ Sent to server: {"choice": "Atlantic Ocean"}
 LLM sees: "User selected: Atlantic Ocean"
 ```
 
-**Fallback:** ZeroClaw includes a server-side fallback that attempts to resolve choice text from known key patterns (`options.B`, `optionB`, `optB`, `option_B`). However, this is a best-effort heuristic — client-side path resolution is the standard approach.
-
 ### 2.5 App Developer Requirements
 
 Clients rendering A2UI cards MUST implement the following:

@@ -62,11 +62,11 @@ pub fn format_user_action(payload: &Value) -> String {
     format_user_action_with_context(payload, &[])
 }
 
-/// Format a client userAction payload with A2UI data model context.
+/// Format a client userAction payload with A2UI context.
 ///
-/// Resolves choice references against the last A2UI data model so the LLM
-/// sees the actual selected text (e.g., "B → Atlantic Ocean"), not just the letter.
-pub fn format_user_action_with_context(payload: &Value, last_a2ui: &[Value]) -> String {
+/// The client is expected to resolve data binding paths (e.g., `{"path": "/options/B"}`)
+/// against the dataModel before sending, so context values are already resolved.
+pub fn format_user_action_with_context(payload: &Value, _last_a2ui: &[Value]) -> String {
     let surface_id = payload["surfaceId"].as_str().unwrap_or("unknown");
     let action_name = payload["name"].as_str().unwrap_or("unknown");
     let component_id = payload["sourceComponentId"].as_str().unwrap_or("unknown");
@@ -74,12 +74,6 @@ pub fn format_user_action_with_context(payload: &Value, last_a2ui: &[Value]) -> 
         .get("context")
         .cloned()
         .unwrap_or(serde_json::json!({}));
-
-    // Collect the last data model from A2UI messages
-    let data_model = extract_last_data_model(last_a2ui);
-
-    // Try to resolve the user's choice to its display text
-    let resolved = resolve_choice_text(&context, &data_model);
 
     let user_action = serde_json::json!({
         "action": {
@@ -91,98 +85,12 @@ pub fn format_user_action_with_context(payload: &Value, last_a2ui: &[Value]) -> 
         }
     });
 
-    let mut result = format!(
+    format!(
         "[A2UI action]\n{}",
         serde_json::to_string_pretty(&user_action).unwrap_or_default()
-    );
-
-    // Append explicit resolution so the LLM doesn't have to guess
-    if let Some(ref resolved_text) = resolved {
-        result.push_str(&format!("\nUser selected: {resolved_text}"));
-    }
-
-    result
+    )
 }
 
-/// Extract the merged data model from the last A2UI messages.
-fn extract_last_data_model(a2ui_messages: &[Value]) -> Value {
-    let mut merged = serde_json::json!({});
-    for msg in a2ui_messages {
-        if let Some(dm) = msg.get("updateDataModel") {
-            if let Some(value) = dm.get("value") {
-                if let (Some(merged_obj), Some(value_obj)) =
-                    (merged.as_object_mut(), value.as_object())
-                {
-                    for (k, v) in value_obj {
-                        merged_obj.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-        }
-    }
-    merged
-}
-
-/// Try to resolve a choice key (e.g., "B") to its display text from the data model.
-///
-/// Looks for common patterns:
-/// - `options.B` → "Atlantic Ocean"
-/// - `optionB` → "B. Atlantic Ocean"
-/// - Direct value match in any data model field
-fn resolve_choice_text(context: &Value, data_model: &Value) -> Option<String> {
-    let ctx = context.as_object()?;
-    let dm = data_model.as_object()?;
-
-    // Find the choice value from context (check common keys: choice, answer, selected)
-    let choice_keys = ["choice", "answer", "selected", "option"];
-    let choice_val = choice_keys
-        .iter()
-        .filter_map(|k| ctx.get(*k).and_then(|v| v.as_str()))
-        .next()?;
-
-    // Strategy 1: Look in "options" sub-object (options.A, options.B, etc.)
-    if let Some(options) = dm.get("options").and_then(|o| o.as_object()) {
-        if let Some(text) = options.get(choice_val).and_then(|v| v.as_str()) {
-            return Some(format!("{choice_val} = \"{text}\""));
-        }
-    }
-
-    // Strategy 2: Look for "optionB", "optB", "option_B" style keys
-    let patterns = [
-        format!("option{choice_val}"),
-        format!("opt{choice_val}"),
-        format!("option_{choice_val}"),
-        format!("opt_{choice_val}"),
-        format!("option{}", choice_val.to_lowercase()),
-        format!("opt{}", choice_val.to_lowercase()),
-    ];
-    for key in &patterns {
-        if let Some(text) = dm.get(key.as_str()).and_then(|v| v.as_str()) {
-            return Some(format!("{choice_val} = \"{text}\""));
-        }
-    }
-
-    // Strategy 3: Scan all keys containing "opt" for matching values
-    for (key, val) in dm {
-        let k = key.to_lowercase();
-        if k.contains("opt") || k.contains("choice") || k.contains("answer") {
-            // Check nested objects
-            if let Some(obj) = val.as_object() {
-                if let Some(text) = obj.get(choice_val).and_then(|v| v.as_str()) {
-                    return Some(format!("{choice_val} = \"{text}\""));
-                }
-            }
-            // Check if key ends with the choice letter (e.g., "optB" for choice "B")
-            if k.ends_with(&choice_val.to_lowercase()) {
-                if let Some(text) = val.as_str() {
-                    return Some(format!("{choice_val} = \"{text}\""));
-                }
-            }
-        }
-    }
-
-    None
-}
 
 // ── Internal helpers ─────────────────────────────────────────
 
@@ -614,46 +522,15 @@ mod tests {
     }
 
     #[test]
-    fn resolve_choice_nested_options() {
-        let context = serde_json::json!({"choice": "B"});
-        let data_model = serde_json::json!({"options": {"A": "지구", "B": "해왕성", "C": "목성"}});
-        let resolved = resolve_choice_text(&context, &data_model);
-        assert!(resolved.is_some(), "Should resolve nested options");
-        assert!(resolved.unwrap().contains("해왕성"), "Should contain actual text");
-    }
-
-    #[test]
-    fn resolve_choice_flat_option_keys() {
-        let context = serde_json::json!({"choice": "B"});
-        let data_model = serde_json::json!({"optionA": "A. 태평양", "optionB": "B. 대서양"});
-        let resolved = resolve_choice_text(&context, &data_model);
-        assert!(resolved.is_some(), "Should resolve flat optionX keys");
-        assert!(resolved.unwrap().contains("대서양"), "Should contain actual text");
-    }
-
-    #[test]
-    fn resolve_choice_short_opt_keys() {
-        let context = serde_json::json!({"choice": "B"});
-        let data_model = serde_json::json!({"optA": "A) 대서양", "optB": "B) 인도양", "optC": "C) 태평양"});
-        let resolved = resolve_choice_text(&context, &data_model);
-        assert!(resolved.is_some(), "Should resolve short optX keys");
-        assert!(resolved.unwrap().contains("인도양"), "Should contain actual text");
-    }
-
-    #[test]
-    fn format_user_action_with_context_resolves_choice() {
+    fn format_user_action_with_context_passes_resolved_values() {
         let payload = serde_json::json!({
             "surfaceId": "quiz",
             "name": "quiz_answer",
             "sourceComponentId": "optB",
-            "context": {"choice": "B"}
+            "context": {"choice": "Neptune"}
         });
-        let a2ui = vec![
-            serde_json::json!({"updateDataModel": {"surfaceId": "quiz", "path": "/", "value": {"options": {"A": "지구", "B": "해왕성", "C": "목성", "D": "토성"}}}})
-        ];
-        let result = format_user_action_with_context(&payload, &a2ui);
-        eprintln!("Result:\n{result}");
-        assert!(result.contains("User selected:"), "Should include resolved text");
-        assert!(result.contains("해왕성"), "Should contain the actual option text");
+        let result = format_user_action_with_context(&payload, &[]);
+        assert!(result.contains("Neptune"), "Client-resolved value should pass through");
+        assert!(result.contains("quiz_answer"));
     }
 }
