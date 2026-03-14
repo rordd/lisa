@@ -145,10 +145,30 @@ export ZEROCLAW_PROVIDER_REASONING_LEVEL=medium
 
 | Level | A2UI PASS율 | 비고 |
 |---|---|---|
-| medium | **75%** | 권장 |
-| minimal | **17%** | 카드 미생성 대량 발생 — 사용 금지 |
+| medium | **75%** (9/12) | 권장 |
+| minimal | **17%** (2/12) | 카드 미생성 대량 발생 — 사용 금지 |
 
 minimal에서는 LLM이 A2UI JSON 생성을 포기하고 텍스트로만 카드 내용을 설명함.
+
+#### 시나리오별 결과
+
+| # | 시나리오 | 프롬프트 | medium | minimal |
+|---|---|---|---|---|
+| 1 | restaurant_recommendation | 강서구 맛집 추천해줘 | X | X |
+| 2 | weather_card | 서울 날씨 알려줘 | O | X |
+| 3 | quiz_geography | 세계 수도 퀴즈 내줘 | O | X |
+| 4 | todo_checklist | 오늘 할일 체크리스트 만들어줘 | O | O |
+| 5 | comparison_table | 아이폰 16 vs 갤럭시 S25 비교해줘 | O | X |
+| 6 | recipe_card | 김치찌개 레시피 카드로 보여줘 | O | X |
+| 7 | schedule_weekly | 이번 주 운동 계획 세워줘 | O | X |
+| 8 | game_menu | 간단한 게임 하나 만들어줘 | O | X |
+| 9 | survey_form | 만족도 설문조사 카드 만들어줘 | O | O |
+| 10 | travel_itinerary | 제주도 2박3일 여행 계획 카드로 만들어줘 | O | X |
+| 11 | calculator | 간단한 계산기 카드 만들어줘 | O | X |
+| 12 | music_playlist | 집중할 때 듣기 좋은 플레이리스트 추천해줘 | X | X |
+
+- **medium 실패**: 할루시네이션 (맛집, 플레이리스트), NO_CARD 비결정성 (비교표 — 간헐적)
+- **minimal 실패**: 10/12 NO_CARD — LLM이 카드 내용을 A2UI JSON 대신 텍스트로 출력
 
 ## 4. SKILL.md 관리
 

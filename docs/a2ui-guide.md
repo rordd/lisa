@@ -145,10 +145,30 @@ export ZEROCLAW_PROVIDER_REASONING_LEVEL=medium
 
 | Level | A2UI Pass Rate | Notes |
 |---|---|---|
-| medium | **75%** | Recommended |
-| minimal | **17%** | Massive card generation failure — do not use |
+| medium | **75%** (9/12) | Recommended |
+| minimal | **17%** (2/12) | Massive card generation failure — do not use |
 
 At minimal reasoning, the LLM skips A2UI JSON generation and describes card content as plain text instead.
+
+#### Per-Scenario Results
+
+| # | Scenario | Prompt | medium | minimal |
+|---|---|---|---|---|
+| 1 | restaurant_recommendation | 강서구 맛집 추천해줘 | X | X |
+| 2 | weather_card | 서울 날씨 알려줘 | O | X |
+| 3 | quiz_geography | 세계 수도 퀴즈 내줘 | O | X |
+| 4 | todo_checklist | 오늘 할일 체크리스트 만들어줘 | O | O |
+| 5 | comparison_table | 아이폰 16 vs 갤럭시 S25 비교해줘 | O | X |
+| 6 | recipe_card | 김치찌개 레시피 카드로 보여줘 | O | X |
+| 7 | schedule_weekly | 이번 주 운동 계획 세워줘 | O | X |
+| 8 | game_menu | 간단한 게임 하나 만들어줘 | O | X |
+| 9 | survey_form | 만족도 설문조사 카드 만들어줘 | O | O |
+| 10 | travel_itinerary | 제주도 2박3일 여행 계획 카드로 만들어줘 | O | X |
+| 11 | calculator | 간단한 계산기 카드 만들어줘 | O | X |
+| 12 | music_playlist | 집중할 때 듣기 좋은 플레이리스트 추천해줘 | X | X |
+
+- **medium failures**: hallucination (restaurant, music), NO_CARD non-determinism (comparison — intermittent)
+- **minimal failures**: 10/12 NO_CARD — LLM outputs card content as plain text instead of A2UI JSON
 
 ## 4. SKILL.md Management
 
