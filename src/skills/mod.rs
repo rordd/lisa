@@ -7,9 +7,11 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 mod audit;
+pub mod read_skill;
 mod templates;
 mod tool_handler;
 
+pub use read_skill::ReadSkillTool;
 pub use tool_handler::SkillToolHandler;
 
 const OPEN_SKILLS_REPO_URL: &str = "https://github.com/besoeasy/open-skills";
@@ -65,6 +67,7 @@ struct SkillManifest {
     prompts: Vec<String>,
 }
 
+#[allow(dead_code)] // Upstream uses this in MetadataOnly; we parse SkillManifest instead to keep tools.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SkillMetadataManifest {
     skill: SkillMeta,
@@ -336,8 +339,14 @@ fn load_skills_from_directory(
         let md_path = path.join("SKILL.md");
 
         if manifest_path.exists() {
-            if let Ok(skill) = load_skill_toml(&manifest_path, load_mode) {
-                skills.push(skill);
+            match load_skill_toml(&manifest_path, load_mode) {
+                Ok(skill) => {
+                    tracing::debug!(name = %skill.name, tools = skill.tools.len(), "TOML skill loaded");
+                    skills.push(skill);
+                }
+                Err(e) => {
+                    tracing::warn!(path = %manifest_path.display(), error = %e, "Failed to load SKILL.toml");
+                }
             }
         } else if md_path.exists() {
             if let Ok(skill) = load_skill_md(&md_path, &path, load_mode) {
@@ -618,14 +627,17 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
             })
         }
         SkillLoadMode::MetadataOnly => {
-            let manifest: SkillMetadataManifest = toml::from_str(&content)?;
+            // Parse full manifest so TOML-defined tools are always available
+            // for native function calling, even in compact/metadata-only mode.
+            // Only prompts are skipped (loaded on demand via read_skill).
+            let manifest: SkillManifest = toml::from_str(&content)?;
             Ok(Skill {
                 name: manifest.skill.name,
                 description: manifest.skill.description,
                 version: manifest.skill.version,
                 author: manifest.skill.author,
                 tags: manifest.skill.tags,
-                tools: Vec::new(),
+                tools: manifest.tools,
                 prompts: Vec::new(),
                 location: Some(path.to_path_buf()),
                 always: false,
@@ -901,7 +913,7 @@ pub fn skills_to_prompt_with_mode(
         crate::config::SkillsPromptInjectionMode::Compact => String::from(
             "## Available Skills\n\n\
              Skill summaries are preloaded below to keep context compact.\n\
-             Skill instructions are loaded on demand: read the skill file in `location` when needed. \
+             Skill instructions are loaded on demand: use the `read_skill` tool with the skill name to load full instructions when needed. \
              Skills marked `always` include full instructions below even in compact mode.\n\n\
              <available_skills>\n",
         ),

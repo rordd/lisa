@@ -473,7 +473,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         (None, None)
     };
 
-    let tools_registry_exec: Arc<Vec<Box<dyn Tool>>> = Arc::new(tools::all_tools_with_runtime(
+    let mut all_tools = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
         runtime,
@@ -487,7 +487,34 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         &config.agents,
         config.api_key.as_deref(),
         &config,
-    ));
+    );
+
+    // Register SKILL.toml native tools for the WS gateway (fixes #43).
+    {
+        let skills_for_tools = crate::skills::filter_skills_by_channel(
+            crate::skills::load_skills_with_config(&config.workspace_dir, &config),
+            None,
+        );
+        let skill_tools =
+            crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        if !skill_tools.is_empty() {
+            tracing::info!(count = skill_tools.len(), "WS skill tools registered");
+            all_tools.extend(skill_tools);
+        }
+
+        // In Compact mode, register read_skill tool for on-demand skill loading.
+        if matches!(
+            config.skills.prompt_injection_mode,
+            crate::config::SkillsPromptInjectionMode::Compact
+        ) {
+            let read_skill_tool =
+                crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
+            all_tools.push(Box::new(read_skill_tool));
+            tracing::debug!("read_skill tool registered (compact mode, ws)");
+        }
+    }
+
+    let tools_registry_exec: Arc<Vec<Box<dyn Tool>>> = Arc::new(all_tools);
     let tools_registry: Arc<Vec<ToolSpec>> =
         Arc::new(tools_registry_exec.iter().map(|t| t.spec()).collect());
     let max_tool_iterations = config.agent.max_tool_iterations;
