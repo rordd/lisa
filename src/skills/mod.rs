@@ -336,8 +336,14 @@ fn load_skills_from_directory(
         let md_path = path.join("SKILL.md");
 
         if manifest_path.exists() {
-            if let Ok(skill) = load_skill_toml(&manifest_path, load_mode) {
-                skills.push(skill);
+            match load_skill_toml(&manifest_path, load_mode) {
+                Ok(skill) => {
+                    tracing::debug!(name = %skill.name, tools = skill.tools.len(), "TOML skill loaded");
+                    skills.push(skill);
+                }
+                Err(e) => {
+                    tracing::warn!(path = %manifest_path.display(), error = %e, "Failed to load SKILL.toml");
+                }
             }
         } else if md_path.exists() {
             if let Ok(skill) = load_skill_md(&md_path, &path, load_mode) {
@@ -618,14 +624,17 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
             })
         }
         SkillLoadMode::MetadataOnly => {
-            let manifest: SkillMetadataManifest = toml::from_str(&content)?;
+            // Parse full manifest so TOML-defined tools are always available
+            // for native function calling, even in compact/metadata-only mode.
+            // Only prompts are skipped (loaded on demand via read_skill).
+            let manifest: SkillManifest = toml::from_str(&content)?;
             Ok(Skill {
                 name: manifest.skill.name,
                 description: manifest.skill.description,
                 version: manifest.skill.version,
                 author: manifest.skill.author,
                 tags: manifest.skill.tags,
-                tools: Vec::new(),
+                tools: manifest.tools,
                 prompts: Vec::new(),
                 location: Some(path.to_path_buf()),
                 always: false,
@@ -3516,3 +3525,58 @@ prompts = ["Do not preload me"]
 
 #[cfg(test)]
 mod symlink_tests;
+
+#[cfg(test)]
+mod toml_debug_test {
+    use super::*;
+    
+    #[test]
+    fn test_weather_toml_parse() {
+        let content = r#"
+[skill]
+name = "weather"
+description = "Check current weather"
+version = "2.0.0"
+
+[[tools]]
+name = "weather_check"
+description = "Fetch weather"
+kind = "shell"
+command = "curl -s 'https://api.open-meteo.com/v1/forecast'"
+
+[tools.args]
+latitude = "Latitude"
+longitude = "Longitude"
+"#;
+        match toml::from_str::<SkillManifest>(content) {
+            Ok(m) => {
+                println!("tools count: {}", m.tools.len());
+                for t in &m.tools {
+                    println!("  tool: {} args: {:?}", t.name, t.args);
+                }
+                assert!(m.tools.len() > 0, "Expected tools to be parsed");
+            }
+            Err(e) => panic!("Parse error: {}", e),
+        }
+    }
+}
+
+#[cfg(test)]
+mod toml_debug_test2 {
+    use super::*;
+    
+    #[test]
+    fn test_actual_weather_file() {
+        let content = std::fs::read_to_string("/Users/changwook.im/.zeroclaw/workspace/skills/weather/SKILL.toml").unwrap();
+        println!("FILE CONTENT:\n{}", content);
+        match toml::from_str::<SkillManifest>(&content) {
+            Ok(m) => {
+                println!("tools count: {}", m.tools.len());
+                for t in &m.tools {
+                    println!("  tool: {} args: {:?}", t.name, t.args);
+                }
+            }
+            Err(e) => println!("Parse error: {}", e),
+        }
+    }
+}
