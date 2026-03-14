@@ -39,7 +39,7 @@ pub fn parse_response(raw: &str) -> (String, Vec<Value>) {
 ///
 /// Keeps only the data model values (which contain actual content like option text)
 /// and strips bulky component definitions. This lets the LLM remember what was shown
-/// (e.g., "A = 사하라 사막") without bloating the context with UI structure.
+/// (e.g., "A = Sahara Desert") without bloating the context with UI structure.
 pub fn summarize_for_history(a2ui_messages: &[Value]) -> String {
     let mut parts = Vec::new();
     for msg in a2ui_messages {
@@ -65,7 +65,7 @@ pub fn format_user_action(payload: &Value) -> String {
 /// Format a client userAction payload with A2UI data model context.
 ///
 /// Resolves choice references against the last A2UI data model so the LLM
-/// sees the actual selected text (e.g., "B → 대서양"), not just the letter.
+/// sees the actual selected text (e.g., "B → Atlantic Ocean"), not just the letter.
 pub fn format_user_action_with_context(payload: &Value, last_a2ui: &[Value]) -> String {
     let surface_id = payload["surfaceId"].as_str().unwrap_or("unknown");
     let action_name = payload["name"].as_str().unwrap_or("unknown");
@@ -126,8 +126,8 @@ fn extract_last_data_model(a2ui_messages: &[Value]) -> Value {
 /// Try to resolve a choice key (e.g., "B") to its display text from the data model.
 ///
 /// Looks for common patterns:
-/// - `options.B` → "대서양"
-/// - `optionB` → "B. 대서양"
+/// - `options.B` → "Atlantic Ocean"
+/// - `optionB` → "B. Atlantic Ocean"
 /// - Direct value match in any data model field
 fn resolve_choice_text(context: &Value, data_model: &Value) -> Option<String> {
     let ctx = context.as_object()?;

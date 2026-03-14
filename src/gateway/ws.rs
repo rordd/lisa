@@ -434,7 +434,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
         (prompt, a2ui)
     };
 
-    // Track last A2UI data model so button actions include context (e.g., option A = "사하라 사막").
+    // Track last A2UI data model so button actions include context (e.g., option A = "Sahara Desert").
     let mut last_a2ui_data: Vec<serde_json::Value> = vec![];
 
     // Restore persisted history (if any) and replay to the client before processing new input.
@@ -555,7 +555,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
 
                 // Store text + A2UI data model summary in history.
                 // Strip bulky component definitions but keep data values
-                // so the LLM remembers what was shown (e.g. option A = "사하라 사막").
+                // so the LLM remembers what was shown (e.g. option A = "Sahara Desert").
                 let history_text = if !a2ui.is_empty() {
                     let summary = super::a2ui::summarize_for_history(&a2ui);
                     if summary.is_empty() {
