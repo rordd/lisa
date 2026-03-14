@@ -11212,7 +11212,7 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("SKILL.md</location>"));
         assert!(prompt.contains("<instructions>"));
         assert!(prompt
-            .contains("<instruction>Always run cargo test before final response.</instruction>"));
+            .contains("<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"));
         assert!(prompt.contains("<tools>"));
         assert!(prompt.contains("<name>lint</name>"));
         assert!(prompt.contains("<kind>shell</kind>"));
@@ -11258,7 +11258,7 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("loaded on demand"));
         assert!(!prompt.contains("<instructions>"));
         assert!(!prompt
-            .contains("<instruction>Always run cargo test before final response.</instruction>"));
+            .contains("<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"));
         assert!(!prompt.contains("<tools>"));
     }
 
@@ -11294,7 +11294,7 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("<description>Run &lt;lint&gt; &amp; report</description>"));
         assert!(prompt.contains("<kind>shell&amp;exec</kind>"));
         assert!(prompt.contains(
-            "<instruction>Use &lt;tool_call&gt; and &amp; keep output &quot;safe&quot;</instruction>"
+            "<instruction><![CDATA[Use <tool_call> and & keep output \"safe\"]]></instruction>"
         ));
     }
 
