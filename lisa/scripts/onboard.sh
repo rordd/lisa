@@ -464,19 +464,50 @@ install_config() {
 # ══════════════════════════════════════════════
 install_skills() {
     echo "[Skills]"
-    ensure_dir "$WS/skills"
 
-    if [[ -d "$PROFILE_DIR/skills" ]]; then
+    if [[ ! -d "$PROFILE_DIR/skills" ]]; then
+        echo "  No skills in profile"
+        echo ""
+        return 0
+    fi
+
+    if [[ -n "$TARGET" ]]; then
+        # Remote target: copy files (no symlink possible)
+        ensure_dir "$WS/skills"
         SKILL_COUNT=0
         for skill_dir in "$PROFILE_DIR/skills"/*/; do
             [[ -d "$skill_dir" ]] || continue
             skill_name=$(basename "$skill_dir")
             ensure_dir "$WS/skills/$skill_name"
             copy_dir "$skill_dir"* "$WS/skills/$skill_name/"
-            echo "  $skill_name"
+            echo "  $skill_name (copied)"
             SKILL_COUNT=$((SKILL_COUNT + 1))
         done
         echo "  $SKILL_COUNT skill(s) installed"
+    else
+        # Local: symlink entire skills directory to profile
+        local profile_skills
+        profile_skills="$(cd "$PROFILE_DIR/skills" && pwd)"
+
+        if [[ -L "$WS/skills" ]]; then
+            local current_target
+            current_target="$(readlink "$WS/skills")"
+            if [[ "$current_target" == "$profile_skills" ]]; then
+                echo "  skills/ → $profile_skills (already linked)"
+                echo ""
+                return 0
+            fi
+            rm "$WS/skills"
+        elif [[ -d "$WS/skills" ]]; then
+            # Backup existing directory, then replace with symlink
+            mv "$WS/skills" "$WS/skills.bak.$(date +%s)"
+            echo "  Backed up existing skills/ directory"
+        fi
+
+        ln -s "$profile_skills" "$WS/skills"
+        local skill_count
+        skill_count=$(find "$profile_skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+        echo "  skills/ → $profile_skills ($skill_count skills, symlinked)"
     fi
     echo ""
 }
