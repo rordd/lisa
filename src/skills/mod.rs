@@ -67,6 +67,7 @@ struct SkillManifest {
     prompts: Vec<String>,
 }
 
+#[allow(dead_code)] // Upstream uses this in MetadataOnly; we parse SkillManifest instead to keep tools.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SkillMetadataManifest {
     skill: SkillMeta,
