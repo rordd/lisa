@@ -316,13 +316,10 @@ fn build_ws_system_prompt(
         None
     };
 
-    let mut skills = crate::skills::filter_skills_by_channel(
+    let skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&config.workspace_dir, config),
         Some("ws"),
     );
-    if !config.a2ui.enabled {
-        skills.retain(|s| !s.name.eq_ignore_ascii_case("a2ui"));
-    }
 
     let mut prompt = crate::channels::build_system_prompt_with_mode(
         &config.workspace_dir,
