@@ -182,11 +182,11 @@ restart_daemon() {
     if [[ -n "$TARGET" ]]; then
         ssh "$TARGET_HOST" "cd $TARGET_DEPLOY_DIR && export PATH=$TARGET_DEPLOY_DIR:\$PATH && . $TARGET_ZEROCLAW_DIR/.env && nohup ./zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &"
     else
-        # Source .env: try ~/.zeroclaw/.env first, then the repo .env found at startup
         if [[ -f "$ZEROCLAW_DIR/.env" ]]; then
             set -a; source "$ZEROCLAW_DIR/.env"; set +a
-        elif [[ -n "${ENV_FILE:-}" && -f "$ENV_FILE" ]]; then
-            set -a; source "$ENV_FILE"; set +a
+        else
+            echo "  WARNING: $ZEROCLAW_DIR/.env not found — daemon may fail to start"
+            echo "  Run: onboard.sh --config to install .env"
         fi
         nohup zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &
     fi
