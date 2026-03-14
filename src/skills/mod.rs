@@ -924,7 +924,9 @@ pub fn skills_to_prompt_with_mode(
             if !skill.prompts.is_empty() {
                 let _ = writeln!(prompt, "    <instructions>");
                 for instruction in &skill.prompts {
-                    write_xml_text_element(&mut prompt, 6, "instruction", instruction);
+                    // Wrap in CDATA so raw content (JSON examples, angle brackets like
+                    // <a2ui-json>) is preserved for the LLM without breaking XML structure.
+                    let _ = writeln!(prompt, "      <instruction><![CDATA[{}]]></instruction>", instruction);
                 }
                 let _ = writeln!(prompt, "    </instructions>");
             }

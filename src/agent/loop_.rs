@@ -3393,13 +3393,14 @@ pub async fn run(
 /// Process a single message through the full agent (with tools, peripherals, memory).
 /// Used by channels (Telegram, Discord, etc.) to enable hardware and tool use.
 pub async fn process_message(config: Config, message: &str) -> Result<String> {
-    process_message_with_session(config, message, None).await
+    process_message_with_session(config, message, None, None).await
 }
 
 pub async fn process_message_with_session(
     config: Config,
     message: &str,
     session_id: Option<&str>,
+    channel: Option<&str>,
 ) -> Result<String> {
     if let Err(error) = crate::plugins::runtime::initialize_from_config(&config.plugins) {
         tracing::warn!("plugin registry initialization skipped: {error}");
@@ -3513,7 +3514,7 @@ pub async fn process_message_with_session(
 
     let skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&config.workspace_dir, &config),
-        Some("default"),
+        Some(channel.unwrap_or("default")),
     );
     let mut tool_descs: Vec<(&str, &str)> = vec![
         ("shell", "Execute terminal commands."),

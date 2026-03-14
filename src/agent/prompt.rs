@@ -533,7 +533,7 @@ mod tests {
         let output = SkillsSection.build(&ctx).unwrap();
         assert!(output.contains("<available_skills>"));
         assert!(output.contains("<name>deploy</name>"));
-        assert!(output.contains("<instruction>Run smoke tests before deploy.</instruction>"));
+        assert!(output.contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
         assert!(output.contains("<name>release_checklist</name>"));
         assert!(output.contains("<kind>shell</kind>"));
     }
@@ -574,7 +574,7 @@ mod tests {
         assert!(output.contains("<available_skills>"));
         assert!(output.contains("<name>deploy</name>"));
         assert!(output.contains("<location>skills/deploy/SKILL.md</location>"));
-        assert!(!output.contains("<instruction>Run smoke tests before deploy.</instruction>"));
+        assert!(!output.contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
         assert!(!output.contains("<tools>"));
     }
 
@@ -671,7 +671,7 @@ mod tests {
         assert!(prompt.contains("<description>Run &lt;lint&gt; &amp; report</description>"));
         assert!(prompt.contains("<kind>shell&amp;exec</kind>"));
         assert!(prompt.contains(
-            "<instruction>Use &lt;tool_call&gt; and &amp; keep output &quot;safe&quot;</instruction>"
+            "<instruction><![CDATA[Use <tool_call> and & keep output \"safe\"]]></instruction>"
         ));
     }
 }

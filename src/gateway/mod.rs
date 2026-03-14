@@ -1133,9 +1133,10 @@ pub(super) async fn run_gateway_chat_with_tools(
     state: &AppState,
     message: &str,
     session_id: Option<&str>,
+    channel: Option<&str>,
 ) -> anyhow::Result<String> {
     let config = state.config.lock().clone();
-    crate::agent::process_message_with_session(config, message, session_id).await
+    crate::agent::process_message_with_session(config, message, session_id, channel).await
 }
 
 fn gateway_outbound_leak_guard_snapshot(
@@ -2122,7 +2123,7 @@ async fn handle_whatsapp_message(
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id), None).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2251,7 +2252,7 @@ async fn handle_linq_webhook(
         }
 
         // Call the LLM
-        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id), None).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2418,7 +2419,7 @@ async fn handle_github_webhook(
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content, None).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, None, None).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2516,7 +2517,7 @@ async fn handle_bluebubbles_webhook(
         let _ = bluebubbles.start_typing(&msg.reply_target).await;
         let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
 
-        match run_gateway_chat_with_tools(&state, &msg.content, None).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, None, None).await {
             Ok(response) => {
                 let _ = bluebubbles.stop_typing(&msg.reply_target).await;
                 let safe_response = sanitize_gateway_response(
@@ -2653,7 +2654,7 @@ async fn handle_wati_webhook(
         }
 
         // Call the LLM
-        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id), None).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2769,7 +2770,7 @@ async fn handle_nextcloud_talk_webhook(
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id), None).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2870,7 +2871,7 @@ async fn handle_qq_webhook(
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id), None).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
