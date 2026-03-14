@@ -150,25 +150,30 @@ export ZEROCLAW_PROVIDER_REASONING_LEVEL=medium
 
 minimal에서는 LLM이 A2UI JSON 생성을 포기하고 텍스트로만 카드 내용을 설명함.
 
+#### 스킬 주입 모드
+
+A2UI 스킬은 SKILL.md frontmatter에 `always: true` 필수. Compact 모드(기본값)에서 `always: false`이면 LLM이 A2UI 스키마를 수신하지 못해 카드 생성이 거의 전멸 (2/12 PASS — minimal reasoning과 동일).
+
 #### 시나리오별 결과
 
-| # | 시나리오 | 프롬프트 | medium | minimal |
-|---|---|---|---|---|
-| 1 | restaurant_recommendation | 강서구 맛집 추천해줘 | X | X |
-| 2 | weather_card | 서울 날씨 알려줘 | O | X |
-| 3 | quiz_geography | 세계 수도 퀴즈 내줘 | O | X |
-| 4 | todo_checklist | 오늘 할일 체크리스트 만들어줘 | O | O |
-| 5 | comparison_table | 아이폰 16 vs 갤럭시 S25 비교해줘 | O | X |
-| 6 | recipe_card | 김치찌개 레시피 카드로 보여줘 | O | X |
-| 7 | schedule_weekly | 이번 주 운동 계획 세워줘 | O | X |
-| 8 | game_menu | 간단한 게임 하나 만들어줘 | O | X |
-| 9 | survey_form | 만족도 설문조사 카드 만들어줘 | O | O |
-| 10 | travel_itinerary | 제주도 2박3일 여행 계획 카드로 만들어줘 | O | X |
-| 11 | calculator | 간단한 계산기 카드 만들어줘 | O | X |
-| 12 | music_playlist | 집중할 때 듣기 좋은 플레이리스트 추천해줘 | X | X |
+| # | 시나리오 | 프롬프트 | medium | minimal | always:false |
+|---|---|---|---|---|---|
+| 1 | restaurant_recommendation | 강서구 맛집 추천해줘 | X | X | X |
+| 2 | weather_card | 서울 날씨 알려줘 | O | X | X |
+| 3 | quiz_geography | 세계 수도 퀴즈 내줘 | O | X | X |
+| 4 | todo_checklist | 오늘 할일 체크리스트 만들어줘 | O | O | X |
+| 5 | comparison_table | 아이폰 16 vs 갤럭시 S25 비교해줘 | O | X | O |
+| 6 | recipe_card | 김치찌개 레시피 카드로 보여줘 | O | X | X |
+| 7 | schedule_weekly | 이번 주 운동 계획 세워줘 | O | X | O |
+| 8 | game_menu | 간단한 게임 하나 만들어줘 | O | X | X |
+| 9 | survey_form | 만족도 설문조사 카드 만들어줘 | O | O | X |
+| 10 | travel_itinerary | 제주도 2박3일 여행 계획 카드로 만들어줘 | O | X | X |
+| 11 | calculator | 간단한 계산기 카드 만들어줘 | O | X | X |
+| 12 | music_playlist | 집중할 때 듣기 좋은 플레이리스트 추천해줘 | X | X | X |
 
 - **medium 실패**: 할루시네이션 (맛집, 플레이리스트), NO_CARD 비결정성 (비교표 — 간헐적)
 - **minimal 실패**: 10/12 NO_CARD — LLM이 카드 내용을 A2UI JSON 대신 텍스트로 출력
+- **always:false 실패**: 10/12 NO_CARD — 시스템 프롬프트에 스키마 미포함, A2UI JSON 생성 불가
 
 ## 4. SKILL.md 관리
 
