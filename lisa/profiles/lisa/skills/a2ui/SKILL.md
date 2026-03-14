@@ -1,12 +1,14 @@
 ---
 name: a2ui
-description: "A2UI v0.9 card rendering. Generate visual UI cards using Google's A2UI protocol on the WebSocket channel."
-version: "5.0.0"
+description: "Google A2UI v0.9 protocol. ALWAYS use A2UI cards to visually present structured data (weather, schedules, lists, quizzes, comparisons, recipes, forms, travel plans). When a user's answer would benefit from visual display, proactively render it as an A2UI card — do not wait for the user to explicitly request a card."
+version: "1.1.0"
 channels: ws
 always: true
 ---
 
-# A2UI v0.9 — Agent-to-User Interface Card Rendering
+# Google A2UI v0.9 — Agent-to-User Interface Card Rendering
+
+You MUST follow the **Google A2UI v0.9 specification** exactly. Do NOT invent custom syntax or mix with other versions.
 
 When presenting structured or visual information (weather, tasks, schedules, quiz, etc.), you MUST include A2UI card data inside `<a2ui-json>` tags alongside your text response. NEVER mention a card in text without actually including the A2UI JSON block.
 

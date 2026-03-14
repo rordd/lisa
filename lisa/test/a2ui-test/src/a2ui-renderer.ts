@@ -16,7 +16,7 @@ export interface A2UIComponent {
   component?: string;
   type?: string;
   child?: string;
-  children?: string[];
+  children?: string[] | { componentId?: string; path?: string };
   text?: string | { path: string };
   variant?: string;
   align?: string;
@@ -129,20 +129,48 @@ export function buildSurface(messages: any[]): A2UISurface | null {
 
 // ── Resolve text values ──
 
+/** Resolve a path like "/label" or "/items/0/title" against a data model.
+ *  Also handles LLM-generated template placeholders like "/items/{index}/title"
+ *  by substituting {index} with the _index value from the data model.
+ */
+function resolvePath(path: string, dataModel: Record<string, unknown>): unknown {
+  const parts = path.replace(/^\//, '').split('/');
+  let val: unknown = dataModel;
+  for (const p of parts) {
+    if (val == null || typeof val !== 'object') return undefined;
+    let key = p;
+    // Handle {varName} template placeholders (e.g., {index}, {idx}, {i})
+    // Substitute with _varName or varName from the data model root
+    if (/^\{.+\}$/.test(p)) {
+      const varName = p.slice(1, -1);
+      const idx = (dataModel as any)['_' + varName] ?? (dataModel as any)[varName];
+      if (idx != null) {
+        key = String(idx);
+      }
+    }
+    val = (val as Record<string, unknown>)[key];
+  }
+  return val;
+}
+
 function resolveText(
   text: string | { path: string } | undefined,
   dataModel: Record<string, unknown>,
 ): string {
   if (text == null) return '';
-  if (typeof text === 'string') return text;
-  if (text.path) {
-    // Support nested paths: /options/A → dataModel.options.A
-    const parts = text.path.replace(/^\//, '').split('/');
-    let val: unknown = dataModel;
-    for (const p of parts) {
-      if (val == null || typeof val !== 'object') return '';
-      val = (val as Record<string, unknown>)[p];
+  if (typeof text === 'string') {
+    // Handle "${/path}" string interpolation pattern (LLM sometimes uses this instead of {path: "/..."})
+    // Supports: "${/label}", "Temperature: ${/temp}°C", pure "${/title}"
+    if (text.includes('${/')) {
+      return text.replace(/\$\{(\/[^}]+)\}/g, (_match, path) => {
+        const val = resolvePath(path, dataModel);
+        return val != null ? String(val) : '';
+      });
     }
+    return text;
+  }
+  if (text.path) {
+    const val = resolvePath(text.path, dataModel);
     return val != null ? String(val) : '';
   }
   return '';
@@ -155,15 +183,16 @@ function resolveValue(
   dataModel: Record<string, unknown>,
 ): unknown {
   if (value == null) return undefined;
+  // {path: "/checked"} object binding
   if (typeof value === 'object' && value !== null && 'path' in value) {
-    const path = (value as { path: string }).path;
-    const parts = path.replace(/^\//, '').split('/');
-    let val: unknown = dataModel;
-    for (const p of parts) {
-      if (val == null || typeof val !== 'object') return undefined;
-      val = (val as Record<string, unknown>)[p];
+    return resolvePath((value as { path: string }).path, dataModel);
+  }
+  // "${/path}" string binding
+  if (typeof value === 'string' && value.includes('${/')) {
+    const match = value.match(/^\$\{(\/[^}]+)\}$/);
+    if (match) {
+      return resolvePath(match[1], dataModel);
     }
-    return val;
   }
   return value;
 }
@@ -652,6 +681,24 @@ export class A2UISurfaceElement extends LitElement {
   private _renderList(comp: A2UIComponent) {
     const dir = comp.direction === 'horizontal' ? 'horizontal' : 'vertical';
     const children = comp.children || [];
+
+    // Data-bound template: {"componentId": "...", "path": "/items"}
+    if (!Array.isArray(children) && typeof children === 'object') {
+      const binding = children as { componentId?: string; path?: string };
+      if (binding.componentId && binding.path) {
+        const templateComp = this.surface!.components.get(binding.componentId);
+        const items = resolveValue({ path: binding.path }, this.surface!.dataModel);
+        if (templateComp && Array.isArray(items)) {
+          return html`
+            <div class="list-${dir}">
+              ${items.map((item, idx) => this._renderTemplateInstance(templateComp, item, idx))}
+            </div>
+          `;
+        }
+      }
+      return nothing;
+    }
+
     if (Array.isArray(children)) {
       return html`
         <div class="list-${dir}">
@@ -660,6 +707,28 @@ export class A2UISurfaceElement extends LitElement {
       `;
     }
     return nothing;
+  }
+
+  /** Render a template component instance with item-scoped data model. */
+  private _renderTemplateInstance(
+    templateComp: A2UIComponent,
+    itemData: Record<string, unknown>,
+    index: number,
+  ): TemplateResult | typeof nothing {
+    // Create a temporary sub-surface with item data as the data model
+    // and render the template's children against it
+    const s = this.surface!;
+    const savedDataModel = s.dataModel;
+    // Merge item data so both {path: "/title"} and {path: "/current/title"} resolve correctly.
+    // "/current" is a common LLM convention for referencing the current iteration item.
+    s.dataModel = { ...savedDataModel, ...itemData, current: itemData, _index: index };
+    try {
+      // Render the template component itself (Card, Column, Row, etc.)
+      // This handles both child and children patterns correctly.
+      return this._renderComponent(templateComp.id);
+    } finally {
+      s.dataModel = savedDataModel;
+    }
   }
 
   // ── Modal ──
