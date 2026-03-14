@@ -9,7 +9,7 @@
 # default_temperature = 0.7 (code default; override via ZEROCLAW_TEMPERATURE in .env)
 
 [a2ui]
-enabled = true
+enabled = false
 
 [channels_config]
 cli = true
