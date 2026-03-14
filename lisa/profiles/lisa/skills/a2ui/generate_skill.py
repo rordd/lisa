@@ -69,6 +69,10 @@ Button `action` has two types. Use the correct one:
 
 - **`event`** — sends to the SERVER, which routes it back to you. Use for:
   - Choices that need your reasoning (quiz answers, preferences, follow-up questions)
+  - IMPORTANT: Use data binding paths in event context to reference dataModel values.
+    Example: `{"event": {"name": "select_option", "context": {"choice": {"path": "/options/B"}}}}`
+    The client resolves `{"path": "/options/B"}` against the dataModel before sending to the server,
+    so the server receives the actual value (e.g., "Neptune") instead of a raw key.
 
 CRITICAL: URL buttons MUST use `functionCall.openUrl`. The server is headless — it cannot open browsers."""
 

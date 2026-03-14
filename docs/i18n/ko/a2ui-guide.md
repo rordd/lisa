@@ -96,16 +96,32 @@ ws://<host>:<port>/ws/chat?session_id=<optional_id>
 
 **중요:** URL을 여는 버튼은 반드시 `functionCall.openUrl`을 사용해야 함. 서버는 헤드리스이므로 브라우저를 열 수 없음.
 
-### 2.4 선택지 해석
+### 2.4 이벤트 컨텍스트의 데이터 바인딩 경로
 
-ZeroClaw는 버튼 클릭 시 데이터 모델에서 선택지 텍스트를 자동 해석:
+A2UI 버튼의 `event` 액션은 **데이터 바인딩 경로** (`{"path": "/options/B"}`)를 사용하여 dataModel 값을 참조할 수 있음. 클라이언트는 서버 전송 전에 반드시 이 경로를 surface의 dataModel에서 해석해야 함.
 
+**예시 흐름:**
 ```
-사용자가 "B" 클릭 → ZeroClaw가 dataModel에서 B = "해왕성" 매핑
-→ LLM에 "User selected: B = 해왕성" 전달
+dataModel: {"options": {"A": "사하라 사막", "B": "대서양"}}
+
+버튼 context: {"choice": {"path": "/options/B"}}
+  ↓ 클라이언트가 경로 해석
+서버로 전송: {"choice": "대서양"}
+  ↓ 서버가 LLM에 전달
+LLM 수신: "User selected: 대서양"
 ```
 
-지원하는 키 패턴: `options.B`, `optionB`, `optB`, `option_B`
+**폴백:** ZeroClaw는 서버 측 폴백으로 알려진 키 패턴(`options.B`, `optionB`, `optB`, `option_B`)에서 선택지 텍스트 해석을 시도함. 단, 이는 최선의 휴리스틱이며 — 클라이언트 측 경로 해석이 표준 방식.
+
+### 2.5 앱 개발자 준수사항
+
+A2UI 카드를 렌더링하는 클라이언트는 다음을 반드시 구현해야 함:
+
+1. **이벤트 컨텍스트의 데이터 바인딩 경로 해석.** `a2ui_action`을 서버에 전송하기 전에 `context` 내 모든 값을 순회하고, `{"path": "..."}` 객체를 surface의 `dataModel`에서 해석하여 실제 값으로 변환해야 함. 이를 통해 서버는 경로 참조가 아닌 실제 값을 수신.
+
+2. **URL 버튼에는 `functionCall.openUrl` 사용.** URL을 여는 액션에 `event`를 사용하지 말 것 — 서버는 헤드리스.
+
+3. **`surfaceId`와 `sourceComponentId` 유지.** 서버가 액션을 올바르게 라우팅하기 위해 필수.
 
 ## 3. 설정
 

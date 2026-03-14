@@ -96,16 +96,32 @@ Button `action` has two types:
 
 **Important:** Buttons that open URLs must use `functionCall.openUrl`. The server is headless and cannot open a browser.
 
-### 2.4 Choice Resolution
+### 2.4 Data Binding Paths in Event Context
 
-ZeroClaw automatically resolves choice text from the data model on button clicks:
+A2UI buttons with `event` actions can reference dataModel values using **data binding paths** (`{"path": "/options/B"}`). The client MUST resolve these paths against the surface's dataModel before sending to the server.
 
+**Example flow:**
 ```
-User clicks "B" → ZeroClaw maps B = "Neptune" from dataModel
-→ Sends "User selected: B = Neptune" to LLM
+dataModel: {"options": {"A": "Sahara Desert", "B": "Atlantic Ocean"}}
+
+Button context: {"choice": {"path": "/options/B"}}
+  ↓ client resolves path
+Sent to server: {"choice": "Atlantic Ocean"}
+  ↓ server forwards to LLM
+LLM sees: "User selected: Atlantic Ocean"
 ```
 
-Supported key patterns: `options.B`, `optionB`, `optB`, `option_B`
+**Fallback:** ZeroClaw includes a server-side fallback that attempts to resolve choice text from known key patterns (`options.B`, `optionB`, `optB`, `option_B`). However, this is a best-effort heuristic — client-side path resolution is the standard approach.
+
+### 2.5 App Developer Requirements
+
+Clients rendering A2UI cards MUST implement the following:
+
+1. **Resolve data binding paths in event context.** Before sending an `a2ui_action` to the server, iterate over all values in `context` and resolve any `{"path": "..."}` objects against the surface's `dataModel`. This ensures the server receives actual values, not path references.
+
+2. **Use `functionCall.openUrl` for URL buttons.** Never use `event` for URL-opening actions — the server is headless.
+
+3. **Preserve `surfaceId` and `sourceComponentId`.** These are required for the server to route actions correctly.
 
 ## 3. Configuration
 

@@ -145,8 +145,14 @@ export class A2UISurfaceElement extends LitElement {
   }
 
   private _fireAction(name: string, componentId: string, context: Record<string, unknown>) {
+    // Resolve data binding paths ({path: "/options/B"} → actual value) before sending
+    const resolvedContext: Record<string, unknown> = {};
+    const dataModel = this.surface?.dataModel ?? {};
+    for (const [key, val] of Object.entries(context)) {
+      resolvedContext[key] = resolveValue(val, dataModel);
+    }
     // Merge collected form input values into the event context
-    const mergedContext: Record<string, unknown> = { ...context };
+    const mergedContext: Record<string, unknown> = { ...resolvedContext };
     for (const [compId, value] of this._inputValues) {
       // Use component id as key if not already in context
       if (!(compId in mergedContext)) {
