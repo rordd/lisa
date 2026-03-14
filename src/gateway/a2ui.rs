@@ -164,6 +164,11 @@ fn parse_a2ui_tags(raw: &str) -> (String, Vec<Value>) {
                         a2ui_messages.push(msg);
                     }
                 }
+            } else if let Ok(val) = serde_json::from_str::<Value>(json_content) {
+                // Single JSON object within tags (LLM may wrap each message individually)
+                if is_a2ui_message(&val) {
+                    a2ui_messages.push(val);
+                }
             } else {
                 // Fallback: try JSONL within tags
                 a2ui_messages.extend(parse_jsonl(json_content));
@@ -362,6 +367,17 @@ mod tests {
         let (text, a2ui) = parse_response(raw);
         assert_eq!(text, "");
         assert_eq!(a2ui.len(), 1);
+    }
+
+    #[test]
+    fn a2ui_tags_single_object_per_tag() {
+        // LLM wraps each message in its own <a2ui-json> tag as a single object (not array)
+        let raw = "날씨 알려줄게~\n\n<a2ui-json>{\n  \"version\": \"v0.9\",\n  \"createSurface\": {\n    \"surfaceId\": \"w1\",\n    \"catalogId\": \"basic\"\n  }\n}</a2ui-json>\n\n<a2ui-json>{\n  \"version\": \"v0.9\",\n  \"updateComponents\": {\n    \"surfaceId\": \"w1\",\n    \"components\": []\n  }\n}</a2ui-json>";
+        let (text, a2ui) = parse_response(raw);
+        assert_eq!(text, "날씨 알려줄게~");
+        assert_eq!(a2ui.len(), 2);
+        assert!(a2ui[0].get("createSurface").is_some());
+        assert!(a2ui[1].get("updateComponents").is_some());
     }
 
     #[test]
