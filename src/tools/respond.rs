@@ -1,10 +1,9 @@
 //! Sentinel tool for general-conversation responses under forced tool-use mode.
 //!
-//! When `tool_choice_required = true` is set in a skill, the agent loop forces
-//! `tool_choice: "required"` on the first turn so the LLM cannot skip tool calls
-//! for skill-relevant requests. This tool provides an escape hatch so the LLM can
-//! still handle general conversation (e.g. greetings, off-topic questions) without
-//! invoking any skill action.
+//! When `tool_choice_required = true` is set globally, the agent loop forces
+//! `tool_choice: "required"` on the first turn so the LLM cannot skip tool calls.
+//! This tool is the last-resort escape hatch: the LLM should call it ONLY for
+//! greetings or casual conversation that has no relation to any registered skill.
 //!
 //! The LLM calls `respond(text="...")` instead of a skill tool when no action is
 //! needed. The agent loop detects this call and returns the text directly without
@@ -18,9 +17,10 @@ pub const RESPOND_TOOL_NAME: &str = "respond";
 pub fn respond_tool_spec() -> ToolSpec {
     ToolSpec {
         name: RESPOND_TOOL_NAME.to_string(),
-        description: "Use this tool to send a plain text reply when no device action is needed. \
-            Call this instead of other tools when the user's request is general conversation, \
-            a greeting, or does not require any hardware or system action."
+        description: "Last-resort tool for plain text replies. ONLY use this for greetings \
+            or casual conversation that has NO relation to any registered skill or available tool. \
+            If the user's request could be handled by ANY other available tool, you MUST call \
+            that tool instead of this one. Never use this tool to avoid calling a skill tool."
             .to_string(),
         parameters: serde_json::json!({
             "type": "object",
