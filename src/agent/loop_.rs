@@ -2834,11 +2834,15 @@ pub async fn run(
     // Use load_skills_with_config (not load_skills) so that config options such as
     // allow_scripts are respected when auditing skill directories.
     {
-        let skills_for_tools = crate::skills::load_skills_with_config(
+        let skills_for_tools = crate::skills::load_skills_full_with_config(
             &config.workspace_dir,
             &config,
         );
-        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        let skill_tools = crate::skills::create_skill_tools_with_override(
+            &skills_for_tools,
+            security.clone(),
+            config.skills.tool_choice_required,
+        );
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);
@@ -3574,11 +3578,15 @@ pub async fn process_message_with_session(
     // Use load_skills_with_config (not load_skills) so that config options such as
     // allow_scripts are respected when auditing skill directories.
     {
-        let skills_for_tools = crate::skills::load_skills_with_config(
+        let skills_for_tools = crate::skills::load_skills_full_with_config(
             &config.workspace_dir,
             &config,
         );
-        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        let skill_tools = crate::skills::create_skill_tools_with_override(
+            &skills_for_tools,
+            security.clone(),
+            config.skills.tool_choice_required,
+        );
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);

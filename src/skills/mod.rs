@@ -136,7 +136,7 @@ pub fn filter_skills_by_channel(skills: Vec<Skill>, channel_kind: Option<&str>) 
         .collect()
 }
 
-fn load_skills_full_with_config(
+pub fn load_skills_full_with_config(
     workspace_dir: &Path,
     config: &crate::config::Config,
 ) -> Vec<Skill> {
@@ -968,11 +968,23 @@ pub fn create_skill_tools(
     skills: &[Skill],
     security: std::sync::Arc<crate::security::SecurityPolicy>,
 ) -> Vec<Box<dyn crate::tools::Tool>> {
+    create_skill_tools_with_override(skills, security, None)
+}
+
+/// Create skill tools with an optional global `tool_choice_required` override.
+/// When `global_override` is `Some(value)`, it takes precedence over each
+/// skill's own `tool_choice_required` setting.
+pub fn create_skill_tools_with_override(
+    skills: &[Skill],
+    security: std::sync::Arc<crate::security::SecurityPolicy>,
+    global_override: Option<bool>,
+) -> Vec<Box<dyn crate::tools::Tool>> {
     let mut tools: Vec<Box<dyn crate::tools::Tool>> = Vec::new();
 
     for skill in skills {
         for tool_def in &skill.tools {
-            match SkillToolHandler::new(skill.name.clone(), tool_def.clone(), security.clone(), skill.tool_choice_required) {
+            let force = global_override.unwrap_or(skill.tool_choice_required);
+            match SkillToolHandler::new(skill.name.clone(), tool_def.clone(), security.clone(), force) {
                 Ok(handler) => {
                     tracing::debug!(
                         skill = %skill.name,
