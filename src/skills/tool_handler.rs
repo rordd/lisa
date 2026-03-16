@@ -397,6 +397,7 @@ impl Tool for SkillToolHandler {
         let output = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(&command)
+            .current_dir(&self.security.workspace_dir)
             .output()
             .await
             .context("Failed to execute skill tool command")?;
