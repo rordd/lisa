@@ -1,10 +1,16 @@
 ---
 name: tv-control
 description: Control this webOS TV via the exec tool. Supported actions: change channels, adjust volume, and manage apps.
-tool_choice_required: false
 ---
 
 # TV Control
+
+## Mandatory Rules
+
+1. Never guess command execution results or reuse previous results.
+2. Every command must be actually executed by calling the exec tool each time, even if it is the same command.
+3. Even if you have seen the result of the same command in a previous conversation, you must re-execute it to obtain the actual value at the current point in time.
+4. "Generating" command results is prohibited. You must only use results obtained through tool calls.
 
 ## Commands
 

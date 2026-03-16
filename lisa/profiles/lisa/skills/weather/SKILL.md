@@ -3,7 +3,6 @@ name: weather
 description: "Check current weather and forecasts. Used when the user asks about weather, temperature, rain/snow."
 version: "2.0.0"
 always: true
-tool_choice_required: false
 ---
 
 # Weather Skill

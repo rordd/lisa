@@ -2,7 +2,6 @@
 name = "calendar"
 description = "Google Calendar event management via gog CLI. Use for schedule queries, meeting creation, and event updates."
 version = "2.0.0"
-tool_choice_required = false
 
 [[tools]]
 name = "calendar_events"

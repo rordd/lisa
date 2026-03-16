@@ -2,7 +2,6 @@
 name = "tv-control"
 description = "Control this webOS TV: change channels, adjust volume, and manage apps."
 version = "3.0.0"
-tool_choice_required = false
 
 [[prompts]]
 content = "You MUST call a tool for every tv-control request without exception. Never respond without executing a tool first, even if you think you already know the answer."
