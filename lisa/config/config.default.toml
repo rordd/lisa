@@ -23,7 +23,7 @@ require_pairing = false
 [autonomy]
 level = "full"
 workspace_only = false
-allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date", "gog", "memo", "remindctl", "jq", "python3", "bash", "curl", "luna-send"]
+allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date", "gog", "memo", "remindctl", "jq", "python3", "bash", "sh", "curl", "luna-send"]
 auto_approve = ["file_read", "memory_recall", "web_fetch", "web_search", "web_search_tool", "skills", "shell"]
 shell_env_passthrough = ["GOG_ACCOUNT", "GOG_KEYRING_PASSWORD", "GOG_KEYRING_BACKEND"]
 forbidden_paths = []
