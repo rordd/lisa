@@ -17,10 +17,9 @@ pub const RESPOND_TOOL_NAME: &str = "respond";
 pub fn respond_tool_spec() -> ToolSpec {
     ToolSpec {
         name: RESPOND_TOOL_NAME.to_string(),
-        description: "Last-resort tool for plain text replies. ONLY use this for greetings \
-            or casual conversation that has NO relation to any registered skill or available tool. \
-            If the user's request could be handled by ANY other available tool, you MUST call \
-            that tool instead of this one. Never use this tool to avoid calling a skill tool."
+        description: "Fallback tool for plain text replies. Use this only for greetings \
+            or casual conversation unrelated to any registered skill. If the user's request \
+            matches any skill tool, always prefer calling that skill tool instead of this one."
             .to_string(),
         parameters: serde_json::json!({
             "type": "object",

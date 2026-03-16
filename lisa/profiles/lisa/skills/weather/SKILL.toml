@@ -5,7 +5,7 @@ version = "2.0.0"
 always = true
 
 [[prompts]]
-content = "You MUST call the weather_check tool for every weather request without exception. Never respond without executing the tool first, even if you think you already know the answer."
+content = "For every weather request, always call the weather_check tool first. Do not respond with text alone — execute the tool, then reply based on the result."
 
 [[tools]]
 name = "weather_check"

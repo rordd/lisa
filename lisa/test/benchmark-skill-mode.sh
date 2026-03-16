@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# benchmark-skill-mode.sh
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────
@@ -60,6 +61,7 @@ TRACE_FILE="${WS}/state/runtime-trace.jsonl"
 # Global vars set by run_measurement()
 _LAST_MS=0
 _LAST_TURNS=0
+_LAST_ERROR=0  # 1 if content filter or provider error detected
 
 # ─────────────────────────────────────────────────────────────
 # Runtime Trace helpers (enable/disable on target config)
@@ -157,7 +159,8 @@ show_deployed_skills() {
 }
 
 # Send query to daemon gateway.
-# Sets _LAST_MS (elapsed ms) and _LAST_TURNS (LLM turn count).
+# Sets _LAST_MS (elapsed ms), _LAST_TURNS (LLM turn count),
+# and _LAST_ERROR (1 if content filter / provider error).
 run_measurement() {
     local query="$1"
     # Escape for JSON embedding (backslash and double-quote)
@@ -167,16 +170,29 @@ run_measurement() {
     # Clear trace file before request to isolate this request's events
     ssh "$TARGET_HOST" "> ${TRACE_FILE} 2>/dev/null || true"
 
-    # Send request, measure elapsed time on target
-    local elapsed_s
-    elapsed_s=$(ssh "$TARGET_HOST" "
-        curl -s -o /dev/null \
-             -w '%{time_total}' \
+    # Send request, capture body + elapsed time (last line = time_total)
+    local tmpfile="/tmp/zeroclaw_bench_resp_$$.txt"
+    ssh "$TARGET_HOST" "
+        curl -s \
+             -w '\n%{time_total}' \
              -X POST ${GATEWAY_URL}/api/chat \
              -H 'Content-Type: application/json' \
              -d '{\"message\":\"${json_query}\"}' \
         2>/dev/null
-    ")
+    " > "$tmpfile"
+
+    # Last line is time_total; everything above is the response body
+    local elapsed_s
+    elapsed_s=$(tail -1 "$tmpfile")
+    local body
+    body=$(sed '$d' "$tmpfile")
+    rm -f "$tmpfile"
+
+    # Detect content filter or provider exhaustion errors
+    _LAST_ERROR=0
+    if echo "$body" | grep -qi "content management policy\|content.filter\|All providers.*failed"; then
+        _LAST_ERROR=1
+    fi
 
     # Count llm_response events written during this request
     local turns
@@ -204,11 +220,14 @@ benchmark_phase() {
     TV_TIMES=()
     WEATHER_TURNS=()
     TV_TURNS=()
-    local total_w=0 total_tv=0 total_tw=0 total_ttv=0
+    local sum_weather_ms=0 sum_tv_ms=0
+    local sum_weather_turns=0 sum_tv_turns=0
+    local ok_weather=0 ok_tv=0
+    local err_weather=0 err_tv=0
 
     echo ""
     echo "─────────────────────────────────────"
-    echo "  Benchmark: $label"
+    echo "  Benchmark: $label ($RUNS runs)"
     echo "─────────────────────────────────────"
 
     # Warm-up: one ignored run
@@ -220,14 +239,26 @@ benchmark_phase() {
     echo "  [weather] $RUNS runs..."
     for i in $(seq 1 "$RUNS"); do
         run_measurement "$WEATHER_QUERY"
-        WEATHER_TIMES+=("$_LAST_MS")
-        WEATHER_TURNS+=("$_LAST_TURNS")
-        total_w=$((total_w + _LAST_MS))
-        total_tw=$((total_tw + _LAST_TURNS))
-        printf "    #%2d : %5d ms  (%d turns)\n" "$i" "$_LAST_MS" "$_LAST_TURNS"
+        if [[ $_LAST_ERROR -eq 1 ]]; then
+            WEATHER_TIMES+=("ERR")
+            WEATHER_TURNS+=("ERR")
+            err_weather=$((err_weather + 1))
+            printf "    #%2d : %5d ms  ** CONTENT FILTER ERROR **\n" "$i" "$_LAST_MS"
+        else
+            WEATHER_TIMES+=("$_LAST_MS")
+            WEATHER_TURNS+=("$_LAST_TURNS")
+            sum_weather_ms=$((sum_weather_ms + _LAST_MS))
+            sum_weather_turns=$((sum_weather_turns + _LAST_TURNS))
+            ok_weather=$((ok_weather + 1))
+            printf "    #%2d : %5d ms  (%d turns)\n" "$i" "$_LAST_MS" "$_LAST_TURNS"
+        fi
     done
-    local avg_w=$((total_w / RUNS))
-    local avg_tw_x10=$(( (total_tw * 10) / RUNS ))
+    local avg_weather_ms=0 avg_weather_turns_x10=0
+    if [[ $ok_weather -gt 0 ]]; then
+        avg_weather_ms=$((sum_weather_ms / ok_weather))
+        # x10 for one-decimal display: e.g. 25 → "2.5 turns"
+        avg_weather_turns_x10=$(( (sum_weather_turns * 10) / ok_weather ))
+    fi
 
     # TV-control
     echo ""
@@ -238,23 +269,34 @@ benchmark_phase() {
         else
             run_measurement "$TV_QUERY_B"
         fi
-        TV_TIMES+=("$_LAST_MS")
-        TV_TURNS+=("$_LAST_TURNS")
-        total_tv=$((total_tv + _LAST_MS))
-        total_ttv=$((total_ttv + _LAST_TURNS))
-        printf "    #%2d : %5d ms  (%d turns)\n" "$i" "$_LAST_MS" "$_LAST_TURNS"
+        if [[ $_LAST_ERROR -eq 1 ]]; then
+            TV_TIMES+=("ERR")
+            TV_TURNS+=("ERR")
+            err_tv=$((err_tv + 1))
+            printf "    #%2d : %5d ms  ** CONTENT FILTER ERROR **\n" "$i" "$_LAST_MS"
+        else
+            TV_TIMES+=("$_LAST_MS")
+            TV_TURNS+=("$_LAST_TURNS")
+            sum_tv_ms=$((sum_tv_ms + _LAST_MS))
+            sum_tv_turns=$((sum_tv_turns + _LAST_TURNS))
+            ok_tv=$((ok_tv + 1))
+            printf "    #%2d : %5d ms  (%d turns)\n" "$i" "$_LAST_MS" "$_LAST_TURNS"
+        fi
     done
-    local avg_tv=$((total_tv / RUNS))
-    local avg_ttv_x10=$(( (total_ttv * 10) / RUNS ))
+    local avg_tv_ms=0 avg_tv_turns_x10=0
+    if [[ $ok_tv -gt 0 ]]; then
+        avg_tv_ms=$((sum_tv_ms / ok_tv))
+        avg_tv_turns_x10=$(( (sum_tv_turns * 10) / ok_tv ))
+    fi
 
-    # Save results: label|skill|times_csv|avg_ms|turns_csv|avg_turns_x10
-    echo "${label}|weather|$(IFS=','; echo "${WEATHER_TIMES[*]}")|${avg_w}|$(IFS=','; echo "${WEATHER_TURNS[*]}")|${avg_tw_x10}" >> "$RESULTS_FILE"
-    echo "${label}|tv-control|$(IFS=','; echo "${TV_TIMES[*]}")|${avg_tv}|$(IFS=','; echo "${TV_TURNS[*]}")|${avg_ttv_x10}" >> "$RESULTS_FILE"
+    # Save results: label|skill|times_csv|avg_ms|turns_csv|avg_turns_x10|ok_count|err_count
+    echo "${label}|weather|$(IFS=','; echo "${WEATHER_TIMES[*]}")|${avg_weather_ms}|$(IFS=','; echo "${WEATHER_TURNS[*]}")|${avg_weather_turns_x10}|${ok_weather}|${err_weather}" >> "$RESULTS_FILE"
+    echo "${label}|tv-control|$(IFS=','; echo "${TV_TIMES[*]}")|${avg_tv_ms}|$(IFS=','; echo "${TV_TURNS[*]}")|${avg_tv_turns_x10}|${ok_tv}|${err_tv}" >> "$RESULTS_FILE"
 
     echo ""
-    printf "  Averages  → weather: %d ms (%d.%d turns)  |  tv-control: %d ms (%d.%d turns)\n" \
-        "$avg_w"  "$((avg_tw_x10  / 10))" "$((avg_tw_x10  % 10))" \
-        "$avg_tv" "$((avg_ttv_x10 / 10))" "$((avg_ttv_x10 % 10))"
+    printf "  Averages  → weather: %d ms (%d.%d turns, %d ok, %d err)  |  tv-control: %d ms (%d.%d turns, %d ok, %d err)\n" \
+        "$avg_weather_ms"  "$((avg_weather_turns_x10 / 10))" "$((avg_weather_turns_x10 % 10))" "$ok_weather" "$err_weather" \
+        "$avg_tv_ms" "$((avg_tv_turns_x10 / 10))" "$((avg_tv_turns_x10 % 10))" "$ok_tv" "$err_tv"
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -331,12 +373,16 @@ declare -A avg_map
 declare -A turns_map
 declare -A times_arr
 declare -A turns_arr
+declare -A ok_map
+declare -A err_map
 
-while IFS='|' read -r label skill times avg_ms turns avg_turns_x10; do
+while IFS='|' read -r label skill times avg_ms turns avg_turns_x10 ok_count err_count; do
     avg_map["${skill}_${label}"]="$avg_ms"
     turns_map["${skill}_${label}"]="$avg_turns_x10"
     times_arr["${skill}_${label}"]="$times"
     turns_arr["${skill}_${label}"]="$turns"
+    ok_map["${skill}_${label}"]="$ok_count"
+    err_map["${skill}_${label}"]="$err_count"
 done < "$RESULTS_FILE"
 
 for skill in weather tv-control; do
@@ -351,23 +397,40 @@ for skill in weather tv-control; do
     IFS=',' read -ra md_turns   <<< "${turns_arr[${skill}_SKILL.md]:-}"
     IFS=',' read -ra toml_turns <<< "${turns_arr[${skill}_SKILL.toml]:-}"
 
-    local_runs=${#md_times[@]}
-    for (( i=0; i<local_runs; i++ )); do
-        printf "  %4d  %8d ms  %7s  %8d ms  %7s\n" \
-            "$((i+1))" \
-            "${md_times[$i]}"   "${md_turns[$i]} turns" \
-            "${toml_times[$i]}" "${toml_turns[$i]} turns"
+    run_count=${#md_times[@]}
+    for (( i=0; i<run_count; i++ )); do
+        md_col="" toml_col=""
+        if [[ "${md_times[$i]}" == "ERR" ]]; then
+            md_col="     ** ERR **"
+        else
+            md_col=$(printf "%8d ms  %s" "${md_times[$i]}" "${md_turns[$i]} turns")
+        fi
+        if [[ "${toml_times[$i]}" == "ERR" ]]; then
+            toml_col="     ** ERR **"
+        else
+            toml_col=$(printf "%8d ms  %s" "${toml_times[$i]}" "${toml_turns[$i]} turns")
+        fi
+        printf "  %4d  %s  %s\n" "$((i+1))" "$md_col" "$toml_col"
     done
 
-    md_avg="${avg_map[${skill}_SKILL.md]:-0}"
-    toml_avg="${avg_map[${skill}_SKILL.toml]:-0}"
-    md_tx="${turns_map[${skill}_SKILL.md]:-0}"
-    toml_tx="${turns_map[${skill}_SKILL.toml]:-0}"
+    md_avg_ms="${avg_map[${skill}_SKILL.md]:-0}"
+    toml_avg_ms="${avg_map[${skill}_SKILL.toml]:-0}"
+    md_avg_turns_x10="${turns_map[${skill}_SKILL.md]:-0}"
+    toml_avg_turns_x10="${turns_map[${skill}_SKILL.toml]:-0}"
+    md_ok="${ok_map[${skill}_SKILL.md]:-0}"
+    md_err="${err_map[${skill}_SKILL.md]:-0}"
+    toml_ok="${ok_map[${skill}_SKILL.toml]:-0}"
+    toml_err="${err_map[${skill}_SKILL.toml]:-0}"
     echo "  ──────────────────────────────────────────────────────────"
     printf "  %4s  %8d ms  %d.%d turns  %8d ms  %d.%d turns\n" \
         "avg" \
-        "$md_avg"   "$((md_tx   / 10))" "$((md_tx   % 10))" \
-        "$toml_avg" "$((toml_tx / 10))" "$((toml_tx % 10))"
+        "$md_avg_ms"   "$((md_avg_turns_x10   / 10))" "$((md_avg_turns_x10   % 10))" \
+        "$toml_avg_ms" "$((toml_avg_turns_x10 / 10))" "$((toml_avg_turns_x10 % 10))"
+    if [[ $md_err -gt 0 || $toml_err -gt 0 ]]; then
+        printf "  %4s  %s  %s\n" "err" \
+            "$(printf '%d/%d errors' "$md_err" "$((md_ok + md_err))")" \
+            "$(printf '%d/%d errors' "$toml_err" "$((toml_ok + toml_err))")"
+    fi
 done
 
 # Summary comparison
@@ -378,11 +441,13 @@ printf "  %-14s  %11s  %9s  %11s  %9s  %s\n" \
 echo "  ────────────────────────────────────────────────────────────────"
 
 for skill in weather tv-control; do
-    md_avg="${avg_map[${skill}_SKILL.md]:-0}"
-    toml_avg="${avg_map[${skill}_SKILL.toml]:-0}"
-    md_tx="${turns_map[${skill}_SKILL.md]:-0}"
-    toml_tx="${turns_map[${skill}_SKILL.toml]:-0}"
-    diff=$((md_avg - toml_avg))
+    md_avg_ms="${avg_map[${skill}_SKILL.md]:-0}"
+    toml_avg_ms="${avg_map[${skill}_SKILL.toml]:-0}"
+    md_avg_turns_x10="${turns_map[${skill}_SKILL.md]:-0}"
+    toml_avg_turns_x10="${turns_map[${skill}_SKILL.toml]:-0}"
+    md_err="${err_map[${skill}_SKILL.md]:-0}"
+    toml_err="${err_map[${skill}_SKILL.toml]:-0}"
+    diff=$((md_avg_ms - toml_avg_ms))
     if [[ $diff -gt 0 ]]; then
         diff_str="SKILL.toml faster by ${diff}ms"
     elif [[ $diff -lt 0 ]]; then
@@ -390,11 +455,15 @@ for skill in weather tv-control; do
     else
         diff_str="equal"
     fi
-    printf "  %-14s  %8d ms  %d.%d turns  %8d ms  %d.%d turns  %s\n" \
+    err_str=""
+    if [[ $md_err -gt 0 || $toml_err -gt 0 ]]; then
+        err_str="  (err: md=${md_err} toml=${toml_err})"
+    fi
+    printf "  %-14s  %8d ms  %d.%d turns  %8d ms  %d.%d turns  %s%s\n" \
         "$skill" \
-        "$md_avg"   "$((md_tx   / 10))" "$((md_tx   % 10))" \
-        "$toml_avg" "$((toml_tx / 10))" "$((toml_tx % 10))" \
-        "$diff_str"
+        "$md_avg_ms"   "$((md_avg_turns_x10   / 10))" "$((md_avg_turns_x10   % 10))" \
+        "$toml_avg_ms" "$((toml_avg_turns_x10 / 10))" "$((toml_avg_turns_x10 % 10))" \
+        "$diff_str" "$err_str"
 done
 
 echo ""
