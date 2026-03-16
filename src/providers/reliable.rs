@@ -23,6 +23,12 @@ fn is_non_retryable(err: &anyhow::Error) -> bool {
     let msg = err.to_string();
     let msg_lower = msg.to_lowercase();
 
+    // Azure content management policy filter errors are transient (the model's
+    // sampling can vary between attempts), so treat them as retryable.
+    if is_content_filter_error(&msg_lower) {
+        return false;
+    }
+
     // Tool-schema/mapper incompatibility (including vendor 516 wrappers)
     // is deterministic: retries won't fix an unsupported request shape.
     if super::has_native_tool_schema_rejection_hint(&msg_lower) {
@@ -76,6 +82,14 @@ fn is_non_retryable(err: &anyhow::Error) -> bool {
             || msg_lower.contains("unsupported")
             || msg_lower.contains("does not exist")
             || msg_lower.contains("invalid"))
+}
+
+/// Azure OpenAI content management policy errors are intermittent — the model's
+/// sampling varies between attempts, so a retry with the same input often succeeds.
+fn is_content_filter_error(msg_lower: &str) -> bool {
+    msg_lower.contains("content management policy")
+        || msg_lower.contains("content filter")
+        || msg_lower.contains("content_filter")
 }
 
 fn is_context_window_exceeded(err: &anyhow::Error) -> bool {

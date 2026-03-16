@@ -2644,7 +2644,7 @@ pub(crate) fn build_tool_instructions_from_specs(tool_specs: &[crate::tools::Too
     instructions.push_str("To use a tool, wrap a JSON object in <tool_call></tool_call> tags:\n\n");
     instructions.push_str("```\n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n</tool_call>\n```\n\n");
     instructions.push_str(
-        "CRITICAL: Output actual <tool_call> tags—never describe steps or give examples.\n\n",
+        "Important: Always output actual <tool_call> tags. Do not describe steps or give examples in prose.\n\n",
     );
     instructions.push_str(
         "When a tool is needed, emit a real call (not prose), for example:\n\
