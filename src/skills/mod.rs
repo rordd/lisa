@@ -61,7 +61,7 @@ struct SkillPromptEntry {
     content: String,
 }
 
-/// Skill manifest parsed from SKILL.toml
+/// Skill manifest parsed from SKILL.toml (table-array `[[prompts]]` format)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SkillManifest {
     skill: SkillMeta,
@@ -70,6 +70,7 @@ struct SkillManifest {
     #[serde(default)]
     prompts: Vec<SkillPromptEntry>,
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SkillMetadataManifest {
@@ -3233,6 +3234,34 @@ content = "Do not preload me"
         assert_eq!(toml.description, "Toml metadata description");
         assert!(toml.prompts.is_empty());
         assert!(toml.tools.is_empty());
+    }
+
+    #[test]
+    fn load_skill_toml_supports_table_array_prompts() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_dir = dir.path().join("workspace");
+        let skill_dir = workspace_dir.join("skills").join("table-prompts");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.toml"),
+            r#"
+[skill]
+name = "table-prompts"
+description = "Skill using table-array prompts"
+version = "1.0.0"
+
+[[prompts]]
+content = "Always greet the user"
+
+[[prompts]]
+content = "Be polite"
+"#,
+        )
+        .unwrap();
+
+        let skills = load_skills(&workspace_dir);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].prompts, vec!["Always greet the user", "Be polite"]);
     }
 
     // ── is_registry_source ────────────────────────────────────────────────────
