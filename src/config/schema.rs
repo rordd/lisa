@@ -1190,11 +1190,9 @@ pub struct SkillsConfig {
     /// ClawhHub personal access token for authenticated skill downloads.
     #[serde(default)]
     pub clawhub_token: Option<String>,
-    /// Global override for `tool_choice_required` on all skill tools.
-    /// When set to `true`, the LLM is forced to call a tool on the first turn
-    /// for every skill (regardless of per-skill settings).
-    /// When set to `false`, forced tool use is disabled for all skills.
-    /// When unset (`None`), each skill's own `tool_choice_required` setting applies.
+    /// Global `tool_choice_required` setting for all skill tools.
+    /// When `true`, the LLM is forced to call a tool on the first turn.
+    /// When `false` or unset (`None`), default behavior (no forced tool use).
     #[serde(default)]
     pub tool_choice_required: Option<bool>,
 }

@@ -33,7 +33,7 @@ pub trait Tool: Send + Sync {
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult>;
 
     /// Whether this tool requires the LLM to always call a tool on the first turn.
-    /// Default is false; skill tools with `tool_choice_required = true` override this.
+    /// Default is false; controlled globally via config/env `tool_choice_required`.
     fn force_tool_use(&self) -> bool {
         false
     }

@@ -42,9 +42,6 @@ pub struct Skill {
     /// Channel restriction list (e.g. `["ws", "cli"]`). Empty = available on all channels.
     #[serde(default)]
     pub channels: Vec<String>,
-    /// When true, the LLM is required to call a tool on the first turn (tool_choice: "required").
-    #[serde(default)]
-    pub tool_choice_required: bool,
 }
 
 /// A tool defined by a skill (shell command, HTTP call, etc.)
@@ -86,8 +83,6 @@ struct SkillMeta {
     author: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
-    #[serde(default)]
-    tool_choice_required: bool,
 }
 
 fn default_version() -> String {
@@ -637,7 +632,6 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 location: Some(path.to_path_buf()),
                 always: false,
                 channels: Vec::new(),
-                tool_choice_required: manifest.skill.tool_choice_required,
             })
         }
         SkillLoadMode::MetadataOnly => {
@@ -656,7 +650,6 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 location: Some(path.to_path_buf()),
                 always: false,
                 channels: Vec::new(),
-                tool_choice_required: manifest.skill.tool_choice_required,
             })
         }
     }
@@ -744,7 +737,6 @@ fn load_skill_md(path: &Path, dir: &Path, load_mode: SkillLoadMode) -> Result<Sk
         location: Some(path.to_path_buf()),
         always,
         channels,
-        tool_choice_required: fm_bool(&fm, "tool_choice_required"),
     })
 }
 
@@ -771,7 +763,6 @@ fn load_open_skill_md(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
         location: Some(path.to_path_buf()),
         always: false,
         channels: Vec::new(),
-        tool_choice_required: false,
     })
 }
 
@@ -997,19 +988,19 @@ pub fn create_skill_tools(
     create_skill_tools_with_override(skills, security, None)
 }
 
-/// Create skill tools with an optional global `tool_choice_required` override.
-/// When `global_override` is `Some(value)`, it takes precedence over each
-/// skill's own `tool_choice_required` setting.
+/// Create skill tools with an optional global `tool_choice_required` setting.
+/// When `global_override` is `Some(true)`, all skill tools use `tool_choice: "required"`.
+/// When `None` or `Some(false)`, skill tools use default behavior.
 pub fn create_skill_tools_with_override(
     skills: &[Skill],
     security: std::sync::Arc<crate::security::SecurityPolicy>,
     global_override: Option<bool>,
 ) -> Vec<Box<dyn crate::tools::Tool>> {
     let mut tools: Vec<Box<dyn crate::tools::Tool>> = Vec::new();
+    let force = global_override.unwrap_or(false);
 
     for skill in skills {
         for tool_def in &skill.tools {
-            let force = global_override.unwrap_or(skill.tool_choice_required);
             match SkillToolHandler::new(skill.name.clone(), tool_def.clone(), security.clone(), force) {
                 Ok(handler) => {
                     tracing::debug!(
@@ -2726,7 +2717,6 @@ command = "echo hello"
             location: None,
             always: false,
             channels: vec![],
-            tool_choice_required: false,
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("<available_skills>"));
@@ -2753,7 +2743,6 @@ command = "echo hello"
             location: Some(PathBuf::from("/tmp/workspace/skills/test/SKILL.md")),
             always: false,
             channels: vec![],
-            tool_choice_required: false,
         }];
         let prompt = skills_to_prompt_with_mode(
             &skills,
@@ -2789,7 +2778,6 @@ command = "echo hello"
             location: Some(PathBuf::from("/tmp/workspace/skills/always-skill/SKILL.md")),
             always: true,
             channels: vec![],
-            tool_choice_required: false,
         }];
         let prompt = skills_to_prompt_with_mode(
             &skills,
@@ -3023,7 +3011,6 @@ description = "Bare minimum"
             location: None,
             always: false,
             channels: vec![],
-            tool_choice_required: false,
         }];
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("weather"));
@@ -3045,7 +3032,6 @@ description = "Bare minimum"
             location: None,
             always: false,
             channels: vec![],
-            tool_choice_required: false,
         }];
 
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
