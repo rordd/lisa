@@ -55,6 +55,12 @@ pub struct SkillTool {
     pub args: HashMap<String, String>,
 }
 
+/// A prompt entry in SKILL.toml (`[[prompts]]` table array).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SkillPromptEntry {
+    content: String,
+}
+
 /// Skill manifest parsed from SKILL.toml
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SkillManifest {
@@ -62,7 +68,7 @@ struct SkillManifest {
     #[serde(default)]
     tools: Vec<SkillTool>,
     #[serde(default)]
-    prompts: Vec<String>,
+    prompts: Vec<SkillPromptEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +86,8 @@ struct SkillMeta {
     author: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    always: bool,
 }
 
 fn default_version() -> String {
@@ -611,24 +619,32 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 author: manifest.skill.author,
                 tags: manifest.skill.tags,
                 tools: manifest.tools,
-                prompts: manifest.prompts,
+                prompts: manifest.prompts.into_iter().map(|p| p.content).collect(),
                 location: Some(path.to_path_buf()),
-                always: false,
+                always: manifest.skill.always,
                 channels: Vec::new(),
             })
         }
         SkillLoadMode::MetadataOnly => {
-            let manifest: SkillMetadataManifest = toml::from_str(&content)?;
+            let meta: SkillMetadataManifest = toml::from_str(&content)?;
+            // When `always = true`, load prompts so they appear in compact-mode
+            // system prompt (skills_to_prompt_with_mode checks skill.always).
+            let prompts = if meta.skill.always {
+                let full: SkillManifest = toml::from_str(&content)?;
+                full.prompts.into_iter().map(|p| p.content).collect()
+            } else {
+                Vec::new()
+            };
             Ok(Skill {
-                name: manifest.skill.name,
-                description: manifest.skill.description,
-                version: manifest.skill.version,
-                author: manifest.skill.author,
-                tags: manifest.skill.tags,
+                name: meta.skill.name,
+                description: meta.skill.description,
+                version: meta.skill.version,
+                author: meta.skill.author,
+                tags: meta.skill.tags,
                 tools: Vec::new(),
-                prompts: Vec::new(),
+                prompts,
                 location: Some(path.to_path_buf()),
-                always: false,
+                always: meta.skill.always,
                 channels: Vec::new(),
             })
         }
@@ -3190,7 +3206,8 @@ description = "Should not preload"
 kind = "shell"
 command = "echo no"
 
-prompts = ["Do not preload me"]
+[[prompts]]
+content = "Do not preload me"
 "#,
         )
         .unwrap();
