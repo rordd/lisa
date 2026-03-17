@@ -1,0 +1,61 @@
+[skill]
+name = "tv-control"
+description = "Control this webOS TV. Supported actions: launch/open apps, get foreground app, change channels, and control volume."
+version = "1.0.0"
+
+[[tools]]
+name = "tv_launch_app"
+description = "Launch an app on the TV by app ID."
+kind = "shell"
+command = "luna-send -n 1 luna://com.webos.applicationManager/launch '{\"id\":\"{app_id}\"}'"
+
+[tools.args]
+app_id = "The ID of the app to launch (e.g., 'com.webos.app.livetv', 'youtube.leanback.v4')"
+
+[[tools]]
+name = "tv_get_foreground"
+description = "Get the app ID of the currently running foreground app."
+kind = "shell"
+command = "luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}'"
+
+[[tools]]
+name = "tv_channel_up"
+description = "Switch to the next channel (only works when Live TV is in foreground)."
+kind = "shell"
+command = "luna-send -n 1 -f luna://com.lge.inputgenerator/pushKeyEvent '{\"eventtype\":\"key\",\"keycodenum\":402}'"
+
+[[tools]]
+name = "tv_channel_down"
+description = "Switch to the previous channel (only works when Live TV is in foreground)."
+kind = "shell"
+command = "luna-send -n 1 -f luna://com.lge.inputgenerator/pushKeyEvent '{\"eventtype\":\"key\",\"keycodenum\":403}'"
+
+[[tools]]
+name = "tv_go_to_channel"
+description = "Switch to a specific channel number (only works when Live TV is in foreground)."
+kind = "shell"
+command = "bash skills/tv-control/scripts/go-to-channel.sh {channel_number}"
+
+[tools.args]
+channel_number = "Channel number to switch to (e.g., '9', '12', '190')"
+
+[[tools]]
+name = "tv_volume_up"
+description = "Increase the TV volume by 1 step."
+kind = "shell"
+command = "luna-send -n 1 luna://com.webos.service.audio/master/volumeUp '{}'"
+
+[[tools]]
+name = "tv_volume_down"
+description = "Decrease the TV volume by 1 step."
+kind = "shell"
+command = "luna-send -n 1 luna://com.webos.service.audio/master/volumeDown '{}'"
+
+[[tools]]
+name = "tv_set_volume"
+description = "Set the TV volume to a specific level (0-100)."
+kind = "shell"
+command = "luna-send -n 1 luna://com.webos.service.audio/master/setVolume '{\"volume\":{volume}}'"
+
+[tools.args]
+volume = "Volume level to set (0-100)"

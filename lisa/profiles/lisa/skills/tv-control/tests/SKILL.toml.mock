@@ -1,0 +1,61 @@
+[skill]
+name = "tv-control"
+description = "Control the TV. Supported actions: launch apps, get foreground app, change channels, control volume."
+version = "1.0.0-mock"
+
+[[tools]]
+name = "tv_launch_app"
+description = "Launch an app on the TV by app ID."
+kind = "shell"
+command = "bash skills/tv-control/tests/mock-tv.sh launch {app_id}"
+
+[tools.args]
+app_id = "The ID of the app to launch"
+
+[[tools]]
+name = "tv_get_foreground"
+description = "Get the app ID of the currently running foreground app."
+kind = "shell"
+command = "bash skills/tv-control/tests/mock-tv.sh foreground"
+
+[[tools]]
+name = "tv_channel_up"
+description = "Switch to the next channel."
+kind = "shell"
+command = "bash skills/tv-control/tests/mock-tv.sh channel_up"
+
+[[tools]]
+name = "tv_channel_down"
+description = "Switch to the previous channel."
+kind = "shell"
+command = "bash skills/tv-control/tests/mock-tv.sh channel_down"
+
+[[tools]]
+name = "tv_go_to_channel"
+description = "Switch to a specific channel number."
+kind = "shell"
+command = "bash skills/tv-control/tests/mock-tv.sh go_to_channel {channel_number}"
+
+[tools.args]
+channel_number = "Channel number to switch to"
+
+[[tools]]
+name = "tv_volume_up"
+description = "Increase the TV volume by 1 step."
+kind = "shell"
+command = "bash skills/tv-control/tests/mock-tv.sh volume_up"
+
+[[tools]]
+name = "tv_volume_down"
+description = "Decrease the TV volume by 1 step."
+kind = "shell"
+command = "bash skills/tv-control/tests/mock-tv.sh volume_down"
+
+[[tools]]
+name = "tv_set_volume"
+description = "Set the TV volume to a specific level (0-100)."
+kind = "shell"
+command = "bash skills/tv-control/tests/mock-tv.sh set_volume {volume}"
+
+[tools.args]
+volume = "Volume level to set (0-100)"

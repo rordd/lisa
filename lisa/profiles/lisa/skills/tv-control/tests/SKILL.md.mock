@@ -1,0 +1,52 @@
+---
+name: tv-control
+description: Control the TV. Supported actions: launch apps, get foreground app, change channels, control volume.
+always: true
+---
+
+# TV Control
+
+All operations must be executed using the `shell` tool.
+
+## Commands
+
+### Launch an app
+```
+bash skills/tv-control/tests/mock-tv.sh launch {app_id}
+```
+
+### Get foreground app
+```
+bash skills/tv-control/tests/mock-tv.sh foreground
+```
+
+### Channel up
+```
+bash skills/tv-control/tests/mock-tv.sh channel_up
+```
+
+### Channel down
+```
+bash skills/tv-control/tests/mock-tv.sh channel_down
+```
+
+### Go to channel number
+```
+bash skills/tv-control/tests/mock-tv.sh go_to_channel {channel_number}
+```
+
+### Volume up
+```
+bash skills/tv-control/tests/mock-tv.sh volume_up
+```
+
+### Volume down
+```
+bash skills/tv-control/tests/mock-tv.sh volume_down
+```
+
+### Set volume
+Set the volume to a specific level (0-100).
+```
+bash skills/tv-control/tests/mock-tv.sh set_volume {volume}
+```

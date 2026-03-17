@@ -1,0 +1,123 @@
+---
+name: a2ui
+description: "Google A2UI v0.9 protocol. ALWAYS use A2UI cards to visually present structured data (weather, schedules, lists, quizzes, comparisons, recipes, forms, travel plans). Proactively render as A2UI card without waiting for explicit request."
+version: "1.1.0"
+channels: ws
+always: true
+---
+
+# Google A2UI v0.9 — Card Rendering
+
+Follow the **Google A2UI v0.9 specification** exactly. Do NOT invent custom syntax or mix versions.
+
+When presenting structured/visual information, include A2UI card data inside `<a2ui-json>` tags alongside your text response. When data would benefit from visual display, proactively include a card.
+
+CRITICAL: If you say "카드 만들었어" but don't include `<a2ui-json>[...]</a2ui-json>`, the user sees nothing.
+
+## Response Format
+
+Wrap each A2UI message in `<a2ui-json>...</a2ui-json>` tags. Text goes before/between/after tags.
+
+## Value Types
+
+All string/number/boolean properties support two forms:
+- **Literal**: direct value — `"Hello"`, `42`, `true`
+- **Data binding**: `{"path": "/data/key"}` — references the data model
+
+Children use either:
+- **Array**: `["id1", "id2"]` — fixed list of component IDs
+- **Template**: `{"componentId": "tplId", "path": "/items"}` — dynamic from data model
+
+## Messages (each `<a2ui-json>` block = one message, must include `"version": "v0.9"`)
+
+### createSurface — initialize a new surface
+```json
+{"version": "v0.9", "createSurface": {"surfaceId": "s1", "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"}}
+```
+
+### updateComponents — define/update the component tree
+```json
+{"version": "v0.9", "updateComponents": {"surfaceId": "s1", "components": [
+  {"id": "root", "component": "Card", "child": "content"},
+  {"id": "content", "component": "Column", "children": ["title", "body"]},
+  {"id": "title", "component": "Text", "text": "Hello", "variant": "h3"},
+  {"id": "body", "component": "Text", "text": "World", "variant": "body"}
+]}}
+```
+Each component: `{"id": "...", "component": "TypeName", ...props}`. One component must have `id: "root"`.
+
+### updateDataModel — update data for bindings
+```json
+{"version": "v0.9", "updateDataModel": {"surfaceId": "s1", "path": "/", "value": {"title": "Hello"}}}
+```
+
+### deleteSurface
+```json
+{"version": "v0.9", "deleteSurface": {"surfaceId": "s1"}}
+```
+
+## Components
+
+### Layout
+| Component | Required Props | Optional Props |
+|-----------|---------------|----------------|
+| **Card** | `child: componentId` | |
+| **Column** | `children: id[] or template` | `justify`: start\|center\|end\|spaceBetween\|spaceAround\|spaceEvenly, `align`: start\|center\|end\|stretch |
+| **Row** | `children: id[] or template` | `justify`, `align` (same as Column) |
+| **List** | `children: id[] or template` | `direction`: vertical\|horizontal, `align` |
+| **Tabs** | `tabs: [{title, child}]` | |
+| **Divider** | | `axis`: horizontal\|vertical |
+| **Modal** | `trigger: componentId`, `content: componentId` | |
+
+### Content
+| Component | Required Props | Optional Props |
+|-----------|---------------|----------------|
+| **Text** | `text: string\|{path}` | `variant`: h1\|h2\|h3\|h4\|h5\|body\|caption |
+| **Image** | `url: string\|{path}` | `fit`: contain\|cover\|fill\|none\|scaleDown, `variant`: icon\|avatar\|smallFeature\|mediumFeature\|largeFeature\|header |
+| **Icon** | `name: string\|{path}` | Names: accountCircle, add, arrowBack, arrowForward, calendarToday, check, close, delete, download, edit, event, error, favorite, home, info, locationOn, mail, person, refresh, search, send, settings, share, star, warning, etc. |
+| **Video** | `url: string\|{path}` | |
+| **AudioPlayer** | `url: string\|{path}` | `description` |
+
+### Interactive
+| Component | Required Props | Optional Props |
+|-----------|---------------|----------------|
+| **Button** | `child: componentId`, `action` | `variant`: default\|primary\|borderless |
+| **CheckBox** | `label`, `value: bool` | |
+| **TextField** | `label` | `value`, `variant`: shortText\|longText\|number\|obscured, `validationRegexp` |
+| **Slider** | `value: number`, `max` | `min`, `label` |
+| **ChoicePicker** | `options: [{label, value}]`, `value: string[]` | `variant`: mutuallyExclusive\|multipleSelection, `displayStyle`: checkbox\|chips, `filterable` |
+| **DateTimeInput** | `value` | `enableDate`, `enableTime`, `min`, `max`, `label` |
+
+## Actions
+
+Button `action` has two types:
+- **event** (server-side): `{"event": {"name": "answer", "context": {"choice": "A"}}}`
+- **functionCall** (client-side): `{"functionCall": {"call": "openUrl", "args": {"url": "..."}, "returnType": "void"}}`
+
+URL buttons MUST use `functionCall.openUrl` (server is headless).
+
+### Client Functions
+- `openUrl(url)` → void — open URL in browser
+- `formatString(value)` → string — interpolate `${/path}` in strings
+- `formatNumber(value, decimals?, grouping?)` → string
+- `formatCurrency(value, currency, decimals?, grouping?)` → string
+- `formatDate(value, format)` → string — TR35 patterns: `yyyy`, `MM`, `dd`, `HH`, `mm`, `a`
+- `pluralize(value, one, other, zero?, few?, many?)` → string
+- Validators: `required(value)`, `regex(value, pattern)`, `length(value, min?, max?)`, `numeric(value, min?, max?)`, `email(value)`
+- Logic: `and(values[])`, `or(values[])`, `not(value)`
+
+## Example
+
+User: "오늘 날씨 어때?"
+
+Response:
+오늘 서울은 맑고 12°C야!
+
+<a2ui-json>{"version": "v0.9", "createSurface": {"surfaceId": "w1", "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"}}</a2ui-json>
+
+<a2ui-json>{"version": "v0.9", "updateComponents": {"surfaceId": "w1", "components": [
+  {"id": "root", "component": "Card", "child": "col"},
+  {"id": "col", "component": "Column", "children": ["title", "temp"]},
+  {"id": "title", "component": "Text", "text": "🌤️ 오늘의 서울 날씨", "variant": "h3"},
+  {"id": "temp", "component": "Text", "text": "12°C / 맑음", "variant": "body"}
+]}}</a2ui-json>

@@ -1,0 +1,27 @@
+[skill]
+name = "calendar"
+description = "Google Calendar event management via gog CLI. Use for schedule queries, meeting creation, and event updates."
+version = "2.0.0"
+
+[[tools]]
+name = "calendar_events"
+description = "List Google Calendar events for a date range. Returns JSON array of events. Use for schedule queries like 'what meetings do I have tomorrow' or 'this week's schedule'."
+kind = "shell"
+command = "gog calendar events {calendar_id} --from {from} --to {to} --json"
+
+[tools.args]
+calendar_id = "Calendar ID (use 'primary' for default, or specific calendar ID from USER.md)"
+from = "Start datetime in ISO 8601 format (e.g. 2026-03-11T00:00:00)"
+to = "End datetime in ISO 8601 format (e.g. 2026-03-11T23:59:59)"
+
+[[tools]]
+name = "calendar_create"
+description = "Create a new Google Calendar event. Always confirm with the user before creating."
+kind = "shell"
+command = "gog calendar create {calendar_id} --summary {summary} --from {from} --to {to}"
+
+[tools.args]
+calendar_id = "Calendar ID (default: primary)"
+summary = "Event title/summary"
+from = "Start datetime in ISO 8601 format"
+to = "End datetime in ISO 8601 format"
