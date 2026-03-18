@@ -454,6 +454,14 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         }
     }
 
+    // Apply non-CLI excluded tools for gateway paths (ws, webhook, api/chat).
+    // Prevents tool overload which causes some models (e.g. Gemini) to skip
+    // tool calling entirely when too many tools are registered.
+    if !config.autonomy.non_cli_excluded_tools.is_empty() {
+        let excluded = &config.autonomy.non_cli_excluded_tools;
+        tools_registry_raw.retain(|t| !excluded.iter().any(|ex| ex == t.name()));
+    }
+
     let tools_registry: Arc<Vec<ToolSpec>> =
         Arc::new(tools_registry_raw.iter().map(|t| t.spec()).collect());
 
