@@ -2709,7 +2709,7 @@ command = "echo hello"
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("<available_skills>"));
         assert!(prompt.contains("<name>test</name>"));
-        assert!(prompt.contains("<instruction>Do the thing.</instruction>"));
+        assert!(prompt.contains("<instruction><![CDATA[Do the thing.]]></instruction>"));
     }
 
     #[test]
@@ -2775,7 +2775,7 @@ command = "echo hello"
 
         assert!(prompt.contains("<available_skills>"));
         assert!(prompt.contains("<name>always-skill</name>"));
-        assert!(prompt.contains("<instruction>Do the thing every time.</instruction>"));
+        assert!(prompt.contains("<instruction><![CDATA[Do the thing every time.]]></instruction>"));
         assert!(prompt.contains("<tools>"));
         assert!(prompt.contains("<name>run</name>"));
         assert!(prompt.contains("<kind>shell</kind>"));
@@ -3026,7 +3026,7 @@ description = "Bare minimum"
         assert!(prompt.contains("<name>xml&lt;skill&gt;</name>"));
         assert!(prompt.contains("<description>A &amp; B</description>"));
         assert!(prompt.contains(
-            "<instruction>Use &lt;tool&gt; &amp; check &quot;quotes&quot;.</instruction>"
+            "<instruction><![CDATA[Use <tool> & check \"quotes\".]]></instruction>"
         ));
     }
 
@@ -3229,7 +3229,8 @@ prompts = ["Do not preload me"]
             .unwrap();
         assert_eq!(toml.description, "Toml metadata description");
         assert!(toml.prompts.is_empty());
-        assert!(toml.tools.is_empty());
+        assert_eq!(toml.tools.len(), 1);
+        assert_eq!(toml.tools[0].name, "dangerous-tool");
     }
 
     // ── is_registry_source ────────────────────────────────────────────────────
