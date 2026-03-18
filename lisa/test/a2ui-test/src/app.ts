@@ -277,6 +277,8 @@ window.addEventListener('load', () => {
   ($('chat-input') as HTMLInputElement).focus();
   const wsInput = $('ws-url') as HTMLInputElement;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  wsInput.value = `${proto}//${location.host}/ws`;
+  // Use gateway port (42617) instead of dev server port, and /ws/chat endpoint
+  const gwHost = location.hostname + ':42617';
+  wsInput.value = `${proto}//${gwHost}/ws/chat`;
   (window as any).toggleConnection();
 });

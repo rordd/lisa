@@ -83,6 +83,8 @@ struct SkillMeta {
     author: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    always: bool,
 }
 
 fn default_version() -> String {
@@ -630,15 +632,20 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 tools: manifest.tools,
                 prompts: manifest.prompts,
                 location: Some(path.to_path_buf()),
-                always: false,
+                always: manifest.skill.always,
                 channels: Vec::new(),
             })
         }
         SkillLoadMode::MetadataOnly => {
             // Parse full manifest so TOML-defined tools are always available
             // for native function calling, even in compact/metadata-only mode.
-            // Only prompts are skipped (loaded on demand via read_skill).
+            // Prompts are skipped unless always=true (loaded on demand via read_skill).
             let manifest: SkillManifest = toml::from_str(&content)?;
+            let prompts = if manifest.skill.always {
+                manifest.prompts.clone()
+            } else {
+                Vec::new()
+            };
             Ok(Skill {
                 name: manifest.skill.name,
                 description: manifest.skill.description,
@@ -646,9 +653,9 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 author: manifest.skill.author,
                 tags: manifest.skill.tags,
                 tools: manifest.tools,
-                prompts: Vec::new(),
+                prompts,
                 location: Some(path.to_path_buf()),
-                always: false,
+                always: manifest.skill.always,
                 channels: Vec::new(),
             })
         }

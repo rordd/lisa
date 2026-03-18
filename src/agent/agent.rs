@@ -274,6 +274,14 @@ impl Agent {
         self.history.clear();
     }
 
+    /// Add extra tools (e.g. skill tools) to the agent after construction.
+    pub fn add_tools(&mut self, extra: Vec<Box<dyn Tool>>) {
+        for tool in &extra {
+            self.tool_specs.push(tool.spec());
+        }
+        self.tools.extend(extra);
+    }
+
     pub fn set_memory_session_id(&mut self, session_id: Option<String>) {
         self.memory_session_id = session_id;
     }

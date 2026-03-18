@@ -160,6 +160,25 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
     };
     agent.set_memory_session_id(Some(session_id.clone()));
 
+    // Inject skill tools from gateway registry into the WS agent
+    // so TOML-defined tools (weather_check, calendar_events, etc.) are available
+    // as native function calls, not just in system prompt text.
+    {
+        let config = state.config.lock().clone();
+        let security = std::sync::Arc::new(crate::security::SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+        ));
+        let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+        let skills_for_tools =
+            crate::skills::filter_skills_by_channel(skills, Some("default"));
+        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security);
+        if !skill_tools.is_empty() {
+            tracing::debug!(count = skill_tools.len(), "WS agent: injected skill tools");
+            agent.add_tools(skill_tools);
+        }
+    }
+
     // Hydrate agent from persisted session (if available)
     let mut resumed = false;
     let mut message_count: usize = 0;
@@ -321,7 +340,19 @@ async fn process_chat_message(
                 let _ = sender.send(Message::Text(a2web_msg.to_string().into())).await;
             }
 
-            let clean_response = strip_a2web_result_tags(&response);
+            // Parse a2ui JSON from response and send as separate WS message
+            let (text_only, a2ui_messages) = crate::gateway::a2ui::parse_response(&response);
+            if !a2ui_messages.is_empty() {
+                let a2ui_msg = serde_json::json!({
+                    "type": "a2ui",
+                    "messages": a2ui_messages,
+                });
+                let _ = sender.send(Message::Text(a2ui_msg.to_string().into())).await;
+            }
+
+            let clean_response = strip_a2web_result_tags(
+                if !a2ui_messages.is_empty() { &text_only } else { &response }
+            );
             let done = serde_json::json!({
                 "type": "done",
                 "full_response": clean_response,
