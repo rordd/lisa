@@ -95,6 +95,9 @@ echo ""
 cp "$SKILL_DIR/SKILL.toml" "$SKILL_DIR/SKILL.toml.orig" 2>/dev/null || true
 cp "$SKILL_DIR/SKILL.md" "$SKILL_DIR/SKILL.md.orig" 2>/dev/null || true
 
+# Cross-platform sed -i (macOS needs '' arg, Linux does not)
+sedi() { sed --version >/dev/null 2>&1 && sed -i "$@" || sed -i '' "$@"; }
+
 cleanup() {
     echo "▶ 원복 및 정리..."
     [ -f "$SKILL_DIR/SKILL.toml.orig" ] && cp "$SKILL_DIR/SKILL.toml.orig" "$SKILL_DIR/SKILL.toml" && rm -f "$SKILL_DIR/SKILL.toml.orig"
@@ -115,7 +118,7 @@ echo ""
 echo "▶ S2: SKILL.md always=true (system prompt)"
 rm -f "$SKILL_DIR/SKILL.toml"
 cp "$SCRIPT_DIR/SKILL.md.mock" "$SKILL_DIR/SKILL.md"
-sed -i '' 's/always: false/always: true/' "$SKILL_DIR/SKILL.md" 2>/dev/null
+sedi 's/always: false/always: true/' "$SKILL_DIR/SKILL.md"
 grep "always" "$SKILL_DIR/SKILL.md" | head -1
 reset_memory
 for i in $(seq 1 $RUNS); do run_test "s2_md_always" "$i"; done
@@ -125,7 +128,7 @@ echo ""
 echo "▶ S3: SKILL.md always=false (on-demand)"
 rm -f "$SKILL_DIR/SKILL.toml"
 cp "$SCRIPT_DIR/SKILL.md.mock" "$SKILL_DIR/SKILL.md"
-sed -i '' 's/always: true/always: false/' "$SKILL_DIR/SKILL.md" 2>/dev/null
+sedi 's/always: true/always: false/' "$SKILL_DIR/SKILL.md"
 grep "always" "$SKILL_DIR/SKILL.md" | head -1
 reset_memory
 for i in $(seq 1 $RUNS); do run_test "s3_md_ondemand" "$i"; done

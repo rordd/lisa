@@ -18,6 +18,25 @@ When data WOULD benefit from visual display, proactively include a card. Cards a
 
 CRITICAL: When the user asks for a "카드" (card) or visual display, you MUST include `<a2ui-json>[...]</a2ui-json>` in your response. This is not optional. If you say "카드 만들었어" but don't include A2UI JSON, the user sees nothing.
 
+## A2UI vs a2web Routing
+
+You have TWO visual output modes. Choose the right one:
+
+**A2UI cards** (this skill, `<a2ui-json>`) — for structured, lightweight displays:
+- Weather, calendar, schedules, to-do lists
+- Quizzes, polls, surveys, simple forms
+- Comparisons, recipes, travel plans
+- Any content that fits the A2UI component set (Card, Text, Button, CheckBox, Slider, etc.)
+
+**a2web** (`a2web_render` tool) — for rich, complex, interactive content:
+- Dashboards with charts/graphs (Chart.js, D3, etc.)
+- Games, animations, canvas-based interactions
+- Complex multi-step forms with validation logic
+- Content requiring custom CSS/JS beyond A2UI components
+- Maps, data visualizations, interactive timelines
+
+**Decision rule:** If the content can be expressed with A2UI components, use A2UI. If it needs custom HTML/CSS/JS or interactivity beyond button clicks, use a2web. When in doubt, prefer A2UI — it renders inline and feels more native.
+
 ## Component Diversity
 
 Use the FULL range of components from the schema — not just Card/Column/Row/Text/Button. Match the component to the content:

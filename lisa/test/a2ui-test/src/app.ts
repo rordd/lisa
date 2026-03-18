@@ -121,6 +121,56 @@ function renderA2UISurface(elapsedSec: number | null) {
   scrollBottom();
 }
 
+// ── A2Web iframe rendering ──
+function rewriteA2WebUrl(url: string): string {
+  // Rewrite 127.0.0.1 / localhost to the actual server hostname
+  // so external clients can access a2web pages
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
+      parsed.hostname = location.hostname;
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function renderA2WebFrame(data: { url?: string; title?: string; id?: string }) {
+  const elapsed = getElapsed();
+  removeThinking();
+  const main = $('messages');
+  const container = document.createElement('div');
+  container.className = 'a2web-container';
+
+  const pageUrl = rewriteA2WebUrl(data.url || '');
+  const header = document.createElement('div');
+  header.className = 'a2web-header';
+  header.innerHTML = `
+    <span class="a2web-label">a2web</span>
+    <span class="a2web-title">${data.title || 'Web Page'}</span>
+    <a href="${pageUrl}" target="_blank" rel="noopener" class="a2web-open">새 탭에서 열기 ↗</a>
+  `;
+  container.appendChild(header);
+
+  const iframe = document.createElement('iframe');
+  iframe.src = pageUrl;
+  iframe.className = 'a2web-iframe';
+  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
+  container.appendChild(iframe);
+
+  if (elapsed != null) {
+    const badge = document.createElement('div');
+    badge.style.cssText = 'text-align:right;font-size:11px;color:#9aa0a6;margin-top:4px';
+    badge.textContent = `${elapsed.toFixed(1)}s`;
+    container.appendChild(badge);
+  }
+
+  main.appendChild(container);
+  scrollBottom();
+  requestStartTime = null;
+}
+
 function handleA2UIAction(detail: any, surfaceId: string) {
   console.log('A2UI action:', detail);
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -153,6 +203,10 @@ function handleWSMessage(data: any) {
         console.log('[A2UI] received', data.messages.length, 'messages');
         currentA2UIMessages = data.messages;
       }
+      break;
+
+    case 'a2web':
+      renderA2WebFrame(data);
       break;
 
     case 'done': {

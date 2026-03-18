@@ -330,6 +330,8 @@ export class A2UISurfaceElement extends LitElement {
     .a2ui-image.avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
     .a2ui-image.thumbnail { width: 80px; height: 80px; object-fit: cover; }
     .a2ui-image.banner { width: 100%; max-height: 200px; object-fit: cover; }
+    .a2ui-image.smallFeature { width: 64px; height: 64px; object-fit: contain; }
+    .a2ui-image.largeFeature { width: 100%; max-height: 280px; object-fit: contain; }
 
     /* Icon */
     .a2ui-icon { font-family: 'Material Symbols Outlined', sans-serif; font-size: 24px; color: #5f6368; }
