@@ -212,6 +212,10 @@ pub struct Config {
     #[serde(default)]
     pub gateway: GatewayConfig,
 
+    /// A2UI card rendering configuration (`[a2ui]`).
+    #[serde(default)]
+    pub a2ui: A2uiConfig,
+
     /// Composio managed OAuth tools integration (`[composio]`).
     #[serde(default)]
     pub composio: ComposioConfig,
@@ -1611,6 +1615,15 @@ impl Default for GatewayConfig {
             pairing_dashboard: PairingDashboardConfig::default(),
         }
     }
+}
+
+/// A2UI card rendering configuration (`[a2ui]` section).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct A2uiConfig {
+    /// Enable A2UI card rendering on the WebSocket channel.
+    /// When `false` (default), the A2UI skill is not loaded and card parsing is skipped.
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Pairing dashboard configuration (`[gateway.pairing_dashboard]`).
@@ -5990,6 +6003,7 @@ impl Default for Config {
             storage: StorageConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
+            a2ui: A2uiConfig::default(),
             composio: ComposioConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),
@@ -8554,6 +8568,7 @@ default_temperature = 0.7
             storage: StorageConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
+            a2ui: A2uiConfig::default(),
             composio: ComposioConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),
@@ -8887,6 +8902,7 @@ tool_dispatcher = "xml"
             storage: StorageConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
+            a2ui: A2uiConfig::default(),
             composio: ComposioConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),

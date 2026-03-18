@@ -111,14 +111,22 @@ pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
 
 /// Load skills using runtime config values (preferred at runtime).
 pub fn load_skills_with_config(workspace_dir: &Path, config: &crate::config::Config) -> Vec<Skill> {
-    load_skills_with_open_skills_config(
+    let mut skills = load_skills_with_open_skills_config(
         workspace_dir,
         Some(config.skills.open_skills_enabled),
         config.skills.open_skills_dir.as_deref(),
         Some(config.skills.allow_scripts),
         Some(&config.skills.trusted_skill_roots),
         SkillLoadMode::from_prompt_mode(config.skills.prompt_injection_mode),
-    )
+    );
+
+    // When a2ui is disabled in config, exclude the a2ui skill entirely
+    // so it never appears in prompts, tool registries, or read_skill whitelist.
+    if !config.a2ui.enabled {
+        skills.retain(|s| !s.name.eq_ignore_ascii_case("a2ui"));
+    }
+
+    skills
 }
 
 /// Filter skills by channel kind. Skills with an empty `channels` list are universal
