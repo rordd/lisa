@@ -46,6 +46,9 @@ pub struct OpenAiCompatibleProvider {
     /// Custom API path suffix (e.g. "/v2/generate").
     /// When set, overrides the default `/chat/completions` path detection.
     api_path: Option<String>,
+    /// Optional reasoning effort level for reasoning models (e.g. "low", "medium", "high").
+    /// Unlike `reasoning_effort` (model-specific for GPT-5/Codex), this applies to all requests.
+    pub(crate) reasoning_level: Option<String>,
 }
 
 /// How the provider expects the API key to be sent.
@@ -183,6 +186,7 @@ impl OpenAiCompatibleProvider {
             extra_headers: std::collections::HashMap::new(),
             reasoning_effort: None,
             api_path: None,
+            reasoning_level: None,
         }
     }
 
@@ -379,6 +383,23 @@ impl OpenAiCompatibleProvider {
         supports_reasoning_effort
             .then(|| self.reasoning_effort.clone())
             .flatten()
+    }
+
+    fn effective_reasoning_effort(&self, model: &str) -> Option<String> {
+        self.reasoning_effort_for_model(model).or_else(|| {
+            self.reasoning_level
+                .as_deref()
+                .map(clamp_compatible_reasoning_effort)
+        })
+    }
+}
+
+/// Clamp reasoning level to values accepted by OpenAI-compatible APIs.
+/// "xhigh" is mapped to "high" for compatibility.
+fn clamp_compatible_reasoning_effort(level: &str) -> String {
+    match level {
+        "xhigh" => "high".to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -1263,7 +1284,7 @@ impl Provider for OpenAiCompatibleProvider {
             messages,
             temperature,
             stream: Some(false),
-            reasoning_effort: self.reasoning_effort_for_model(model),
+            reasoning_effort: self.effective_reasoning_effort(model),
             tools: None,
             tool_choice: None,
         };
@@ -1386,7 +1407,7 @@ impl Provider for OpenAiCompatibleProvider {
             messages: api_messages,
             temperature,
             stream: Some(false),
-            reasoning_effort: self.reasoning_effort_for_model(model),
+            reasoning_effort: self.effective_reasoning_effort(model),
             tools: None,
             tool_choice: None,
         };
@@ -1497,7 +1518,7 @@ impl Provider for OpenAiCompatibleProvider {
             messages: api_messages,
             temperature,
             stream: Some(false),
-            reasoning_effort: self.reasoning_effort_for_model(model),
+            reasoning_effort: self.effective_reasoning_effort(model),
             tools: if tools.is_empty() {
                 None
             } else {
@@ -1603,7 +1624,7 @@ impl Provider for OpenAiCompatibleProvider {
             ),
             temperature,
             stream: Some(false),
-            reasoning_effort: self.reasoning_effort_for_model(model),
+            reasoning_effort: self.effective_reasoning_effort(model),
             tool_choice: tools.as_ref().map(|_| "auto".to_string()),
             tools,
         };
@@ -1747,7 +1768,7 @@ impl Provider for OpenAiCompatibleProvider {
             messages,
             temperature,
             stream: Some(options.enabled),
-            reasoning_effort: self.reasoning_effort_for_model(model),
+            reasoning_effort: self.effective_reasoning_effort(model),
             tools: None,
             tool_choice: None,
         };

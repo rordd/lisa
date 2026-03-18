@@ -3660,6 +3660,9 @@ pub struct RuntimeConfig {
     /// Optional reasoning effort for providers that expose a level control.
     #[serde(default, deserialize_with = "deserialize_reasoning_effort_opt")]
     pub reasoning_effort: Option<String>,
+    /// Optional reasoning level for custom providers (e.g. "minimal", "low", "medium", "high").
+    #[serde(default, deserialize_with = "deserialize_reasoning_effort_opt")]
+    pub reasoning_level: Option<String>,
 }
 
 /// Docker runtime configuration (`[runtime.docker]` section).
@@ -3735,6 +3738,7 @@ impl Default for RuntimeConfig {
             docker: DockerRuntimeConfig::default(),
             reasoning_enabled: None,
             reasoning_effort: None,
+            reasoning_level: None,
         }
     }
 }
@@ -7412,6 +7416,16 @@ impl Config {
             match normalize_reasoning_effort(&raw) {
                 Ok(effort) => self.runtime.reasoning_effort = Some(effort),
                 Err(message) => tracing::warn!("Ignoring reasoning effort env override: {message}"),
+            }
+        }
+
+        // Custom provider reasoning level: ZEROCLAW_CUSTOM_REASONING_EFFORT
+        if let Ok(raw) = std::env::var("ZEROCLAW_CUSTOM_REASONING_EFFORT") {
+            match normalize_reasoning_effort(&raw) {
+                Ok(level) => self.runtime.reasoning_level = Some(level),
+                Err(message) => {
+                    tracing::warn!("Ignoring custom reasoning effort env override: {message}")
+                }
             }
         }
 

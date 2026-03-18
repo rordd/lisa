@@ -690,6 +690,8 @@ pub struct ProviderRuntimeOptions {
     /// Custom API path suffix for OpenAI-compatible providers
     /// (e.g. "/v2/generate" instead of the default "/chat/completions").
     pub api_path: Option<String>,
+    /// Optional reasoning level for custom providers (e.g. "minimal", "low", "medium", "high").
+    pub reasoning_level: Option<String>,
 }
 
 impl Default for ProviderRuntimeOptions {
@@ -704,6 +706,7 @@ impl Default for ProviderRuntimeOptions {
             provider_timeout_secs: None,
             extra_headers: std::collections::HashMap::new(),
             api_path: None,
+            reasoning_level: None,
         }
     }
 }
@@ -721,6 +724,7 @@ pub fn provider_runtime_options_from_config(
         provider_timeout_secs: Some(config.provider_timeout_secs),
         extra_headers: config.extra_headers.clone(),
         api_path: config.api_path.clone(),
+        reasoning_level: config.runtime.reasoning_level.clone(),
     }
 }
 
@@ -1057,6 +1061,7 @@ fn create_provider_with_url_and_options(
         let reasoning_effort = options.reasoning_effort.clone();
         let extra_headers = options.extra_headers.clone();
         let api_path = options.api_path.clone();
+        let reasoning_level = options.reasoning_level.clone();
         move |p: OpenAiCompatibleProvider| -> Box<dyn Provider> {
             let mut p = p;
             if let Some(t) = timeout {
@@ -1070,6 +1075,9 @@ fn create_provider_with_url_and_options(
             }
             if api_path.is_some() {
                 p = p.with_api_path(api_path.clone());
+            }
+            if let Some(ref level) = reasoning_level {
+                p.reasoning_level = Some(level.clone());
             }
             Box::new(p)
         }
