@@ -100,7 +100,7 @@ impl Tool for A2webRenderTool {
     }
 
     fn description(&self) -> &str {
-        "Save an HTML page and serve it via the gateway. Returns the public URL."
+        "Render a full HTML page (with custom CSS/JS) and serve it via the gateway. Use this for rich interactive content that exceeds A2UI card capabilities: dashboards with charts, games, animations, complex forms with validation, data visualizations, maps, or anything requiring custom HTML/CSS/JS. For simpler structured displays (weather, lists, quizzes, schedules), prefer A2UI cards instead. Returns the public URL."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -168,7 +168,7 @@ impl Tool for A2webRenderTool {
         Ok(ToolResult {
             success: true,
             output: format!(
-                "<a2web-result>{}</a2web-result>\nPage created: {}",
+                "<a2web-result>{}</a2web-result>\nPage created: {}\n\nIMPORTANT: You MUST include the exact <a2web-result> tag above in your response so the client can render the page inline. Copy the entire <a2web-result>...</a2web-result> line into your reply.",
                 a2web_data, url
             ),
             error: None,
