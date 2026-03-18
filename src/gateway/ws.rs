@@ -310,6 +310,17 @@ async fn process_chat_message(
                 let _ = backend.append(session_key, &assistant_msg);
             }
 
+            // Parse a2web-result tags from tool output and send as separate WS message
+            if let Some(a2web_data) = parse_a2web_result(&response) {
+                let a2web_msg = serde_json::json!({
+                    "type": "a2web",
+                    "url": a2web_data["url"],
+                    "id": a2web_data["id"],
+                    "title": a2web_data["title"],
+                });
+                let _ = sender.send(Message::Text(a2web_msg.to_string().into())).await;
+            }
+
             let done = serde_json::json!({
                 "type": "done",
                 "full_response": response,
@@ -339,6 +350,17 @@ async fn process_chat_message(
             }));
         }
     }
+}
+
+/// Extract a2web result data from `<a2web-result>...</a2web-result>` tags in response text.
+fn parse_a2web_result(text: &str) -> Option<serde_json::Value> {
+    const START: &str = "<a2web-result>";
+    const END: &str = "</a2web-result>";
+    let start_idx = text.find(START)?;
+    let json_start = start_idx + START.len();
+    let end_idx = text[json_start..].find(END)?;
+    let json_str = &text[json_start..json_start + end_idx];
+    serde_json::from_str(json_str.trim()).ok()
 }
 
 #[cfg(test)]
@@ -420,5 +442,20 @@ mod tests {
             "zeroclaw.v1, bearer.zc_tok, other".parse().unwrap(),
         );
         assert_eq!(extract_ws_token(&headers, None), Some("zc_tok"));
+    }
+
+    #[test]
+    fn parse_a2web_result_extracts_json() {
+        let text = r#"Some text <a2web-result>{"url":"http://localhost:42617/web/abc123/","id":"abc123","title":"Test"}</a2web-result>
+Page created: http://localhost:42617/web/abc123/"#;
+        let data = parse_a2web_result(text).unwrap();
+        assert_eq!(data["id"], "abc123");
+        assert_eq!(data["title"], "Test");
+        assert!(data["url"].as_str().unwrap().contains("/web/abc123/"));
+    }
+
+    #[test]
+    fn parse_a2web_result_returns_none_when_missing() {
+        assert!(parse_a2web_result("no tags here").is_none());
     }
 }

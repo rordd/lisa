@@ -216,6 +216,10 @@ pub struct Config {
     #[serde(default)]
     pub a2ui: A2uiConfig,
 
+    /// A2Web HTML page rendering configuration (`[a2web]`).
+    #[serde(default)]
+    pub a2web: A2webConfig,
+
     /// Composio managed OAuth tools integration (`[composio]`).
     #[serde(default)]
     pub composio: ComposioConfig,
@@ -1624,6 +1628,41 @@ pub struct A2uiConfig {
     /// When `false` (default), the A2UI skill is not loaded and card parsing is skipped.
     #[serde(default)]
     pub enabled: bool,
+}
+
+/// A2Web rendering configuration (`[a2web]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct A2webConfig {
+    /// Enable `a2web_render` tool for serving agent-generated HTML pages.
+    /// When `false` (default), the tool is not registered.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Maximum number of rendered pages to keep on disk.
+    #[serde(default = "default_a2web_max_pages")]
+    pub max_pages: usize,
+
+    /// Hours before a rendered page is eligible for automatic cleanup.
+    #[serde(default = "default_a2web_ttl_hours")]
+    pub ttl_hours: u64,
+}
+
+impl Default for A2webConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_pages: default_a2web_max_pages(),
+            ttl_hours: default_a2web_ttl_hours(),
+        }
+    }
+}
+
+fn default_a2web_max_pages() -> usize {
+    50
+}
+
+fn default_a2web_ttl_hours() -> u64 {
+    24
 }
 
 /// Pairing dashboard configuration (`[gateway.pairing_dashboard]`).
@@ -6004,6 +6043,7 @@ impl Default for Config {
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             a2ui: A2uiConfig::default(),
+            a2web: A2webConfig::default(),
             composio: ComposioConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),
@@ -8605,6 +8645,7 @@ default_temperature = 0.7
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             a2ui: A2uiConfig::default(),
+            a2web: A2webConfig::default(),
             composio: ComposioConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),
@@ -8939,6 +8980,7 @@ tool_dispatcher = "xml"
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             a2ui: A2uiConfig::default(),
+            a2web: A2webConfig::default(),
             composio: ComposioConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),

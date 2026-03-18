@@ -15,6 +15,7 @@
 //! To add a new tool, implement [`Tool`] in a new submodule and register it in
 //! [`all_tools_with_runtime`]. See `AGENTS.md` §7.3 for the full change playbook.
 
+pub mod a2web_render;
 pub mod backup_tool;
 pub mod browser;
 pub mod browser_delegate;
@@ -383,6 +384,16 @@ pub fn all_tools_with_runtime(
             root_config.web_search.timeout_secs,
             root_config.config_path.clone(),
             root_config.secrets.encrypt,
+        )));
+    }
+
+    // A2Web HTML page rendering tool
+    if root_config.a2web.enabled {
+        tool_arcs.push(Arc::new(a2web_render::A2webRenderTool::new(
+            &root_config.workspace_dir,
+            &root_config.gateway.host,
+            root_config.gateway.port,
+            &root_config.a2web,
         )));
     }
 
