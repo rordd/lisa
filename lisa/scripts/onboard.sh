@@ -426,6 +426,9 @@ install_config() {
         chmod 600 "$CONFIG_PATH"
         if [[ -n "$ENV_FILE" ]]; then
             cp "$ENV_FILE" "$ZEROCLAW_DIR/.env"
+            # Ensure all variable lines have 'export' prefix so plain `source .env` works
+            sed -i '' '/^[A-Z_]*=/{/^export /!s/^/export /;}' "$ZEROCLAW_DIR/.env" 2>/dev/null \
+                || sed -i '/^[A-Z_]*=/{/^export /!s/^/export /;}' "$ZEROCLAW_DIR/.env" 2>/dev/null || true
             chmod 600 "$ZEROCLAW_DIR/.env"
             echo "  .env → $ZEROCLAW_DIR/.env"
         fi
