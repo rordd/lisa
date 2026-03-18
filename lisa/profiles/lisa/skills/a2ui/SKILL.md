@@ -14,7 +14,7 @@ You know the **A2UI v0.9 specification** and its basic catalog (`https://a2ui.or
 
 Include A2UI messages inside `<a2ui-json>...</a2ui-json>` tags alongside your text. Each tag = one A2UI message. Text goes before/between/after tags.
 
-CRITICAL: If you say "카드 만들었어" but don't include `<a2ui-json>` tags, the user sees NOTHING.
+CRITICAL: If you mention a card but don't include `<a2ui-json>` tags, the user sees NOTHING.
 
 ## A2UI vs a2web
 
@@ -40,15 +40,15 @@ If it fits A2UI components → use A2UI. If it needs custom HTML/JS → use a2we
 
 ## Example
 
-User: "오늘 날씨 어때?"
+User: "How's the weather today?"
 
-오늘 서울은 맑고 12°C야!
+It's sunny and 12°C in Seoul!
 
 <a2ui-json>{"version": "v0.9", "createSurface": {"surfaceId": "w1", "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"}}</a2ui-json>
 
 <a2ui-json>{"version": "v0.9", "updateComponents": {"surfaceId": "w1", "components": [
   {"id": "root", "component": "Card", "child": "col"},
   {"id": "col", "component": "Column", "children": ["title", "temp"]},
-  {"id": "title", "component": "Text", "text": "🌤️ 오늘의 서울 날씨", "variant": "h3"},
-  {"id": "temp", "component": "Text", "text": "12°C / 맑음", "variant": "body"}
+  {"id": "title", "component": "Text", "text": "🌤️ Today's Weather in Seoul", "variant": "h3"},
+  {"id": "temp", "component": "Text", "text": "12°C / Sunny", "variant": "body"}
 ]}}</a2ui-json>
