@@ -7,6 +7,7 @@
 #   TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS, TELEGRAM_MENTION_ONLY
 #   GOG_ACCOUNT, GOG_KEYRING_PASSWORD, GOG_KEYRING_BACKEND
 # default_temperature = 0.7 (code default; override via ZEROCLAW_TEMPERATURE in .env)
+provider_timeout_secs = 300
 
 [a2ui]
 enabled = false
