@@ -321,9 +321,10 @@ async fn process_chat_message(
                 let _ = sender.send(Message::Text(a2web_msg.to_string().into())).await;
             }
 
+            let clean_response = strip_a2web_result_tags(&response);
             let done = serde_json::json!({
                 "type": "done",
-                "full_response": response,
+                "full_response": clean_response,
             });
             let _ = sender.send(Message::Text(done.to_string().into())).await;
 
@@ -361,6 +362,28 @@ fn parse_a2web_result(text: &str) -> Option<serde_json::Value> {
     let end_idx = text[json_start..].find(END)?;
     let json_str = &text[json_start..json_start + end_idx];
     serde_json::from_str(json_str.trim()).ok()
+}
+
+/// Strip `<a2web-result>...</a2web-result>` tags from text, cleaning up surrounding whitespace.
+fn strip_a2web_result_tags(text: &str) -> String {
+    const START: &str = "<a2web-result>";
+    const END: &str = "</a2web-result>";
+    if let Some(start_idx) = text.find(START) {
+        let after_start = start_idx + START.len();
+        if let Some(end_offset) = text[after_start..].find(END) {
+            let end_idx = after_start + end_offset + END.len();
+            let before = text[..start_idx].trim_end();
+            let after = text[end_idx..].trim_start();
+            if before.is_empty() {
+                return after.to_string();
+            }
+            if after.is_empty() {
+                return before.to_string();
+            }
+            return format!("{before}\n\n{after}");
+        }
+    }
+    text.to_string()
 }
 
 #[cfg(test)]

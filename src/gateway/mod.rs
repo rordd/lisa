@@ -15,6 +15,8 @@ pub mod sse;
 pub mod static_files;
 pub mod ws;
 
+use axum::middleware::Next;
+use axum::response::Response;
 use crate::channels::{
     session_backend::SessionBackend, session_sqlite::SqliteSessionBackend, Channel, LinqChannel,
     NextcloudTalkChannel, SendMessage, WatiChannel, WhatsAppChannel,
@@ -33,7 +35,7 @@ use anyhow::{Context, Result};
 use axum::{
     body::Bytes,
     extract::{ConnectInfo, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Json},
     routing::{delete, get, post, put},
     Router,
@@ -57,6 +59,42 @@ pub const RATE_LIMIT_WINDOW_SECS: u64 = 60;
 pub const RATE_LIMIT_MAX_KEYS_DEFAULT: usize = 10_000;
 /// Fallback max distinct idempotency keys retained in gateway memory.
 pub const IDEMPOTENCY_MAX_KEYS_DEFAULT: usize = 10_000;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECURITY HEADERS MIDDLEWARE
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Middleware that injects security headers into every HTTP response.
+///
+/// Headers added:
+/// - `X-Content-Type-Options: nosniff` — prevents MIME-type sniffing
+/// - `X-Frame-Options: DENY` — prevents clickjacking via iframes (skipped for `/web/` a2web routes)
+/// - `Cache-Control: no-store` — prevents caching of API responses
+/// - `Content-Security-Policy: default-src 'none'` — restrictive CSP (relaxed for `/web/` routes)
+async fn security_headers_middleware(req: axum::extract::Request, next: Next) -> Response {
+    let is_a2web = req.uri().path().starts_with("/web/");
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    // Allow iframe embedding for a2web pages so clients can render them inline
+    if is_a2web {
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self' 'unsafe-inline'"),
+        );
+    } else {
+        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'none'"),
+        );
+    }
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
 
 fn webhook_memory_key() -> String {
     format!("webhook_msg_{}", Uuid::new_v4())
@@ -841,6 +879,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(REQUEST_TIMEOUT_SECS),
         ))
+        // ── Security headers on every response (defense-in-depth) ──
+        .layer(axum::middleware::from_fn(security_headers_middleware))
         // ── SPA fallback: non-API GET requests serve index.html ──
         .fallback(get(static_files::handle_spa_fallback));
 
