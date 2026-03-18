@@ -8551,6 +8551,7 @@ default_temperature = 0.7
             model_providers: HashMap::new(),
             default_temperature: 0.5,
             provider_timeout_secs: 120,
+            custom_provider_auth_header: None,
             extra_headers: HashMap::new(),
             observability: ObservabilityConfig {
                 backend: "log".into(),
@@ -8955,6 +8956,7 @@ tool_dispatcher = "xml"
             model_providers: HashMap::new(),
             default_temperature: 0.9,
             provider_timeout_secs: 120,
+            custom_provider_auth_header: None,
             extra_headers: HashMap::new(),
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
@@ -10243,6 +10245,7 @@ requires_openai_auth = true
                     azure_openai_deployment: None,
                     azure_openai_api_version: None,
                     api_path: None,
+                    auth_header: None,
                 },
             )]),
             ..Config::default()
