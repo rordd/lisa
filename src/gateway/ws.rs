@@ -185,6 +185,12 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
         }
     }
 
+    tracing::debug!(
+        total_tools = agent.tool_count(),
+        tool_names = ?agent.tool_names(),
+        "WS agent: total tools after injection"
+    );
+
     // Hydrate agent from persisted session (if available)
     let mut resumed = false;
     let mut message_count: usize = 0;

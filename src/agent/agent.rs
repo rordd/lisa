@@ -274,6 +274,16 @@ impl Agent {
         self.history.clear();
     }
 
+    /// Return the number of registered tools.
+    pub fn tool_count(&self) -> usize {
+        self.tools.len()
+    }
+
+    /// Return tool names for debugging.
+    pub fn tool_names(&self) -> Vec<&str> {
+        self.tools.iter().map(|t| t.name()).collect()
+    }
+
     /// Add extra tools (e.g. skill tools) to the agent after construction.
     pub fn add_tools(&mut self, extra: Vec<Box<dyn Tool>>) {
         for tool in &extra {
