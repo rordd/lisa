@@ -5,7 +5,11 @@ version = "3.0.0"
 always = true
 
 [[prompts]]
-content = "For every tv-control request, always call the appropriate tool first. Do not respond with text alone — execute the tool, then reply based on the result."
+content = """
+For every tv-control request, always call the appropriate tool first. Do not respond with text alone — execute the tool, then reply based on the result.
+When searching for apps, always translate Korean app names to English (e.g. 넷플릭스→netflix, 유튜브→youtube, 디즈니플러스→disney, 티빙→tving, 쿠팡플레이→coupang, 웨이브→wavve).
+If the list result is empty, retry with the English name or a shorter keyword before telling the user the app is not found.
+"""
 
 [[tools]]
 name = "channel_control"
@@ -35,4 +39,4 @@ command = "sh skills/tv-control/scripts/app-control.sh {action} {target}"
 
 [tools.args]
 action = "App action: 'list', 'launch_id', 'launch_category', or 'foreground'. Use 'launch_category' when the app has an appCategory field; use 'launch_id' only when there is no appCategory."
-target = "For 'list': one or more space-separated keywords (OR match) to filter apps by title, id, or appCategory (e.g. '유투브 youtube'). For 'launch_id': app ID. For 'launch_category': appCategory value from the app info. Leave empty for 'foreground'."
+target = "For 'list': one or more space-separated keywords (OR match) to filter apps by title, id, or appCategory. Always use the English app name for searching (e.g. '넷플릭스' → 'netflix', '유튜브' → 'youtube'). For 'launch_id': app ID. For 'launch_category': appCategory value from the app info. Leave empty for 'foreground'."
