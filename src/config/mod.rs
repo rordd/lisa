@@ -25,7 +25,7 @@ pub use schema::{
     SecurityOpsConfig, SkillsConfig, SkillsPromptInjectionMode, SlackConfig, StorageConfig,
     StorageProviderConfig, StorageProviderSection, StreamMode, SwarmConfig, SwarmStrategy,
     TelegramConfig, ToolFilterGroup, ToolFilterGroupMode, TranscriptionConfig, TtsConfig,
-    TunnelConfig, WebFetchConfig, WebSearchConfig, WebhookConfig, WorkspaceConfig,
+    TunnelConfig, WasmConfig, WebFetchConfig, WebSearchConfig, WebhookConfig, WorkspaceConfig,
 };
 
 pub fn name_and_presence<T: traits::ChannelConfig>(channel: Option<&T>) -> (&'static str, bool) {

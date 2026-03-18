@@ -3886,6 +3886,32 @@ pub async fn start_channels(config: Config) -> Result<()> {
         }
     }
 
+    // ── Register SKILL.toml-defined tools (channel scope: "default") ──
+    // Use load_skills_with_config (not load_skills) so that config options such as
+    // allow_scripts are respected when auditing skill directories.
+    {
+        let skills_for_tools = crate::skills::filter_skills_by_channel(
+            crate::skills::load_skills_with_config(&workspace, &config),
+            Some("default"),
+        );
+        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        if !skill_tools.is_empty() {
+            tracing::info!(count = skill_tools.len(), "Channel skill tools registered");
+            built_tools.extend(skill_tools);
+        }
+
+        // In Compact mode, register read_skill tool so the LLM can load skill
+        // instructions on demand (non-always skills have metadata only).
+        if matches!(
+            config.skills.prompt_injection_mode,
+            crate::config::SkillsPromptInjectionMode::Compact
+        ) {
+            let read_skill_tool = crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
+            built_tools.push(Box::new(read_skill_tool));
+            tracing::debug!("read_skill tool registered (compact mode, channels)");
+        }
+    }
+
     let tools_registry = Arc::new(built_tools);
 
     let skills = crate::skills::load_skills_with_config(&workspace, &config);

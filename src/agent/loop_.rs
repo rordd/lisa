@@ -2869,6 +2869,10 @@ pub(crate) async fn run_tool_call_loop(
             });
         }
 
+        for call in &executable_calls {
+            tracing::info!(tool = %call.name, args = %scrub_credentials(&call.arguments.to_string()), ">>> Tool call executing");
+        }
+
         let executed_outcomes = if allow_parallel_execution && executable_calls.len() > 1 {
             execute_tools_parallel(
                 &executable_calls,
@@ -2908,6 +2912,13 @@ pub(crate) async fn run_tool_call_loop(
                     "duration_ms": outcome.duration.as_millis(),
                     "output": scrub_credentials(&outcome.output),
                 }),
+            );
+
+            tracing::info!(
+                tool = %call.name,
+                success = outcome.success,
+                duration_ms = outcome.duration.as_millis(),
+                "<<< Tool call completed"
             );
 
             // ── Hook: after_tool_call (void) ─────────────────
@@ -3108,6 +3119,31 @@ pub async fn run(
     if !peripheral_tools.is_empty() {
         tracing::info!(count = peripheral_tools.len(), "Peripheral tools added");
         tools_registry.extend(peripheral_tools);
+    }
+
+    // ── Register SKILL.toml-defined tools into native tool calling ──
+    // Always use Full mode: Compact/MetadataOnly skips [[tools]] definitions.
+    // Use load_skills_with_config (not load_skills) so that config options such as
+    // allow_scripts are respected when auditing skill directories.
+    {
+        let skills_for_tools =
+            crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        if !skill_tools.is_empty() {
+            tracing::info!(count = skill_tools.len(), "Skill tools registered");
+            tools_registry.extend(skill_tools);
+        }
+
+        // In Compact mode, register read_skill tool so the LLM can load skill
+        // instructions on demand (non-always skills have metadata only).
+        if matches!(
+            config.skills.prompt_injection_mode,
+            crate::config::SkillsPromptInjectionMode::Compact
+        ) {
+            let read_skill_tool = crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
+            tools_registry.push(Box::new(read_skill_tool));
+            tracing::debug!("read_skill tool registered (compact mode)");
+        }
     }
 
     // ── Capability-based tool access control ─────────────────────
@@ -3733,6 +3769,32 @@ pub async fn process_message(
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
     tools_registry.extend(peripheral_tools);
+
+    // ── Register SKILL.toml-defined tools into native tool calling ──
+    // Always use Full mode here: Compact/MetadataOnly skips [[tools]] definitions,
+    // but we need them for native function calling regardless of prompt injection mode.
+    // Use load_skills_with_config (not load_skills) so that config options such as
+    // allow_scripts are respected when auditing skill directories.
+    {
+        let skills_for_tools =
+            crate::skills::load_skills_with_config(&config.workspace_dir, &config);
+        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        if !skill_tools.is_empty() {
+            tracing::info!(count = skill_tools.len(), "Skill tools registered");
+            tools_registry.extend(skill_tools);
+        }
+
+        // In Compact mode, register read_skill tool so the LLM can load skill
+        // instructions on demand (non-always skills have metadata only).
+        if matches!(
+            config.skills.prompt_injection_mode,
+            crate::config::SkillsPromptInjectionMode::Compact
+        ) {
+            let read_skill_tool = crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
+            tools_registry.push(Box::new(read_skill_tool));
+            tracing::debug!("read_skill tool registered (compact mode, gateway)");
+        }
+    }
 
     // ── Wire MCP tools (non-fatal) — process_message path ────────
     // NOTE: Same ordering contract as the CLI path above — MCP tools must be
