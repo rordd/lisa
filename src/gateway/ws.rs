@@ -177,6 +177,12 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
             tracing::debug!(count = skill_tools.len(), "WS agent: injected skill tools");
             agent.add_tools(skill_tools);
         }
+        // In compact mode, add read_skill tool for on-demand skill loading
+        if config.skills.prompt_injection_mode == crate::config::SkillsPromptInjectionMode::Compact {
+            let read_skill_tool = crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
+            agent.add_tools(vec![Box::new(read_skill_tool)]);
+            tracing::debug!("WS agent: read_skill tool registered (compact mode)");
+        }
     }
 
     // Hydrate agent from persisted session (if available)
