@@ -468,15 +468,63 @@ install_skills() {
 
     if [[ -d "$PROFILE_DIR/skills" ]]; then
         SKILL_COUNT=0
+        # Check if target already has real luna-send (webOS)
+        local target_has_luna=false
+        if [[ -n "$TARGET" ]]; then
+            ssh "$TARGET_HOST" "command -v luna-send" &>/dev/null && target_has_luna=true
+        fi
+
         for skill_dir in "$PROFILE_DIR/skills"/*/; do
             [[ -d "$skill_dir" ]] || continue
             skill_name=$(basename "$skill_dir")
             ensure_dir "$WS/skills/$skill_name"
-            copy_dir "$skill_dir"* "$WS/skills/$skill_name/"
-            echo "  $skill_name"
+
+            if [[ "$target_has_luna" == true && -d "$skill_dir/scripts/mock" ]]; then
+                # Target has real luna-send — install everything except mock/
+                for item in "$skill_dir"*; do
+                    if [[ "$(basename "$item")" == "scripts" ]]; then
+                        ensure_dir "$WS/skills/$skill_name/scripts"
+                        for sub in "$item"/*; do
+                            [[ "$(basename "$sub")" == "mock" ]] && continue
+                            copy_dir "$sub" "$WS/skills/$skill_name/scripts/"
+                        done
+                    else
+                        copy_dir "$item" "$WS/skills/$skill_name/"
+                    fi
+                done
+                echo "  $skill_name (mock excluded — target has luna-send)"
+            else
+                copy_dir "$skill_dir"* "$WS/skills/$skill_name/"
+                echo "  $skill_name"
+            fi
             SKILL_COUNT=$((SKILL_COUNT + 1))
         done
         echo "  $SKILL_COUNT skill(s) installed"
+
+        # Symlink mock luna-send into PATH if real luna-send is unavailable
+        local mock_src="$WS/skills/tv-control/scripts/mock/luna-send"
+        if [[ -d "$PROFILE_DIR/skills/tv-control" ]]; then
+            if [[ -n "$TARGET" ]]; then
+                if [[ "$target_has_luna" != true ]]; then
+                    local mock_dest="$TARGET_DEPLOY_DIR/luna-send"
+                    if ssh "$TARGET_HOST" "test -f $mock_src" 2>/dev/null; then
+                        ssh "$TARGET_HOST" "ln -sf $mock_src $mock_dest"
+                        echo "  mock luna-send → $TARGET_HOST:$mock_dest (symlink)"
+                    fi
+                fi
+            else
+                if ! command -v luna-send &>/dev/null; then
+                    if [[ -f "$mock_src" ]]; then
+                        mkdir -p "$HOME/.local/bin"
+                        ln -sf "$mock_src" "$HOME/.local/bin/luna-send"
+                        echo "  mock luna-send → ~/.local/bin/luna-send (symlink)"
+                        if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
+                            echo "  NOTE: Add ~/.local/bin to PATH if luna-send is not found"
+                        fi
+                    fi
+                fi
+            fi
+        fi
     fi
     echo ""
 }
@@ -725,7 +773,7 @@ run_tests() {
     # ── 4. TV Control skill ──
     if dir_exists "$WS/skills/tv-control"; then
         if ! cmd_exists luna-send; then
-            echo "  [tv-control] SKIP — luna-send unavailable (not on webOS)"
+            echo "  [tv-control] SKIP — luna-send unavailable (not on webOS, no mock installed)"
             skip=$((skip + 1))
         elif [[ "$agent_ok" == true ]]; then
             echo "  [tv-control] Asking zeroclaw for foreground app..."
@@ -783,6 +831,7 @@ clear_all() {
         for dep_name in "${KNOWN_DEPS[@]}"; do
             [[ -f "$DEP_INSTALL_DIR/$dep_name" ]] && echo "    $DEP_INSTALL_DIR/$dep_name"
         done
+        [[ -L "$DEP_INSTALL_DIR/luna-send" ]] && echo "    $DEP_INSTALL_DIR/luna-send (symlink)"
         echo "    $ZEROCLAW_DIR/               (config + workspace)"
         echo "    zeroclaw daemon process"
     fi
@@ -828,6 +877,11 @@ clear_all() {
                 echo "  Removed $DEP_INSTALL_DIR/$dep_name"
             fi
         done
+        # Remove mock luna-send symlink (only if it's a symlink, not a real binary)
+        if [[ -L "$DEP_INSTALL_DIR/luna-send" ]]; then
+            rm -f "$DEP_INSTALL_DIR/luna-send"
+            echo "  Removed $DEP_INSTALL_DIR/luna-send (symlink)"
+        fi
     fi
 
     # 3. Remove config + workspace

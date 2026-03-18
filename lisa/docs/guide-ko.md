@@ -57,7 +57,15 @@ USER.md (로컬)              ← 사용자 프로필 (로컬 전용)
 └── workspace/
     ├── USER.md
     ├── SOUL.md
-    └── AGENTS.md
+    ├── AGENTS.md
+    └── skills/
+        ├── weather/
+        ├── calendar/
+        └── tv-control/
+            ├── scripts/
+            │   └── mock/       ← non-webOS 환경에서만 설치
+            │       └── luna-send
+            └── ...
 ```
 
 - `config.default.toml`에 개인정보 없음 — 커밋 안전
@@ -181,15 +189,23 @@ onboard.sh --target IP --clear          # 타겟에서 전체 제거
 | agent | zeroclaw에 "안녕~" 전송 | Exit 0 |
 | weather | zeroclaw에 날씨 요청 | Agent OK + 유효한 응답 |
 | calendar | zeroclaw에 일정 요청 | Agent OK + gog 설치 + 유효한 응답 |
-| tv-control | zeroclaw에 실행 앱 요청 | Agent OK + luna-send 사용 가능 |
+| tv-control | zeroclaw에 실행 앱 요청 | Agent OK + luna-send 사용 가능 (실제 또는 mock) |
 
 Agent 테스트 실패 시 (LLM 연결 불가) 스킬 테스트는 자동 SKIP됩니다.
+
+> **mock luna-send:** webOS가 아닌 환경(일반 Linux/macOS)에는 `luna-send`가 없으므로,
+> 스킬 설치 시 mock 스크립트(`skills/tv-control/scripts/mock/luna-send`)를
+> `~/.local/bin/luna-send`에 심링크합니다. 이를 통해 데몬, agent, 테스트 모두에서
+> tv-control 스킬이 정상 동작합니다.
+> webOS 타겟에는 실제 `luna-send`가 있으므로 mock은 설치되지 않습니다.
 
 ### 제거 (--clear)
 
 `--clear`는 onboard.sh로 설치한 모든 것을 제거합니다:
 - zeroclaw daemon 중지
 - `~/.local/bin/zeroclaw` 바이너리 제거
+- `~/.local/bin/gog` 등 의존성 바이너리 제거
+- `~/.local/bin/luna-send` mock 심링크 제거 (심링크인 경우에만)
 - `~/.zeroclaw/` 전체 제거 (설정 + 워크스페이스)
 - Azure private endpoint의 `/etc/hosts` 항목 제거 (bind mount 사용 시 해제)
 

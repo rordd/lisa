@@ -1,0 +1,114 @@
+#!/bin/bash
+# Mock luna-send for non-webOS environments (Linux dev/test)
+# Parses URI and payload, returns realistic JSON responses.
+# Place this directory first in PATH to intercept luna-send calls.
+
+# Parse args: luna-send [-n count] [-i] [-f] <uri> <payload>
+URI=""
+PAYLOAD=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -n) shift; shift ;;  # skip -n <count>
+        -i|-f) shift ;;      # skip flags
+        luna://*) URI="$1"; shift ;;
+        *) PAYLOAD="$1"; shift ;;
+    esac
+done
+
+# Track state in a temp file for realistic mock behavior
+STATE_FILE="/tmp/luna-send-mock-state"
+if [ ! -f "$STATE_FILE" ]; then
+    echo '{"volume":10,"channel":7,"foreground":"com.webos.app.livetv"}' > "$STATE_FILE"
+fi
+
+read_state() {
+    cat "$STATE_FILE"
+}
+
+# Helper: extract JSON field value (simple, no jq dependency)
+json_val() {
+    echo "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*\("*[^",}]*"*\).*/\1/p' | tr -d '"'
+}
+
+STATE=$(read_state)
+VOLUME=$(json_val "$STATE" volume)
+CHANNEL=$(json_val "$STATE" channel)
+FOREGROUND=$(json_val "$STATE" foreground)
+
+case "$URI" in
+    *applicationManager/listApps)
+        cat <<'APPS'
+{"apps":[{"title": "AirPlay", "id": "airplay"}, {"title": "Prime Video", "id": "amazon"}, {"title": "TVING", "id": "cj.eandm"}, {"title": "TV Hockey", "id": "com.27668.2715"}, {"title": "Quad", "id": "com.apple.appletv"}, {"title": "RainbowTV", "id": "com.cmb.rainbowtv"}, {"title": "Disney+", "id": "com.disney.disneyplus-prod"}, {"title": "Viewster", "id": "com.lge.app.viewster"}, {"title": "LG Travel+", "id": "com.lgtravel.app"}, {"title": "Bug Report App", "id": "com.palm.app.bugreport"}, {"title": "First Use", "id": "com.palm.app.firstuse"}, {"title": "Settings", "id": "com.palm.app.settings"}, {"title": "LG Radio+", "id": "com.twin.app.audiochannel"}, {"title": "LG Fitness", "id": "com.twin.app.homegym"}, {"title": "Accessibility", "id": "com.webos.app.accessibility"}, {"title": "Accessibility Overlay", "id": "com.webos.app.accessibility-overlay"}, {"title": "LivePlus", "id": "com.webos.app.acrcomponent"}, {"title": "LivePlus", "id": "com.webos.app.acrhdmi1"}, {"title": "LivePlus", "id": "com.webos.app.acrhdmi2"}, {"title": "LivePlus", "id": "com.webos.app.acrhdmi3"}, {"title": "LivePlus", "id": "com.webos.app.acrhdmi4"}, {"title": "LivePlus", "id": "com.webos.app.acroverlay"}, {"title": "Advertisement", "id": "com.webos.app.adapp"}, {"title": "Ad Overlay App", "id": "com.webos.app.adhdmi1"}, {"title": "Ad Overlay App", "id": "com.webos.app.adhdmi2"}, {"title": "Ad Overlay App", "id": "com.webos.app.adhdmi3"}, {"title": "Ad Overlay App", "id": "com.webos.app.adhdmi4"}, {"title": "Ad Overlay App", "id": "com.webos.app.adoverlay"}, {"title": "Ad Overlay App extension", "id": "com.webos.app.adoverlayex"}, {"title": "Flutter aiagent app", "id": "com.webos.app.aiagent"}, {"title": "AI Content Support", "id": "com.webos.app.aicontentsupport"}, {"title": "Flutter aiplatform app", "id": "com.webos.app.aiplatform"}, {"title": "Flutter aiplatform_support app", "id": "com.webos.app.aiplatformsupport"}, {"title": "AI Promotion", "id": "com.webos.app.aipromotion"}, {"title": "APP CASTING", "id": "com.webos.app.appcasting"}, {"title": "Chatbot Application", "id": "com.webos.app.assistant"}, {"title": "BeanBrowser", "id": "com.webos.app.beanbrowser"}, {"title": "Boot Logo", "id": "com.webos.app.bootlogo"}, {"title": "Web Browser", "id": "com.webos.app.browser"}, {"title": "Bluetooth Audio Playback", "id": "com.webos.app.btspeakerapp"}, {"title": "Bluetooth Surround Auto Tuning", "id": "com.webos.app.btsurroundautotuning"}, {"title": "LG Buddy", "id": "com.webos.app.buddy"}, {"title": "Camera", "id": "com.webos.app.camera"}, {"title": "CHANNEL MANAGER", "id": "com.webos.app.channeledit"}, {"title": "Channel Tuning", "id": "com.webos.app.channelsetting"}, {"title": "CMP App", "id": "com.webos.app.cmp-client"}, {"title": "Universal Control Settings", "id": "com.webos.app.connectionwizard"}, {"title": "CoverUI", "id": "com.webos.app.cpcover"}, {"title": "Connected Red Button", "id": "com.webos.app.crb"}, {"title": "Customer Support", "id": "com.webos.app.customersupport"}, {"title": "DAFC Calibration", "id": "com.webos.app.dafccalibration"}, {"title": "Flutter debugpanel app", "id": "com.webos.app.debugpanel"}, {"title": "Apps", "id": "com.webos.app.discovery"}, {"title": "DisplayPort1", "id": "com.webos.app.dp1"}, {"title": "DisplayPort2", "id": "com.webos.app.dp2"}, {"title": "HTML5 Dual Video Texture", "id": "com.webos.app.dual-videotexture"}, {"title": "HTML5 Dual Video", "id": "com.webos.app.dualvideo"}, {"title": "Flutter dvrpopup app", "id": "com.webos.app.dvrpopup"}, {"title": "discover", "id": "com.webos.app.example.discover"}, {"title": "", "id": "com.webos.app.example.eos.bare"}, {"title": "epg", "id": "com.webos.app.example.epg"}, {"title": "", "id": "com.webos.app.example.gav"}, {"title": "groupowner", "id": "com.webos.app.example.groupowner"}, {"title": "com.webos.app.example.hbbtv", "id": "com.webos.app.example.hbbtv"}, {"title": "com.webos.app.example.livetv", "id": "com.webos.app.example.livetv"}, {"title": "", "id": "com.webos.app.example.matrix-button"}, {"title": "epg nav", "id": "com.webos.app.example.nav"}, {"title": "negative-one", "id": "com.webos.app.example.negative.one"}, {"title": "negative-two", "id": "com.webos.app.example.negative.two"}, {"title": "positive-one", "id": "com.webos.app.example.positive.one"}, {"title": "positive-two", "id": "com.webos.app.example.positive.two"}, {"title": "", "id": "com.webos.app.example.screencover"}, {"title": "SDL/NDL Testbed", "id": "com.webos.app.example.sdlndltestbed0702"}, {"title": "search", "id": "com.webos.app.example.search"}, {"title": "", "id": "com.webos.app.example.touchdraw"}, {"title": "AV", "id": "com.webos.app.externalinput.av1"}, {"title": "AV2", "id": "com.webos.app.externalinput.av2"}, {"title": "Component", "id": "com.webos.app.externalinput.component"}, {"title": "AV1", "id": "com.webos.app.externalinput.scart"}, {"title": "QML Factorywin", "id": "com.webos.app.factorywin"}, {"title": "Usage Care", "id": "com.webos.app.familycare", "appCategory": ["kidsApp"]}, {"title": "First Use Overlay", "id": "com.webos.app.firstuse-overlay"}, {"title": "Container App for Food Delivery Overlay App", "id": "com.webos.app.fooddelivery"}, {"title": "Container App for Food Delivery Overlay App", "id": "com.webos.app.fooddeliveryex"}, {"title": "Container App for Food Delivery Overlay App", "id": "com.webos.app.fooddeliveryhdmi1"}, {"title": "Container App for Food Delivery Overlay App", "id": "com.webos.app.fooddeliveryhdmi2"}, {"title": "Container App for Food Delivery Overlay App", "id": "com.webos.app.fooddeliveryhdmi3"}, {"title": "Container App for Food Delivery Overlay App", "id": "com.webos.app.fooddeliveryhdmi4"}, {"title": "FTMS Info", "id": "com.webos.app.ftmsinfo"}, {"title": "GameOptimizer", "id": "com.webos.app.gameoptimizer"}, {"title": "HTML5 Gapless Video", "id": "com.webos.app.gapless"}, {"title": "HDMI1", "id": "com.webos.app.hdmi1"}, {"title": "HDMI2", "id": "com.webos.app.hdmi2"}, {"title": "HDMI3", "id": "com.webos.app.hdmi3"}, {"title": "HDMI4", "id": "com.webos.app.hdmi4"}, {"title": "Tips", "id": "com.webos.app.helpandtips"}, {"title": "Home", "id": "com.webos.app.home", "appCategory": ["home"]}, {"title": "Home Hub", "id": "com.webos.app.homeconnect"}, {"title": "Home Hub Overlay", "id": "com.webos.app.homeconnect-overlay"}, {"title": "Home Office", "id": "com.webos.app.homeoffice"}, {"title": "InputCommon", "id": "com.webos.app.inputcommon"}, {"title": "Installation", "id": "com.webos.app.installation"}, {"title": "Flutter virtualkeyboard example app", "id": "com.webos.app.keyboard"}, {"title": "Learning", "id": "com.webos.app.learning"}, {"title": "Broadcasting on Auracast\u2122", "id": "com.webos.app.leaudio"}, {"title": "LG Channels", "id": "com.webos.app.lgchannels"}, {"title": "LG Link", "id": "com.webos.app.lglink"}, {"title": "LG Gallery+", "id": "com.webos.app.lifeonscreen", "appCategory": ["aod"]}, {"title": "Live Dmost", "id": "com.webos.app.livedmost"}, {"title": "Live Ginga App Launcher", "id": "com.webos.app.liveginga"}, {"title": "Live HbbTV", "id": "com.webos.app.livehbbtv"}, {"title": "Live Interactive Content", "id": "com.webos.app.liveinteractivecontent"}, {"title": "Guide", "id": "com.webos.app.livemenu"}, {"title": "Live TV", "id": "com.webos.app.livetv"}, {"title": "Live TV OpApp Mode", "id": "com.webos.app.livetvopapp"}, {"title": "Magic Number", "id": "com.webos.app.magicnum"}, {"title": "MasterBrand", "id": "com.webos.app.masterbrand"}, {"title": "Media Player", "id": "com.webos.app.mediadiscovery"}, {"title": "HTML5 Video", "id": "com.webos.app.mediaevents-test"}, {"title": "LG Account", "id": "com.webos.app.membership", "appCategory": ["MembershipApp"]}, {"title": "LG Minimal Account", "id": "com.webos.app.minimalmembership", "appCategory": ["MembershipApp"]}, {"title": "Screen Share", "id": "com.webos.app.miracast"}, {"title": "Flutter Mobile Connection", "id": "com.webos.app.mobileconnection"}, {"title": "Multi View", "id": "com.webos.app.multiviewsettings"}, {"title": "Flutter naissubtitle app", "id": "com.webos.app.nais"}, {"title": "Flutter naissubtitle app", "id": "com.webos.app.naishdmi1"}, {"title": "Flutter naissubtitle app", "id": "com.webos.app.naishdmi2"}, {"title": "Flutter naissubtitle app", "id": "com.webos.app.naishdmi3"}, {"title": "Flutter naissubtitle app", "id": "com.webos.app.naishdmi4"}, {"title": "Notifications", "id": "com.webos.app.notificationcenter"}, {"title": "One Touch Sound Tuning", "id": "com.webos.app.onetouchsoundtuning"}, {"title": "First Use-OOBE", "id": "com.webos.app.oobe"}, {"title": "Container App for Commercial Overlay App", "id": "com.webos.app.overlaycontainer"}, {"title": "Container App for Commercial Overlay App", "id": "com.webos.app.overlaycontainerex"}, {"title": "Container App for Commercial Overlay App", "id": "com.webos.app.overlaycontainerhdmi1"}, {"title": "Container App for Commercial Overlay App", "id": "com.webos.app.overlaycontainerhdmi2"}, {"title": "Container App for Commercial Overlay App", "id": "com.webos.app.overlaycontainerhdmi3"}, {"title": "Container App for Commercial Overlay App", "id": "com.webos.app.overlaycontainerhdmi4"}, {"title": "Overlay Apps", "id": "com.webos.app.overlaydiscovery"}, {"title": "LG Overlay Account", "id": "com.webos.app.overlaymembership", "appCategory": ["MembershipApp"]}, {"title": "Picture Wizard", "id": "com.webos.app.picturewizard"}, {"title": "Flutter quickcontrol app", "id": "com.webos.app.quickcontrol"}, {"title": "Quick Input Picker", "id": "com.webos.app.quickinputpicker"}, {"title": "Flutter quicksettings app", "id": "com.webos.app.quicksettings"}, {"title": "Remote PC", "id": "com.webos.app.rdp"}, {"title": "Learn Remote Control", "id": "com.webos.app.remotecontrolguide"}, {"title": "Remote Service", "id": "com.webos.app.remoteservice"}, {"title": "TV Scheduler", "id": "com.webos.app.scheduler"}, {"title": "Flutter screenremote app", "id": "com.webos.app.screenremote"}, {"title": "Screen Saver", "id": "com.webos.app.screensaver"}, {"title": "Flutter screenzoom app", "id": "com.webos.app.screenzoom"}, {"title": "webOS Security Center", "id": "com.webos.app.securitycenter"}, {"title": "Quick Help", "id": "com.webos.app.self-diagnosis"}, {"title": "Senior Home", "id": "com.webos.app.seniorhome", "appCategory": ["home"]}, {"title": "SL Avatar App", "id": "com.webos.app.signlanguage-avatar"}, {"title": "Flutter similarlist app", "id": "com.webos.app.similarlist"}, {"title": "Calendar", "id": "com.webos.app.simplecalendar"}, {"title": "Software Update", "id": "com.webos.app.softwareupdate"}, {"title": "Soundbar Setting", "id": "com.webos.app.soundbar-setting"}, {"title": "Personalized Sound Wizard", "id": "com.webos.app.soundwizard"}, {"title": "Flutter sportsalarm app", "id": "com.webos.app.sportsalarm"}, {"title": "Sports", "id": "com.webos.app.sportsteamsettings"}, {"title": "Flutter starfish_flutter_systemui app", "id": "com.webos.app.starfish_flutter_systemui"}, {"title": "Memory Care", "id": "com.webos.app.storagemanager"}, {"title": "Store Demo", "id": "com.webos.app.store-demo"}, {"title": "Flutter store-streamer app", "id": "com.webos.app.store-streamer"}, {"title": "Flutter svcdiagnostics app", "id": "com.webos.app.svcdiagnostics"}, {"title": "Sync Demo", "id": "com.webos.app.sync-demo"}, {"title": "DASH IF Test", "id": "com.webos.app.test.dash"}, {"title": "HLS Test", "id": "com.webos.app.test.hls"}, {"title": "Jitsi", "id": "com.webos.app.test.jitsi"}, {"title": "HTML5 preload test app", "id": "com.webos.app.test.preload"}, {"title": "shaka-player", "id": "com.webos.app.test.shaka-player"}, {"title": "YouTube Test", "id": "com.webos.app.test.youtube"}, {"title": "TestBeanOwner", "id": "com.webos.app.testbeanowner"}, {"title": "tinybrowser", "id": "com.webos.app.tinybrowser"}, {"title": "Home", "id": "com.webos.app.tnativehome", "appCategory": ["home"]}, {"title": "Music", "id": "com.webos.app.totalmusic"}, {"title": "Flutter tvhotkey app", "id": "com.webos.app.tvhotkey"}, {"title": "TVQuery", "id": "com.webos.app.tvquery"}, {"title": "User Guide", "id": "com.webos.app.tvuserguide"}, {"title": "News Portal", "id": "com.webos.app.universalqcard"}, {"title": "universalqcard3", "id": "com.webos.app.universalqcard3"}, {"title": "USB-C1", "id": "com.webos.app.usbc1"}, {"title": "USB-C2", "id": "com.webos.app.usbc2"}, {"title": "Container App for video ads App", "id": "com.webos.app.videoads"}, {"title": "HTML5 Video Texture", "id": "com.webos.app.videotexture"}, {"title": "Flutter voice app", "id": "com.webos.app.voice"}, {"title": "Voice UI", "id": "com.webos.app.voiceui"}, {"title": "voiceweb", "id": "com.webos.app.voiceweb"}, {"title": "Location Setting", "id": "com.webos.app.weatherlocation"}, {"title": "Web App", "id": "com.webos.app.webapphost"}, {"title": "YouTube Conformance", "id": "com.webos.app.ytconformance"}, {"title": "Chromecast built-in", "id": "com.webos.chromecast"}, {"title": "Chromecast built-in Settings", "id": "com.webos.chromecast-settings"}, {"title": "Billing service launcher", "id": "com.webos.service.billing.app"}, {"title": "Coupang Play", "id": "coupangplay"}, {"title": "Netflix", "id": "netflix"}, {"title": "wavve", "id": "pooq"}, {"title": "YouTube", "id": "youtube.leanback.v4"}],"returnValue":true}
+APPS
+        ;;
+
+    *applicationManager/launch)
+        APP_ID=$(json_val "$PAYLOAD" id)
+        FOREGROUND="$APP_ID"
+        echo '{"volume":'"$VOLUME"',"channel":'"$CHANNEL"',"foreground":"'"$FOREGROUND"'"}' > "$STATE_FILE"
+        echo '{"returnValue":true}'
+        ;;
+
+    *applicationManager/getForegroundAppInfo)
+        echo '{"returnValue":true,"appId":"'"$FOREGROUND"'","appCategory":[],"processId":"","windowId":""}'
+        ;;
+
+    *applicationManager/launchDefaultApp)
+        CATEGORY=$(json_val "$PAYLOAD" category)
+        echo '{"returnValue":true}'
+        ;;
+
+    *audio/master/volumeUp)
+        VOLUME=$((VOLUME + 1))
+        echo '{"volume":'"$VOLUME"',"channel":'"$CHANNEL"',"foreground":"'"$FOREGROUND"'"}' > "$STATE_FILE"
+        echo '{"returnValue":true,"volume":'"$VOLUME"',"soundOutput":""}'
+        ;;
+
+    *audio/master/volumeDown)
+        VOLUME=$((VOLUME > 0 ? VOLUME - 1 : 0))
+        echo '{"volume":'"$VOLUME"',"channel":'"$CHANNEL"',"foreground":"'"$FOREGROUND"'"}' > "$STATE_FILE"
+        echo '{"returnValue":true,"volume":'"$VOLUME"',"soundOutput":""}'
+        ;;
+
+    *audio/master/setVolume)
+        NEW_VOL=$(json_val "$PAYLOAD" volume)
+        VOLUME="${NEW_VOL:-$VOLUME}"
+        echo '{"volume":'"$VOLUME"',"channel":'"$CHANNEL"',"foreground":"'"$FOREGROUND"'"}' > "$STATE_FILE"
+        echo '{"returnValue":true,"volume":'"$VOLUME"',"soundOutput":""}'
+        ;;
+
+    *inputgenerator/pushKeyEvent)
+        KEYCODE=$(json_val "$PAYLOAD" keycodenum)
+        case "$KEYCODE" in
+            402) CHANNEL=$((CHANNEL + 1)) ;;
+            403) CHANNEL=$((CHANNEL > 1 ? CHANNEL - 1 : 1)) ;;
+        esac
+        echo '{"volume":'"$VOLUME"',"channel":'"$CHANNEL"',"foreground":"'"$FOREGROUND"'"}' > "$STATE_FILE"
+        echo '{"action":"ran","returnValue":true}'
+        ;;
+
+    *networkinput/sendSpecialKey)
+        KEY=$(json_val "$PAYLOAD" key)
+        case "$KEY" in
+            [0-9])
+                # Channel digit input — accumulate in temp
+                PENDING="/tmp/luna-send-mock-chdigit"
+                [ -f "$PENDING" ] && PREV=$(cat "$PENDING") || PREV=""
+                echo "${PREV}${KEY}" > "$PENDING"
+                ;;
+            ENTER)
+                PENDING="/tmp/luna-send-mock-chdigit"
+                if [ -f "$PENDING" ]; then
+                    CHANNEL=$(cat "$PENDING")
+                    rm -f "$PENDING"
+                    echo '{"volume":'"$VOLUME"',"channel":'"$CHANNEL"',"foreground":"'"$FOREGROUND"'"}' > "$STATE_FILE"
+                fi
+                ;;
+        esac
+        echo '{"returnValue":true}'
+        ;;
+
+    *)
+        echo '{"returnValue":true}'
+        ;;
+esac
