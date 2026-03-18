@@ -692,6 +692,8 @@ pub struct ProviderRuntimeOptions {
     pub api_path: Option<String>,
     /// Optional reasoning level for custom providers (e.g. "minimal", "low", "medium", "high").
     pub reasoning_level: Option<String>,
+    /// Optional custom auth header name for custom providers (e.g. "api-key" for Azure OpenAI).
+    pub custom_provider_auth_header: Option<String>,
 }
 
 impl Default for ProviderRuntimeOptions {
@@ -707,6 +709,7 @@ impl Default for ProviderRuntimeOptions {
             extra_headers: std::collections::HashMap::new(),
             api_path: None,
             reasoning_level: None,
+            custom_provider_auth_header: None,
         }
     }
 }
@@ -725,6 +728,38 @@ pub fn provider_runtime_options_from_config(
         extra_headers: config.extra_headers.clone(),
         api_path: config.api_path.clone(),
         reasoning_level: config.runtime.reasoning_level.clone(),
+        custom_provider_auth_header: config.custom_provider_auth_header.clone(),
+    }
+}
+
+/// Resolve the auth style for custom providers based on the configured header name.
+fn resolve_custom_provider_auth_style(options: &ProviderRuntimeOptions) -> AuthStyle {
+    let Some(header) = options
+        .custom_provider_auth_header
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return AuthStyle::Bearer;
+    };
+
+    if header.eq_ignore_ascii_case("authorization") {
+        return AuthStyle::Bearer;
+    }
+
+    if header.eq_ignore_ascii_case("x-api-key") {
+        return AuthStyle::XApiKey;
+    }
+
+    match reqwest::header::HeaderName::from_bytes(header.as_bytes()) {
+        Ok(_) => AuthStyle::Custom(header.to_string()),
+        Err(error) => {
+            tracing::warn!(
+                header = %header,
+                "Ignoring invalid custom provider auth header and falling back to Bearer: {error}"
+            );
+            AuthStyle::Bearer
+        }
     }
 }
 
@@ -1493,11 +1528,12 @@ fn create_provider_with_url_and_options(
                 "Custom provider",
                 "custom:https://your-api.com",
             )?;
+            let auth_style = resolve_custom_provider_auth_style(options);
             Ok(compat(OpenAiCompatibleProvider::new_with_vision(
                 "Custom",
                 &base_url,
                 key,
-                AuthStyle::Bearer,
+                auth_style,
                 true,
             )))
         }

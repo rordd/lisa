@@ -1421,7 +1421,7 @@ impl Provider for GeminiProvider {
                             .iter()
                             .map(|tc| {
                                 let args: serde_json::Value = serde_json::from_str(&tc.arguments)
-                                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                                    .unwrap_or(serde_json::Value::Object(serde_json::Map::default()));
                                 Part::FunctionCall {
                                     function_call: FunctionCallData {
                                         name: tc.name.clone(),

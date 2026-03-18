@@ -78,6 +78,10 @@ pub struct Config {
     /// (e.g. "/v2/generate" instead of the default "/v1/chat/completions").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_path: Option<String>,
+    /// Custom auth header name for `custom:` providers (e.g. "api-key" for Azure OpenAI).
+    /// When set, replaces the default `Authorization: Bearer` header.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_provider_auth_header: Option<String>,
     /// Default provider ID or alias (e.g. `"openrouter"`, `"ollama"`, `"anthropic"`). Default: `"openrouter"`.
     #[serde(alias = "model_provider")]
     pub default_provider: Option<String>,
@@ -413,6 +417,9 @@ pub struct ModelProviderConfig {
     /// Azure OpenAI API version (defaults to "2024-08-01-preview").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub azure_openai_api_version: Option<String>,
+    /// Custom auth header style for this provider profile (e.g. "Bearer", "X-Api-Key").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_header: Option<String>,
 }
 
 // ── Delegate Agents ──────────────────────────────────────────────
@@ -5897,6 +5904,7 @@ impl Default for Config {
             api_key: None,
             api_url: None,
             api_path: None,
+            custom_provider_auth_header: None,
             default_provider: Some("openrouter".to_string()),
             default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
             model_providers: HashMap::new(),
@@ -6774,6 +6782,80 @@ impl Config {
         }
     }
 
+    fn normalize_url_for_profile_match(raw: &str) -> (String, Option<String>) {
+        let trimmed = raw.trim();
+        let (path, query) = match trimmed.split_once('?') {
+            Some((path, query)) => (path, Some(query)),
+            None => (trimmed, None),
+        };
+
+        (
+            path.trim_end_matches('/').to_string(),
+            query.map(|value| value.to_string()),
+        )
+    }
+
+    fn urls_match_ignoring_trailing_slash(lhs: &str, rhs: &str) -> bool {
+        Self::normalize_url_for_profile_match(lhs) == Self::normalize_url_for_profile_match(rhs)
+    }
+
+    /// Resolve custom provider auth header from a matching `[model_providers.*]` profile.
+    ///
+    /// This is used when `default_provider = "custom:<url>"` and a profile with the
+    /// same `base_url` declares `auth_header` (for example `api-key` for Azure OpenAI).
+    /// Falls back to the top-level `custom_provider_auth_header` config field.
+    pub fn effective_custom_provider_auth_header(&self) -> Option<String> {
+        // First check top-level config
+        if let Some(ref header) = self.custom_provider_auth_header {
+            let trimmed = header.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+
+        // Then check model_providers profiles by URL match
+        let custom_provider_url = self
+            .default_provider
+            .as_deref()
+            .map(str::trim)
+            .and_then(|provider| provider.strip_prefix("custom:"))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+
+        let mut profile_keys = self.model_providers.keys().collect::<Vec<_>>();
+        profile_keys.sort_unstable();
+
+        for profile_key in profile_keys {
+            let Some(profile) = self.model_providers.get(profile_key) else {
+                continue;
+            };
+
+            let Some(header) = profile
+                .auth_header
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+
+            let Some(base_url) = profile
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+
+            if Self::urls_match_ignoring_trailing_slash(custom_provider_url, base_url) {
+                return Some(header.to_string());
+            }
+        }
+
+        None
+    }
+
     fn lookup_model_provider_profile(
         &self,
         provider_name: &str,
@@ -6975,22 +7057,26 @@ impl Config {
             }
         }
 
+        let mut custom_auth_headers_by_base_url: Vec<(String, String, String)> = Vec::new();
         for (profile_key, profile) in &self.model_providers {
             let profile_name = profile_key.trim();
             if profile_name.is_empty() {
                 anyhow::bail!("model_providers contains an empty profile name");
             }
 
+            let normalized_base_url = profile
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+
             let has_name = profile
                 .name
                 .as_deref()
                 .map(str::trim)
                 .is_some_and(|value| !value.is_empty());
-            let has_base_url = profile
-                .base_url
-                .as_deref()
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty());
+            let has_base_url = normalized_base_url.is_some();
 
             if !has_name && !has_base_url {
                 anyhow::bail!(
@@ -6998,16 +7084,12 @@ impl Config {
                 );
             }
 
-            if let Some(base_url) = profile.base_url.as_deref().map(str::trim) {
-                if !base_url.is_empty() {
-                    let parsed = reqwest::Url::parse(base_url).with_context(|| {
-                        format!("model_providers.{profile_name}.base_url is not a valid URL")
-                    })?;
-                    if !matches!(parsed.scheme(), "http" | "https") {
-                        anyhow::bail!(
-                            "model_providers.{profile_name}.base_url must use http/https"
-                        );
-                    }
+            if let Some(base_url) = normalized_base_url.as_deref() {
+                let parsed = reqwest::Url::parse(base_url).with_context(|| {
+                    format!("model_providers.{profile_name}.base_url is not a valid URL")
+                })?;
+                if !matches!(parsed.scheme(), "http" | "https") {
+                    anyhow::bail!("model_providers.{profile_name}.base_url must use http/https");
                 }
             }
 
@@ -7015,6 +7097,42 @@ impl Config {
                 if !wire_api.is_empty() && normalize_wire_api(wire_api).is_none() {
                     anyhow::bail!(
                         "model_providers.{profile_name}.wire_api must be one of: responses, chat_completions"
+                    );
+                }
+            }
+
+            if let Some(auth_header) = profile.auth_header.as_deref().map(str::trim) {
+                if !auth_header.is_empty() {
+                    reqwest::header::HeaderName::from_bytes(auth_header.as_bytes()).with_context(
+                        || {
+                            format!(
+                                "model_providers.{profile_name}.auth_header is invalid; expected a valid HTTP header name"
+                            )
+                        },
+                    )?;
+
+                    if let Some(base_url) = normalized_base_url.as_deref() {
+                        custom_auth_headers_by_base_url.push((
+                            profile_name.to_string(),
+                            base_url.to_string(),
+                            auth_header.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        for left_index in 0..custom_auth_headers_by_base_url.len() {
+            let (left_profile, left_url, left_header) =
+                &custom_auth_headers_by_base_url[left_index];
+            for (right_profile, right_url, right_header) in
+                custom_auth_headers_by_base_url.iter().skip(left_index + 1)
+            {
+                if Self::urls_match_ignoring_trailing_slash(left_url, right_url)
+                    && !left_header.eq_ignore_ascii_case(right_header)
+                {
+                    anyhow::bail!(
+                        "model_providers.{left_profile} and model_providers.{right_profile} define conflicting auth_header values for equivalent base_url {left_url}"
                     );
                 }
             }
@@ -7424,8 +7542,16 @@ impl Config {
             match normalize_reasoning_effort(&raw) {
                 Ok(level) => self.runtime.reasoning_level = Some(level),
                 Err(message) => {
-                    tracing::warn!("Ignoring custom reasoning effort env override: {message}")
+                    tracing::warn!("Ignoring custom reasoning effort env override: {message}");
                 }
+            }
+        }
+
+        // Custom provider auth header: ZEROCLAW_CUSTOM_AUTH_HEADER
+        if let Ok(header) = std::env::var("ZEROCLAW_CUSTOM_AUTH_HEADER") {
+            let trimmed = header.trim();
+            if !trimmed.is_empty() {
+                self.custom_provider_auth_header = Some(trimmed.to_string());
             }
         }
 
@@ -9981,6 +10107,65 @@ requires_openai_auth = true
     }
 
     #[test]
+    async fn model_provider_profile_custom_auth_header_requires_url_match() {
+        let _env_guard = env_override_lock().await;
+        let config = Config {
+            default_provider: Some(
+                "custom:https://resource.openai.azure.com/openai/deployments/my-model/chat/completions?api-version=2024-02-01"
+                    .to_string(),
+            ),
+            model_providers: HashMap::from([(
+                "azure".to_string(),
+                ModelProviderConfig {
+                    name: Some("azure".to_string()),
+                    base_url: Some(
+                        "https://resource.openai.azure.com/openai/deployments/other-model/chat/completions?api-version=2024-02-01"
+                            .to_string(),
+                    ),
+                    auth_header: Some("api-key".to_string()),
+                    wire_api: None,
+                    requires_openai_auth: false,
+                    ..ModelProviderConfig::default()
+                },
+            )]),
+            ..Config::default()
+        };
+
+        assert!(config.effective_custom_provider_auth_header().is_none());
+    }
+
+    #[test]
+    async fn model_provider_profile_custom_auth_header_matches_slash_before_query() {
+        let _env_guard = env_override_lock().await;
+        let config = Config {
+            default_provider: Some(
+                "custom:https://resource.openai.azure.com/openai/deployments/my-model/chat/completions?api-version=2024-02-01"
+                    .to_string(),
+            ),
+            model_providers: HashMap::from([(
+                "azure".to_string(),
+                ModelProviderConfig {
+                    name: Some("azure".to_string()),
+                    base_url: Some(
+                        "https://resource.openai.azure.com/openai/deployments/my-model/chat/completions/?api-version=2024-02-01"
+                            .to_string(),
+                    ),
+                    auth_header: Some("api-key".to_string()),
+                    wire_api: None,
+                    requires_openai_auth: false,
+                    ..ModelProviderConfig::default()
+                },
+            )]),
+            ..Config::default()
+        };
+
+        assert_eq!(
+            config.effective_custom_provider_auth_header().as_deref(),
+            Some("api-key")
+        );
+    }
+
+    #[test]
     async fn model_provider_profile_responses_uses_openai_codex_and_openai_key() {
         let _env_guard = env_override_lock().await;
         let mut config = Config {
@@ -9996,6 +10181,7 @@ requires_openai_auth = true
                     azure_openai_deployment: None,
                     azure_openai_api_version: None,
                     api_path: None,
+                    auth_header: None,
                 },
             )]),
             api_key: None,
@@ -10096,6 +10282,7 @@ requires_openai_auth = true
                     azure_openai_deployment: None,
                     azure_openai_api_version: None,
                     api_path: None,
+                    auth_header: None,
                 },
             )]),
             ..Config::default()
@@ -10105,6 +10292,74 @@ requires_openai_auth = true
         assert!(error
             .to_string()
             .contains("wire_api must be one of: responses, chat_completions"));
+    }
+
+    #[test]
+    async fn validate_rejects_invalid_model_provider_auth_header() {
+        let _env_guard = env_override_lock().await;
+        let config = Config {
+            default_provider: Some("sub2api".to_string()),
+            model_providers: HashMap::from([(
+                "sub2api".to_string(),
+                ModelProviderConfig {
+                    name: Some("sub2api".to_string()),
+                    base_url: Some("https://api.tonsof.blue/v1".to_string()),
+                    auth_header: Some("not a header".to_string()),
+                    wire_api: None,
+                    requires_openai_auth: false,
+                    ..ModelProviderConfig::default()
+                },
+            )]),
+            ..Config::default()
+        };
+
+        let error = config.validate().expect_err("expected validation failure");
+        assert!(error.to_string().contains("auth_header is invalid"));
+    }
+
+    #[test]
+    async fn validate_rejects_conflicting_model_provider_auth_headers_for_same_base_url() {
+        let _env_guard = env_override_lock().await;
+        let config = Config {
+            default_provider: Some(
+                "custom:https://resource.openai.azure.com/openai/deployments/my-model/chat/completions?api-version=2024-02-01"
+                    .to_string(),
+            ),
+            model_providers: HashMap::from([
+                (
+                    "azure_a".to_string(),
+                    ModelProviderConfig {
+                        name: Some("openai".to_string()),
+                        base_url: Some(
+                            "https://resource.openai.azure.com/openai/deployments/my-model/chat/completions?api-version=2024-02-01"
+                                .to_string(),
+                        ),
+                        auth_header: Some("api-key".to_string()),
+                        wire_api: None,
+                        requires_openai_auth: false,
+                        ..ModelProviderConfig::default()
+                    },
+                ),
+                (
+                    "azure_b".to_string(),
+                    ModelProviderConfig {
+                        name: Some("openai".to_string()),
+                        base_url: Some(
+                            "https://resource.openai.azure.com/openai/deployments/my-model/chat/completions/?api-version=2024-02-01"
+                                .to_string(),
+                        ),
+                        auth_header: Some("x-api-key".to_string()),
+                        wire_api: None,
+                        requires_openai_auth: false,
+                        ..ModelProviderConfig::default()
+                    },
+                ),
+            ]),
+            ..Config::default()
+        };
+
+        let error = config.validate().expect_err("expected validation failure");
+        assert!(error.to_string().contains("conflicting auth_header values"));
     }
 
     #[test]

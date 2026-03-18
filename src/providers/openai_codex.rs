@@ -1153,6 +1153,8 @@ data: [DONE]
             provider_timeout_secs: None,
             extra_headers: std::collections::HashMap::new(),
             api_path: None,
+            custom_provider_auth_header: None,
+            reasoning_level: None,
         };
         let provider =
             OpenAiCodexProvider::new(&options, None).expect("provider should initialize");

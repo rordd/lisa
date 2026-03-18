@@ -581,6 +581,7 @@ pub fn all_tools_with_runtime(
         extra_headers: root_config.extra_headers.clone(),
         api_path: root_config.api_path.clone(),
         reasoning_level: root_config.runtime.reasoning_level.clone(),
+        custom_provider_auth_header: root_config.custom_provider_auth_header.clone(),
     };
 
     let delegate_handle: Option<DelegateParentToolsHandle> = if agents.is_empty() {

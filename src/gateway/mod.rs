@@ -383,6 +383,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             extra_headers: config.extra_headers.clone(),
             api_path: config.api_path.clone(),
             reasoning_level: config.runtime.reasoning_level.clone(),
+            custom_provider_auth_header: config.custom_provider_auth_header.clone(),
         },
     )?);
     let model = config
