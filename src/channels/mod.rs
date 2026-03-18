@@ -3914,7 +3914,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     let tools_registry = Arc::new(built_tools);
 
-    let skills = crate::skills::load_skills_with_config(&workspace, &config);
+    let skills = crate::skills::filter_skills_by_channel(
+        crate::skills::load_skills_with_config(&workspace, &config),
+        Some("default"),
+    );
 
     // Collect tool descriptions for the prompt
     let mut tool_descs: Vec<(&str, &str)> = vec![
