@@ -57,7 +57,15 @@ After onboarding, files are installed to `~/.zeroclaw/`:
 └── workspace/
     ├── USER.md
     ├── SOUL.md
-    └── AGENTS.md
+    ├── AGENTS.md
+    └── skills/
+        ├── weather/
+        ├── calendar/
+        └── tv-control/
+            ├── scripts/
+            │   └── mock/       ← Installed only on non-webOS environments
+            │       └── luna-send
+            └── ...
 ```
 
 - `config.default.toml` contains no personal data — safe to commit
@@ -181,15 +189,23 @@ All skill tests go through zeroclaw (not direct API calls), so they verify the f
 | agent | Send "안녕~" via zeroclaw | Exit 0 |
 | weather | Ask zeroclaw for weather | Agent OK + valid response |
 | calendar | Ask zeroclaw for schedule | Agent OK + gog installed + valid response |
-| tv-control | Ask zeroclaw for foreground app | Agent OK + luna-send available |
+| tv-control | Ask zeroclaw for foreground app | Agent OK + luna-send available (real or mock) |
 
 If the agent test fails (no LLM connection), skill tests are automatically skipped.
+
+> **Mock luna-send:** On non-webOS environments (regular Linux/macOS), `luna-send` is not available.
+> During skill installation, the mock script (`skills/tv-control/scripts/mock/luna-send`) is
+> symlinked to `~/.local/bin/luna-send`. This allows tv-control to work in daemon, agent, and
+> tests without modification.
+> On webOS targets, the real `luna-send` exists, so the mock is not installed.
 
 ### Clear (uninstall)
 
 `--clear` removes everything installed by onboard.sh:
 - Stops the zeroclaw daemon
 - Removes the binary from `~/.local/bin/`
+- Removes dependency binaries (`gog`, etc.) from `~/.local/bin/`
+- Removes mock `luna-send` symlink from `~/.local/bin/` (only if it is a symlink)
 - Removes `~/.zeroclaw/` (config + workspace)
 - Removes Azure private endpoint from `/etc/hosts` (unmounts bind if used)
 

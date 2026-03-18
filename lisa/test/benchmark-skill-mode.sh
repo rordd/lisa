@@ -6,14 +6,14 @@ set -euo pipefail
 # benchmark-skill-mode.sh
 #
 # Measures response time and LLM turn count of weather and
-# tv-control skills in SKILL.md mode vs SKILL.toml mode on a
-# remote target.
+# tv-control skills in SKILL.md mode vs SKILL.toml mode.
+# Supports both local and remote target (via --target).
 #
-# Measurement method: POST /api/chat to the running daemon gateway
-# (127.0.0.1:42617). This reflects actual user-facing response time
-# (no binary startup overhead), matching the Telegram channel experience.
+# Measurement method: POST /api/chat to the running daemon gateway.
+# This reflects actual user-facing response time (no binary startup
+# overhead), matching the Telegram channel experience.
 #
-# LLM turn count: measured via runtime trace JSONL file on target.
+# LLM turn count: measured via runtime trace JSONL file.
 # Runtime trace is temporarily enabled in config.toml for the duration
 # of the benchmark and restored to original state afterwards.
 #
@@ -21,19 +21,21 @@ set -euo pipefail
 #   benchmark-skill-mode.sh [--target <IP>] [--runs <N>]
 #
 # Prerequisites:
-#   - zeroclaw binary already installed on target
-#   - .env in ~/.zeroclaw/.env on target (all vars must be exported)
-#   - SSH key auth to target
+#   - onboard.sh completed (binary + skills + config + .env)
+#   - SSH key auth configured (for --target usage)
 # ─────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ONBOARD="$(cd "$SCRIPT_DIR/../scripts" && pwd)/onboard.sh"
 
-TARGET_IP="192.168.0.10"
+TARGET_IP=""
 TARGET_USER="root"
 RUNS=10
 RESULTS_FILE="/tmp/zeroclaw_benchmark_$$.txt"
-GATEWAY_PORT=42617
+# Read gateway port from [gateway] section in config (fallback to 42617)
+CONFIG_TOML="$SCRIPT_DIR/../config/config.default.toml"
+GATEWAY_PORT=$(sed -n '/^\[gateway\]/,/^\[/{s/^port[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p;}' "$CONFIG_TOML" 2>/dev/null)
+GATEWAY_PORT="${GATEWAY_PORT:-42617}"
 
 # Queries designed to force a tool call on every run:
 #   - weather: explicitly requests live API data (not inferable from context)
@@ -51,12 +53,29 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-TARGET_HOST="${TARGET_USER}@${TARGET_IP}"
-DEPLOY_DIR="/home/${TARGET_USER}/lisa"
-ZC_DIR="/home/${TARGET_USER}/.zeroclaw"
+LOCAL_MODE=true
+if [[ -n "$TARGET_IP" ]]; then
+    LOCAL_MODE=false
+    TARGET_HOST="${TARGET_USER}@${TARGET_IP}"
+    DEPLOY_DIR="/home/${TARGET_USER}/lisa"
+    ZC_DIR="/home/${TARGET_USER}/.zeroclaw"
+else
+    TARGET_HOST="localhost"
+    DEPLOY_DIR="$HOME/.local/bin"
+    ZC_DIR="${ZEROCLAW_CONFIG_DIR:-$HOME/.zeroclaw}"
+fi
 WS="${ZC_DIR}/workspace"
 GATEWAY_URL="http://127.0.0.1:${GATEWAY_PORT}"
 TRACE_FILE="${WS}/state/runtime-trace.jsonl"
+
+# Helper: run command on target (SSH) or locally
+run_on_target() {
+    if [[ "$LOCAL_MODE" == true ]]; then
+        bash -c "$1"
+    else
+        ssh "$TARGET_HOST" "$1"
+    fi
+}
 
 # Global vars set by run_measurement()
 _LAST_MS=0
@@ -68,19 +87,28 @@ _LAST_ERROR=0  # 1 if content filter or provider error detected
 # ─────────────────────────────────────────────────────────────
 
 enable_runtime_trace() {
-    echo "  [trace] Enabling runtime trace on target config..."
-    ssh "$TARGET_HOST" "
+    echo "  [trace] Enabling runtime trace on config..."
+    run_on_target "
         cp ${ZC_DIR}/config.toml ${ZC_DIR}/config.toml.bak
-        printf '\n[observability]\nbackend = \"none\"\nruntime_trace_mode = \"rolling\"\nruntime_trace_max_entries = 500\n' \
-            >> ${ZC_DIR}/config.toml
+        if grep -q '^\[observability\]' ${ZC_DIR}/config.toml; then
+            sed -i '/^\[observability\]/,/^\[/{
+                s/^runtime_trace_mode.*/runtime_trace_mode = \"rolling\"/
+                s/^runtime_trace_max_entries.*/runtime_trace_max_entries = 500/
+            }' ${ZC_DIR}/config.toml
+            grep -q '^runtime_trace_mode' ${ZC_DIR}/config.toml \
+                || sed -i '/^\[observability\]/a runtime_trace_mode = \"rolling\"\nruntime_trace_max_entries = 500' ${ZC_DIR}/config.toml
+        else
+            printf '\n[observability]\nbackend = \"none\"\nruntime_trace_mode = \"rolling\"\nruntime_trace_max_entries = 500\n' \
+                >> ${ZC_DIR}/config.toml
+        fi
         mkdir -p ${WS}/state
     "
     echo "  [trace] Enabled (backup saved as config.toml.bak)"
 }
 
 disable_runtime_trace() {
-    echo "  [trace] Restoring original target config..."
-    ssh "$TARGET_HOST" "
+    echo "  [trace] Restoring original config..."
+    run_on_target "
         [ -f ${ZC_DIR}/config.toml.bak ] \
             && mv ${ZC_DIR}/config.toml.bak ${ZC_DIR}/config.toml \
             || true
@@ -95,42 +123,64 @@ disable_runtime_trace() {
 # Clear skills and stop daemon (non-interactive)
 clear_skills() {
     echo "  [clear] Stopping zeroclaw and clearing skills..."
-    ssh "$TARGET_HOST" "
-        pidof zeroclaw >/dev/null 2>&1 && kill -9 \$(pidof zeroclaw) 2>/dev/null || true
+    if [[ "$LOCAL_MODE" == true ]]; then
+        pkill -9 -u "$(id -u)" -x zeroclaw 2>/dev/null || true
         sleep 1
-        rm -rf ${WS}/skills
-        mkdir -p ${WS}/skills
-    "
+        rm -rf "${WS}/skills"
+        mkdir -p "${WS}/skills"
+    else
+        run_on_target "
+            pidof zeroclaw >/dev/null 2>&1 && kill -9 \$(pidof zeroclaw) 2>/dev/null || true
+            sleep 1
+            rm -rf ${WS}/skills
+            mkdir -p ${WS}/skills
+        "
+    fi
     echo "  [clear] Done"
 }
 
-# Deploy skills to target (all files including SKILL.toml)
+# Deploy skills (all files including SKILL.toml)
 deploy_skills() {
     echo "  [deploy] Deploying skills..."
-    bash "$ONBOARD" --skills --target "$TARGET_IP" 2>&1 | sed 's/^/    /'
+    if [[ "$LOCAL_MODE" == true ]]; then
+        bash "$ONBOARD" --skills 2>&1 | sed 's/^/    /'
+    else
+        bash "$ONBOARD" --skills --target "$TARGET_IP" 2>&1 | sed 's/^/    /'
+    fi
 }
 
 # Remove SKILL.toml from deployed skills to activate SKILL.md mode
 activate_skill_md_mode() {
-    echo "  [mode] Removing SKILL.toml from target (SKILL.md mode)..."
-    ssh "$TARGET_HOST" "rm -f ${WS}/skills/weather/SKILL.toml ${WS}/skills/tv-control/SKILL.toml"
+    echo "  [mode] Removing SKILL.toml (SKILL.md mode)..."
+    run_on_target "rm -f ${WS}/skills/weather/SKILL.toml ${WS}/skills/tv-control/SKILL.toml"
     echo "  [mode] SKILL.md mode active"
 }
 
-# Start daemon on target
+# Start daemon
 start_daemon() {
     echo "  [daemon] Starting zeroclaw daemon..."
-    local hosts_copy="/home/${TARGET_USER}/.hosts"
-    ssh "$TARGET_HOST" "
-        [ -f $hosts_copy ] && ! grep -q '10.182.173.75' /etc/hosts 2>/dev/null \
-            && mount --bind $hosts_copy /etc/hosts 2>/dev/null || true
-        cd $DEPLOY_DIR
-        [ -f $ZC_DIR/.env ] && . $ZC_DIR/.env
-        export PATH=$DEPLOY_DIR:\$PATH
-        export ZEROCLAW_CONFIG_DIR=$ZC_DIR
-        nohup ./zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &
-        echo \$!
-    " 2>/dev/null
+    if [[ "$LOCAL_MODE" == true ]]; then
+        local logfile="/tmp/zeroclaw-bench-$$.log"
+        (
+            set +e
+            source "$ZC_DIR/.env" 2>/dev/null || true
+            export ZEROCLAW_CONFIG_DIR="$ZC_DIR"
+            export PATH="$DEPLOY_DIR:$PATH"
+            nohup zeroclaw daemon > "$logfile" 2>&1 &
+        )
+    else
+        local hosts_copy="/home/${TARGET_USER}/.hosts"
+        ssh "$TARGET_HOST" "
+            [ -f $hosts_copy ] && ! grep -q '10.182.173.75' /etc/hosts 2>/dev/null \
+                && mount --bind $hosts_copy /etc/hosts 2>/dev/null || true
+            cd $DEPLOY_DIR
+            [ -f $ZC_DIR/.env ] && . $ZC_DIR/.env
+            export PATH=$DEPLOY_DIR:\$PATH
+            export ZEROCLAW_CONFIG_DIR=$ZC_DIR
+            nohup ./zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &
+            echo \$!
+        " 2>/dev/null
+    fi
     echo "  [daemon] Started"
 }
 
@@ -139,7 +189,7 @@ wait_for_gateway() {
     echo "  [gateway] Waiting for gateway to be ready..."
     local attempts=0
     while [[ $attempts -lt 30 ]]; do
-        if ssh "$TARGET_HOST" "curl -sf ${GATEWAY_URL}/health > /dev/null 2>&1"; then
+        if run_on_target "curl -sf ${GATEWAY_URL}/health > /dev/null 2>&1"; then
             echo "  [gateway] Ready"
             return 0
         fi
@@ -150,11 +200,11 @@ wait_for_gateway() {
     exit 1
 }
 
-# Print skill files present on target
+# Print skill files present
 show_deployed_skills() {
     local mode="$1"
     echo "  [verify] Deployed skill files ($mode):"
-    ssh "$TARGET_HOST" "ls ${WS}/skills/weather/ ${WS}/skills/tv-control/ 2>/dev/null" \
+    run_on_target "ls ${WS}/skills/weather/ ${WS}/skills/tv-control/ 2>/dev/null" \
         | sed 's/^/    /'
 }
 
@@ -168,11 +218,11 @@ run_measurement() {
     json_query=$(printf '%s' "$query" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
     # Clear trace file before request to isolate this request's events
-    ssh "$TARGET_HOST" "> ${TRACE_FILE} 2>/dev/null || true"
+    run_on_target "> ${TRACE_FILE} 2>/dev/null || true"
 
     # Send request, capture body + elapsed time (last line = time_total)
     local tmpfile="/tmp/zeroclaw_bench_resp_$$.txt"
-    ssh "$TARGET_HOST" "
+    run_on_target "
         curl -s \
              -w '\n%{time_total}' \
              -X POST ${GATEWAY_URL}/api/chat \
@@ -196,7 +246,7 @@ run_measurement() {
 
     # Count llm_response events written during this request
     local turns
-    turns=$(ssh "$TARGET_HOST" "
+    turns=$(run_on_target "
         grep -c '\"llm_response\"' ${TRACE_FILE} 2>/dev/null || echo 0
     ")
 
@@ -311,10 +361,12 @@ echo "  Gateway : $GATEWAY_URL/api/chat"
 echo "  Runs    : $RUNS per skill per mode"
 echo "══════════════════════════════════════════════"
 
-# Verify SSH connectivity
-if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$TARGET_HOST" "echo ok" >/dev/null 2>&1; then
-    echo "ERROR: Cannot SSH to $TARGET_HOST"
-    exit 1
+# Verify connectivity
+if [[ "$LOCAL_MODE" != true ]]; then
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$TARGET_HOST" "echo ok" >/dev/null 2>&1; then
+        echo "ERROR: Cannot SSH to $TARGET_HOST"
+        exit 1
+    fi
 fi
 
 # Verify bc is available locally (for ms conversion)
@@ -325,10 +377,14 @@ fi
 
 rm -f "$RESULTS_FILE"
 
-# Ensure config + .env are present on target (idempotent)
+# Ensure config + .env are present (idempotent)
 echo ""
-echo "[Setup] Deploying config to target..."
-bash "$ONBOARD" --config --target "$TARGET_IP" 2>&1 | sed 's/^/  /'
+echo "[Setup] Deploying config..."
+if [[ "$LOCAL_MODE" == true ]]; then
+    bash "$ONBOARD" --config 2>&1 | sed 's/^/  /'
+else
+    bash "$ONBOARD" --config --target "$TARGET_IP" 2>&1 | sed 's/^/  /'
+fi
 
 # Enable runtime trace on target; restore on exit (normal or error)
 enable_runtime_trace
