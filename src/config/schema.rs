@@ -7767,6 +7767,42 @@ impl Config {
         }
 
         set_runtime_proxy_config(self.proxy.clone());
+
+        // ── Telegram channel: env var overrides ──
+        if let Ok(token) = std::env::var("TELEGRAM_BOT_TOKEN") {
+            if !token.is_empty() {
+                let tg = self
+                    .channels_config
+                    .telegram
+                    .get_or_insert_with(|| TelegramConfig {
+                        bot_token: String::new(),
+                        allowed_users: Vec::new(),
+                        stream_mode: StreamMode::default(),
+                        draft_update_interval_ms: default_draft_update_interval_ms(),
+                        interrupt_on_new_message: false,
+                        mention_only: false,
+                    });
+                tg.bot_token = token;
+
+                if let Ok(users) = std::env::var("TELEGRAM_ALLOWED_USERS") {
+                    if !users.is_empty() {
+                        tg.allowed_users = users
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                    }
+                }
+
+                if let Ok(mention) = std::env::var("TELEGRAM_MENTION_ONLY") {
+                    match mention.trim().to_ascii_lowercase().as_str() {
+                        "1" | "true" | "yes" | "on" => tg.mention_only = true,
+                        "0" | "false" | "no" | "off" => tg.mention_only = false,
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 
     async fn resolve_config_path_for_save(&self) -> Result<PathBuf> {

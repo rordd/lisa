@@ -328,6 +328,7 @@ async fn auto_compact_history(
     model: &str,
     max_history: usize,
     max_context_tokens: usize,
+    temperature: f64,
 ) -> Result<bool> {
     let has_system = history.first().map_or(false, |m| m.role == "system");
     let non_system_count = if has_system {
@@ -371,7 +372,7 @@ async fn auto_compact_history(
     );
 
     let summary_raw = provider
-        .chat_with_system(Some(summarizer_system), &summarizer_user, model, 0.2)
+        .chat_with_system(Some(summarizer_system), &summarizer_user, model, temperature)
         .await
         .unwrap_or_else(|_| {
             // Fallback to deterministic local truncation when summarization fails.
@@ -3691,6 +3692,7 @@ pub async fn run(
                 model_name,
                 config.agent.max_history_messages,
                 config.agent.max_context_tokens,
+                temperature,
             )
             .await
             {
