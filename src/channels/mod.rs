@@ -3891,10 +3891,14 @@ pub async fn start_channels(config: Config) -> Result<()> {
     // allow_scripts are respected when auditing skill directories.
     {
         let skills_for_tools = crate::skills::filter_skills_by_channel(
-            crate::skills::load_skills_with_config(&workspace, &config),
+            crate::skills::load_skills_full_with_config(&workspace, &config),
             Some("default"),
         );
-        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        let skill_tools = crate::skills::create_skill_tools_with_override(
+            &skills_for_tools,
+            security.clone(),
+            config.skills.tool_choice_required,
+        );
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Channel skill tools registered");
             built_tools.extend(skill_tools);

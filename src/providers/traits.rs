@@ -92,6 +92,10 @@ impl ChatResponse {
 pub struct ChatRequest<'a> {
     pub messages: &'a [ChatMessage],
     pub tools: Option<&'a [ToolSpec]>,
+    /// Optional tool_choice hint for the provider.
+    /// `Some("required")` forces the LLM to call a tool on this turn.
+    /// `None` uses the provider default ("auto").
+    pub tool_choice: Option<&'a str>,
 }
 
 /// A tool result to feed back to the LLM.
@@ -791,6 +795,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: Some(&tools),
+            tool_choice: None,
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -808,6 +813,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: None,
+            tool_choice: None,
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -908,6 +914,7 @@ mod tests {
                 ChatMessage::system("BASE_SYSTEM_PROMPT"),
             ],
             tools: Some(&tools),
+            tool_choice: None,
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -930,6 +937,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::system("BASE"), ChatMessage::user("Hello")],
             tools: Some(&tools),
+            tool_choice: None,
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -952,6 +960,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: Some(&tools),
+            tool_choice: None,
         };
 
         let err = provider.chat(request, "model", 0.7).await.unwrap_err();

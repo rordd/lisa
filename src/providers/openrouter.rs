@@ -442,7 +442,7 @@ impl Provider for OpenRouterProvider {
             model: model.to_string(),
             messages: Self::convert_messages(request.messages),
             temperature,
-            tool_choice: tools.as_ref().map(|_| "auto".to_string()),
+            tool_choice: tools.as_ref().map(|_| request.tool_choice.unwrap_or("auto").to_string()),
             tools,
         };
 

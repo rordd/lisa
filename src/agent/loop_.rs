@@ -2370,6 +2370,7 @@ pub(crate) async fn run_tool_call_loop(
         max_tool_iterations
     };
 
+    let force_tool_use = tools_registry.iter().any(|t| t.force_tool_use());
     let turn_id = Uuid::new_v4().to_string();
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
 
@@ -2393,6 +2394,11 @@ pub(crate) async fn run_tool_call_loop(
                     tool_specs.push(spec);
                 }
             }
+        }
+        // When forced tool use is active, inject the respond sentinel so the LLM can
+        // handle general conversation without invoking a skill action.
+        if force_tool_use {
+            tool_specs.push(crate::tools::respond::respond_tool_spec());
         }
         let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
 
@@ -2466,6 +2472,11 @@ pub(crate) async fn run_tool_call_loop(
             ChatRequest {
                 messages: &prepared_messages.messages,
                 tools: request_tools,
+                tool_choice: if force_tool_use && iteration == 0 {
+                    Some("required")
+                } else {
+                    None
+                },
             },
             model,
             temperature,
@@ -2673,6 +2684,52 @@ pub(crate) async fn run_tool_call_loop(
             }
             history.push(ChatMessage::assistant(response_text.clone()));
             return Ok(display_text);
+        }
+
+        // Detect respond sentinel — LLM chose general conversation over a skill action.
+        if force_tool_use {
+            if let Some(respond_call) = tool_calls
+                .iter()
+                .find(|c| c.name == crate::tools::respond::RESPOND_TOOL_NAME)
+            {
+                let text = crate::tools::respond::extract_respond_text(&respond_call.arguments)
+                    .unwrap_or_default();
+                if let Some(ref tx) = on_delta {
+                    let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                    let mut chunk = String::new();
+                    for word in text.split_inclusive(char::is_whitespace) {
+                        if cancellation_token
+                            .as_ref()
+                            .is_some_and(CancellationToken::is_cancelled)
+                        {
+                            return Err(ToolLoopCancelled.into());
+                        }
+                        chunk.push_str(word);
+                        if chunk.len() >= STREAM_CHUNK_MIN_CHARS
+                            && tx.send(std::mem::take(&mut chunk)).await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    if !chunk.is_empty() {
+                        let _ = tx.send(chunk).await;
+                    }
+                }
+                history.push(ChatMessage::assistant(assistant_history_content));
+                // Add tool result message so the history stays valid for OpenAI API
+                // (assistant with tool_calls must be followed by tool result messages).
+                if let Some(native_call) = native_tool_calls
+                    .iter()
+                    .find(|c| c.name == crate::tools::respond::RESPOND_TOOL_NAME)
+                {
+                    let tool_msg = serde_json::json!({
+                        "tool_call_id": native_call.id,
+                        "content": &text,
+                    });
+                    history.push(ChatMessage::tool(tool_msg.to_string()));
+                }
+                return Ok(text);
+            }
         }
 
         // Print any text the LLM produced alongside tool calls (unless silent)
@@ -3029,7 +3086,7 @@ pub(crate) fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> Strin
     instructions.push_str("To use a tool, wrap a JSON object in <tool_call></tool_call> tags:\n\n");
     instructions.push_str("```\n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n</tool_call>\n```\n\n");
     instructions.push_str(
-        "CRITICAL: Output actual <tool_call> tags—never describe steps or give examples.\n\n",
+        "Important: Always output actual <tool_call> tags. Do not describe steps or give examples in prose.\n\n",
     );
     instructions.push_str("Example: User says \"what's the date?\". You MUST respond with:\n<tool_call>\n{\"name\":\"shell\",\"arguments\":{\"command\":\"date\"}}\n</tool_call>\n\n");
     instructions.push_str("You may use multiple tool calls in a single response. ");
@@ -3136,7 +3193,7 @@ pub async fn run(
     {
         let skills_for_tools =
             crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        let skill_tools = crate::skills::create_skill_tools_with_override(&skills_for_tools, security.clone(), config.skills.tool_choice_required);
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);
@@ -3787,7 +3844,7 @@ pub async fn process_message(
     {
         let skills_for_tools =
             crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        let skill_tools = crate::skills::create_skill_tools_with_override(&skills_for_tools, security.clone(), config.skills.tool_choice_required);
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);

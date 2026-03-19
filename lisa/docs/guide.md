@@ -57,7 +57,29 @@ After onboarding, files are installed to `~/.zeroclaw/`:
 └── workspace/
     ├── USER.md
     ├── SOUL.md
-    └── AGENTS.md
+    ├── AGENTS.md
+    └── skills/
+        ├── weather/
+        │   ├── SKILL.toml     ← Tool definitions (native function calling)
+        │   └── SKILL.md       ← Prompt-based tool descriptions
+        ├── calendar/
+        │   ├── SKILL.toml
+        │   └── SKILL.md
+        ├── a2ui/
+        │   └── SKILL.md
+        └── tv-control/
+            ├── SKILL.toml
+            ├── SKILL.md
+            └── scripts/
+                ├── app-control.sh
+                ├── app-search.py
+                ├── app-launch.py
+                ├── app-parse-list.py
+                ├── channel-control.sh
+                ├── volume-control.sh
+                ├── ensure_livetv.py
+                └── mock/       ← Installed only on non-webOS environments
+                    └── luna-send
 ```
 
 - `config.default.toml` contains no personal data — safe to commit
@@ -181,17 +203,26 @@ All skill tests go through zeroclaw (not direct API calls), so they verify the f
 | agent | Send "안녕~" via zeroclaw | Exit 0 |
 | weather | Ask zeroclaw for weather | Agent OK + valid response |
 | calendar | Ask zeroclaw for schedule | Agent OK + gog installed + valid response |
-| tv-control | Ask zeroclaw for foreground app | Agent OK + luna-send available |
+| tv-control | Ask zeroclaw for foreground app | Agent OK + luna-send available (real or mock) |
 
 If the agent test fails (no LLM connection), skill tests are automatically skipped.
+
+> **Mock luna-send:** On non-webOS environments (regular Linux/macOS), `luna-send` is not available.
+> During skill installation, the mock script (`skills/tv-control/scripts/mock/luna-send`) is
+> symlinked to `~/.local/bin/luna-send`. This allows tv-control to work in daemon, agent, and
+> tests without modification.
+> On webOS targets, the real `luna-send` exists, so the mock is not installed.
 
 ### Clear (uninstall)
 
 `--clear` removes everything installed by onboard.sh:
 - Stops the zeroclaw daemon
 - Removes the binary from `~/.local/bin/`
+- Removes dependency binaries (`gog`, etc.) from `~/.local/bin/`
+- Removes mock `luna-send` symlink from `~/.local/bin/` (only if it is a symlink)
 - Removes `~/.zeroclaw/` (config + workspace)
-- Removes Azure private endpoint from `/etc/hosts` (unmounts bind if used)
+- Target: unmounts Azure private endpoint `/etc/hosts` bind mount
+- Local: `/etc/hosts` entry is kept (remove manually if needed)
 
 Requires interactive confirmation before proceeding.
 
@@ -343,6 +374,17 @@ ssh root@<board-ip> 'export PATH=/home/root/lisa:$PATH && source ~/.zeroclaw/.en
 - Cross-build toolchain (one of the following):
   - **Option A**: `cross` CLI + Docker (`cargo install cross`)
   - **Option B**: Native musl toolchain (`sudo apt install gcc-aarch64-linux-gnu musl-tools` + `rustup target add aarch64-unknown-linux-musl`)
+
+## Skill Modes
+
+ZeroClaw supports two modes per skill:
+
+| Mode | File | Tool calling | Description |
+|---|---|---|---|
+| **SKILL.toml** | `SKILL.toml` | Native function calling | Tools defined as JSON schema, LLM invokes via structured tool calls |
+| **SKILL.md** | `SKILL.md` | Prompt-based | Tool usage described in natural language, LLM executes scripts directly |
+
+When both files are present, `SKILL.toml` takes priority.
 
 ## Platform Bundles
 

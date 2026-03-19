@@ -180,15 +180,10 @@ restart_daemon() {
     fi
     sleep 1
     if [[ -n "$TARGET" ]]; then
-        ssh "$TARGET_HOST" "cd $TARGET_DEPLOY_DIR && export PATH=$TARGET_DEPLOY_DIR:\$PATH && . $TARGET_ZEROCLAW_DIR/.env && nohup ./zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &"
+        ssh "$TARGET_HOST" "cd $TARGET_DEPLOY_DIR && export PATH=$TARGET_DEPLOY_DIR:\$PATH && . $TARGET_ZEROCLAW_DIR/.env && nohup ./zeroclaw daemon > /tmp/zeroclaw-${TARGET_USER}.log 2>&1 &"
     else
-        if [[ -f "$ZEROCLAW_DIR/.env" ]]; then
-            set -a; source "$ZEROCLAW_DIR/.env"; set +a
-        else
-            echo "  WARNING: $ZEROCLAW_DIR/.env not found — daemon may fail to start"
-            echo "  Run: onboard.sh --config to install .env"
-        fi
-        nohup zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &
+        source "$ZEROCLAW_DIR/.env" 2>/dev/null || true
+        nohup zeroclaw daemon > /tmp/zeroclaw-$(id -un).log 2>&1 &
     fi
     echo "  Done"
 }
@@ -205,7 +200,9 @@ if [[ "$DO_BUILD" == true ]]; then
         if command -v cross &>/dev/null && (command -v docker &>/dev/null || command -v podman &>/dev/null); then
             cross build --release --target aarch64-unknown-linux-musl
         else
-            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
+            CC_aarch64_unknown_linux_musl=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc \
+            AR_aarch64_unknown_linux_musl=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-ar \
+            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc \
                 cargo build --release --target aarch64-unknown-linux-musl
         fi
         BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw"
@@ -334,7 +331,7 @@ setup_hosts() {
             esac
         }
     else
-        # Local
+        # Local — skip if hostname already present (any IP)
         if grep -q "$hostname" /etc/hosts 2>/dev/null; then
             echo "  $hostname already in /etc/hosts ✓"
         elif sh -c "echo '$hosts_entry' >> /etc/hosts" 2>/dev/null; then
@@ -426,9 +423,6 @@ install_config() {
         chmod 600 "$CONFIG_PATH"
         if [[ -n "$ENV_FILE" ]]; then
             cp "$ENV_FILE" "$ZEROCLAW_DIR/.env"
-            # Ensure all variable lines have 'export' prefix so plain `source .env` works
-            sed -i '' '/^[A-Z_]*=/{/^export /!s/^/export /;}' "$ZEROCLAW_DIR/.env" 2>/dev/null \
-                || sed -i '/^[A-Z_]*=/{/^export /!s/^/export /;}' "$ZEROCLAW_DIR/.env" 2>/dev/null || true
             chmod 600 "$ZEROCLAW_DIR/.env"
             echo "  .env → $ZEROCLAW_DIR/.env"
         fi
@@ -472,50 +466,79 @@ install_config() {
 # ══════════════════════════════════════════════
 install_skills() {
     echo "[Skills]"
-
-    if [[ ! -d "$PROFILE_DIR/skills" ]]; then
-        echo "  No skills in profile"
-        echo ""
-        return 0
+    # Remove legacy symlink from v0.5 local mode (prevents "same file" cp errors)
+    if [[ -L "$WS/skills" ]]; then
+        rm "$WS/skills"
+        echo "  Removed legacy skills symlink"
     fi
+    ensure_dir "$WS/skills"
 
-    if [[ -n "$TARGET" ]]; then
-        # Remote target: copy files (no symlink possible)
-        ensure_dir "$WS/skills"
+    if [[ -d "$PROFILE_DIR/skills" ]]; then
         SKILL_COUNT=0
+        # Check if target already has real luna-send (webOS)
+        local target_has_luna=false
+        if [[ -n "$TARGET" ]]; then
+            ssh "$TARGET_HOST" "command -v luna-send" &>/dev/null && target_has_luna=true
+        fi
+
         for skill_dir in "$PROFILE_DIR/skills"/*/; do
             [[ -d "$skill_dir" ]] || continue
             skill_name=$(basename "$skill_dir")
             ensure_dir "$WS/skills/$skill_name"
-            copy_dir "$skill_dir"* "$WS/skills/$skill_name/"
-            echo "  $skill_name (copied)"
+
+            if [[ "$target_has_luna" == true && -d "$skill_dir/scripts/mock" ]]; then
+                # Target has real luna-send — install everything except mock/
+                for item in "$skill_dir"*; do
+                    if [[ "$(basename "$item")" == "scripts" ]]; then
+                        ensure_dir "$WS/skills/$skill_name/scripts"
+                        for sub in "$item"/*; do
+                            [[ "$(basename "$sub")" == "mock" ]] && continue
+                            copy_dir "$sub" "$WS/skills/$skill_name/scripts/"
+                        done
+                    else
+                        copy_dir "$item" "$WS/skills/$skill_name/"
+                    fi
+                done
+                echo "  $skill_name (mock excluded — target has luna-send)"
+            else
+                copy_dir "$skill_dir"* "$WS/skills/$skill_name/"
+                echo "  $skill_name"
+            fi
             SKILL_COUNT=$((SKILL_COUNT + 1))
         done
         echo "  $SKILL_COUNT skill(s) installed"
-    else
-        # Local: symlink entire skills directory to profile
-        local profile_skills
-        profile_skills="$(cd "$PROFILE_DIR/skills" && pwd)"
 
-        if [[ -L "$WS/skills" ]]; then
-            local current_target
-            current_target="$(readlink "$WS/skills")"
-            if [[ "$current_target" == "$profile_skills" ]]; then
-                echo "  skills/ → $profile_skills (already linked)"
-                echo ""
-                return 0
-            fi
-            rm "$WS/skills"
-        elif [[ -d "$WS/skills" ]]; then
-            # Backup existing directory, then replace with symlink
-            mv "$WS/skills" "$WS/skills.bak.$(date +%s)"
-            echo "  Backed up existing skills/ directory"
+        # Ensure executable permissions on skill scripts (scp may not preserve them)
+        if [[ -n "$TARGET" ]]; then
+            ssh "$TARGET_HOST" "find $WS/skills \( -name '*.sh' -o -name '*.py' -o -name 'luna-send' \) | xargs chmod +x 2>/dev/null" || true
+        else
+            find "$WS/skills" \( -name '*.sh' -o -name '*.py' -o -name 'luna-send' \) | xargs chmod +x 2>/dev/null || true
         fi
 
-        ln -s "$profile_skills" "$WS/skills"
-        local skill_count
-        skill_count=$(find "$profile_skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-        echo "  skills/ → $profile_skills ($skill_count skills, symlinked)"
+        # Symlink mock luna-send into PATH if real luna-send is unavailable
+        local mock_src="$WS/skills/tv-control/scripts/mock/luna-send"
+        if [[ -d "$PROFILE_DIR/skills/tv-control" ]]; then
+            if [[ -n "$TARGET" ]]; then
+                if [[ "$target_has_luna" != true ]]; then
+                    local mock_dest="$TARGET_DEPLOY_DIR/luna-send"
+                    if ssh "$TARGET_HOST" "test -f $mock_src" 2>/dev/null; then
+                        ssh "$TARGET_HOST" "ln -sf $mock_src $mock_dest"
+                        echo "  mock luna-send → $TARGET_HOST:$mock_dest (symlink)"
+                    fi
+                fi
+            else
+                if ! command -v luna-send &>/dev/null; then
+                    if [[ -f "$mock_src" ]]; then
+                        mkdir -p "$HOME/.local/bin"
+                        ln -sf "$mock_src" "$HOME/.local/bin/luna-send"
+                        echo "  mock luna-send → ~/.local/bin/luna-send (symlink)"
+                        if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
+                            echo "  NOTE: Add ~/.local/bin to PATH if luna-send is not found"
+                        fi
+                    fi
+                fi
+            fi
+        fi
     fi
     echo ""
 }
@@ -675,7 +698,7 @@ run_tests() {
             if [[ -n "${AZURE_PRIVATE_ENDPOINT:-}" ]]; then
                 hosts_setup="[ -f $hosts_copy ] && ! grep -q '${AZURE_PRIVATE_ENDPOINT}' /etc/hosts 2>/dev/null && mount --bind $hosts_copy /etc/hosts 2>/dev/null; "
             fi
-            ssh "$TARGET_HOST" "${hosts_setup}cd $TARGET_DEPLOY_DIR && [ -f $TARGET_ZEROCLAW_DIR/.env ] && . $TARGET_ZEROCLAW_DIR/.env && export PATH=$TARGET_DEPLOY_DIR:\$PATH && export ZEROCLAW_CONFIG_DIR=$TARGET_ZEROCLAW_DIR && $1"
+            ssh "$TARGET_HOST" "${hosts_setup}cd $TARGET_DEPLOY_DIR && [ -f $TARGET_ZEROCLAW_DIR/.env ] && . $TARGET_ZEROCLAW_DIR/.env && export PATH=$TARGET_DEPLOY_DIR:\$PATH && $1"
         else
             ( source "$ZEROCLAW_DIR/.env" 2>/dev/null; eval "$1" )
         fi
@@ -746,7 +769,7 @@ run_tests() {
         elif [[ "$agent_ok" == true ]]; then
             echo "  [calendar] Asking zeroclaw for schedule..."
             local cal_out
-            cal_out=$(run_cmd "zeroclaw agent -m 'list today schedule, one line'") && EXIT=0 || EXIT=$?
+            cal_out=$(run_cmd "zeroclaw agent -m 'list today Google Calendar events, one line summary'") && EXIT=0 || EXIT=$?
             if [[ $EXIT -eq 0 ]] && ! has_skill_failure "$cal_out"; then
                 echo "  [calendar] OK — $(echo "$cal_out" | tail -1 | head -c 80)"
                 pass=$((pass + 1))
@@ -764,7 +787,7 @@ run_tests() {
     # ── 4. TV Control skill ──
     if dir_exists "$WS/skills/tv-control"; then
         if ! cmd_exists luna-send; then
-            echo "  [tv-control] SKIP — luna-send unavailable (not on webOS)"
+            echo "  [tv-control] SKIP — luna-send unavailable (not on webOS, no mock installed)"
             skip=$((skip + 1))
         elif [[ "$agent_ok" == true ]]; then
             echo "  [tv-control] Asking zeroclaw for foreground app..."
@@ -822,6 +845,7 @@ clear_all() {
         for dep_name in "${KNOWN_DEPS[@]}"; do
             [[ -f "$DEP_INSTALL_DIR/$dep_name" ]] && echo "    $DEP_INSTALL_DIR/$dep_name"
         done
+        [[ -L "$DEP_INSTALL_DIR/luna-send" ]] && echo "    $DEP_INSTALL_DIR/luna-send (symlink)"
         echo "    $ZEROCLAW_DIR/               (config + workspace)"
         echo "    zeroclaw daemon process"
     fi
@@ -867,6 +891,11 @@ clear_all() {
                 echo "  Removed $DEP_INSTALL_DIR/$dep_name"
             fi
         done
+        # Remove mock luna-send symlink (only if it's a symlink, not a real binary)
+        if [[ -L "$DEP_INSTALL_DIR/luna-send" ]]; then
+            rm -f "$DEP_INSTALL_DIR/luna-send"
+            echo "  Removed $DEP_INSTALL_DIR/luna-send (symlink)"
+        fi
     fi
 
     # 3. Remove config + workspace
@@ -895,21 +924,8 @@ clear_all() {
                 echo "  No hosts entry found (skipped)"
             fi
         else
-            if grep -q "$hostname" /etc/hosts 2>/dev/null; then
-                if mountpoint -q /etc/hosts 2>/dev/null; then
-                    # Bind mounted → unmount to restore original
-                    sudo umount /etc/hosts 2>/dev/null || umount /etc/hosts 2>/dev/null || true
-                    rm -f "$HOME/.hosts"
-                    echo "  Removed $hostname from /etc/hosts (bind unmounted)"
-                else
-                    # Directly written → remove the line
-                    sudo sed -i "/$hostname/d" /etc/hosts 2>/dev/null \
-                        || sed -i "/$hostname/d" /etc/hosts 2>/dev/null || true
-                    echo "  Removed $hostname from /etc/hosts"
-                fi
-            else
-                echo "  No hosts entry found (skipped)"
-            fi
+            # Local: keep /etc/hosts entry (may be shared with other tools)
+            echo "  /etc/hosts entry kept (remove manually if needed)"
         fi
     else
         echo "  No custom provider hostname (skipped)"
