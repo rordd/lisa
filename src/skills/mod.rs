@@ -3032,9 +3032,8 @@ description = "Bare minimum"
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("<name>xml&lt;skill&gt;</name>"));
         assert!(prompt.contains("<description>A &amp; B</description>"));
-        assert!(prompt.contains(
-            "<instruction><![CDATA[Use <tool> & check \"quotes\".]]></instruction>"
-        ));
+        assert!(prompt
+            .contains("<instruction><![CDATA[Use <tool> & check \"quotes\".]]></instruction>"));
     }
 
     #[test]

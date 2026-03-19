@@ -320,6 +320,10 @@ pub struct Config {
     #[serde(default)]
     pub transcription: TranscriptionConfig,
 
+    /// Realtime voice session configuration (`[voice]`).
+    #[serde(default)]
+    pub voice: crate::config::VoiceConfig,
+
     /// Text-to-Speech configuration (`[tts]`).
     #[serde(default)]
     pub tts: TtsConfig,
@@ -6065,6 +6069,7 @@ impl Default for Config {
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
             transcription: TranscriptionConfig::default(),
+            voice: crate::config::VoiceConfig::default(),
             tts: TtsConfig::default(),
             mcp: McpConfig::default(),
             nodes: NodesConfig::default(),
@@ -7843,6 +7848,10 @@ impl Config {
                 }
             }
         }
+
+        // ── Voice (Realtime API) ─────────────────────────────
+        // Apply voice-specific environment variable overrides
+        self.voice.apply_env_overrides();
     }
 
     async fn resolve_config_path_for_save(&self) -> Result<PathBuf> {
@@ -8668,6 +8677,7 @@ default_temperature = 0.7
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            voice: crate::config::VoiceConfig::default(),
             tts: TtsConfig::default(),
             mcp: McpConfig::default(),
             nodes: NodesConfig::default(),
@@ -9004,6 +9014,7 @@ tool_dispatcher = "xml"
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            voice: crate::config::VoiceConfig::default(),
             tts: TtsConfig::default(),
             mcp: McpConfig::default(),
             nodes: NodesConfig::default(),

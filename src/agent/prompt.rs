@@ -62,6 +62,26 @@ impl SystemPromptBuilder {
         }
         Ok(output)
     }
+
+    /// Build a compact system prompt for voice sessions.
+    pub fn build_voice_prompt(&self, ctx: &PromptContext<'_>) -> Result<String> {
+        let voice_sections: Vec<Box<dyn PromptSection>> = vec![
+            Box::new(VoiceIdentitySection),
+            Box::new(SafetySection),
+            Box::new(DateTimeSection),
+        ];
+        let mut output =
+            String::from("You are in VOICE mode. Respond concisely and conversationally.\n\n");
+        for section in &voice_sections {
+            let part = section.build(ctx)?;
+            if part.trim().is_empty() {
+                continue;
+            }
+            output.push_str(part.trim_end());
+            output.push_str("\n\n");
+        }
+        Ok(output)
+    }
 }
 
 pub struct IdentitySection;
@@ -71,6 +91,9 @@ pub struct SkillsSection;
 pub struct WorkspaceSection;
 pub struct RuntimeSection;
 pub struct DateTimeSection;
+
+/// Voice-specific identity section — only includes files relevant to voice sessions.
+pub struct VoiceIdentitySection;
 pub struct ChannelMediaSection;
 
 impl PromptSection for IdentitySection {
@@ -220,6 +243,24 @@ impl PromptSection for ChannelMediaSection {
             - `[IMAGE:<path>]` — An image attachment, processed by the vision pipeline.\n\
             - `[Document: <name>] <path>` — A file attachment saved to the workspace."
             .into())
+    }
+}
+
+impl PromptSection for VoiceIdentitySection {
+    fn name(&self) -> &str {
+        "voice_identity"
+    }
+
+    fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
+        let mut prompt = String::from("## Identity & Context\n\n");
+        for file in ["SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"] {
+            inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
+        }
+        let memory_path = ctx.workspace_dir.join("MEMORY.md");
+        if memory_path.exists() {
+            inject_workspace_file(&mut prompt, ctx.workspace_dir, "MEMORY.md");
+        }
+        Ok(prompt)
     }
 }
 
@@ -387,7 +428,8 @@ mod tests {
         let output = SkillsSection.build(&ctx).unwrap();
         assert!(output.contains("<available_skills>"));
         assert!(output.contains("<name>deploy</name>"));
-        assert!(output.contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
+        assert!(output
+            .contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
         assert!(output.contains("<name>release_checklist</name>"));
         assert!(output.contains("<kind>shell</kind>"));
     }
@@ -428,7 +470,8 @@ mod tests {
         assert!(output.contains("<available_skills>"));
         assert!(output.contains("<name>deploy</name>"));
         assert!(output.contains("<location>skills/deploy/SKILL.md</location>"));
-        assert!(!output.contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
+        assert!(!output
+            .contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
         assert!(!output.contains("<tools>"));
     }
 

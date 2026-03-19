@@ -40,6 +40,10 @@ pub struct Agent {
     route_model_by_hint: HashMap<String, String>,
     allowed_tools: Option<Vec<String>>,
     response_cache: Option<Arc<crate::memory::response_cache::ResponseCache>>,
+    /// Optional Realtime API provider for voice sessions.
+    realtime_provider: Option<Arc<dyn crate::providers::realtime::RealtimeProvider>>,
+    /// Voice configuration (None if voice is disabled).
+    voice_config: Option<crate::config::VoiceConfig>,
 }
 
 pub struct AgentBuilder {
@@ -64,6 +68,8 @@ pub struct AgentBuilder {
     route_model_by_hint: Option<HashMap<String, String>>,
     allowed_tools: Option<Vec<String>>,
     response_cache: Option<Arc<crate::memory::response_cache::ResponseCache>>,
+    realtime_provider: Option<Arc<dyn crate::providers::realtime::RealtimeProvider>>,
+    voice_config: Option<crate::config::VoiceConfig>,
 }
 
 impl AgentBuilder {
@@ -90,6 +96,8 @@ impl AgentBuilder {
             route_model_by_hint: None,
             allowed_tools: None,
             response_cache: None,
+            realtime_provider: None,
+            voice_config: None,
         }
     }
 
@@ -207,6 +215,19 @@ impl AgentBuilder {
         self
     }
 
+    pub fn realtime_provider(
+        mut self,
+        provider: Arc<dyn crate::providers::realtime::RealtimeProvider>,
+    ) -> Self {
+        self.realtime_provider = Some(provider);
+        self
+    }
+
+    pub fn voice_config(mut self, config: crate::config::VoiceConfig) -> Self {
+        self.voice_config = Some(config);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let mut tools = self
             .tools
@@ -257,6 +278,8 @@ impl AgentBuilder {
             route_model_by_hint: self.route_model_by_hint.unwrap_or_default(),
             allowed_tools: allowed,
             response_cache: self.response_cache,
+            realtime_provider: self.realtime_provider,
+            voice_config: self.voice_config,
         })
     }
 }
@@ -273,6 +296,62 @@ impl Agent {
     pub fn clear_history(&mut self) {
         self.history.clear();
     }
+
+    pub fn push_history(&mut self, msg: ConversationMessage) {
+        self.history.push(msg);
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.memory_session_id.as_deref()
+    }
+
+    /// Whether this agent has voice capability.
+    pub fn has_voice(&self) -> bool {
+        self.realtime_provider.is_some()
+    }
+
+    /// Get the voice config (if voice is enabled).
+    pub fn voice_config(&self) -> Option<&crate::config::VoiceConfig> {
+        self.voice_config.as_ref()
+    }
+
+    /// Get the realtime provider (if voice is enabled).
+    pub fn realtime_provider(
+        &self,
+    ) -> Option<&Arc<dyn crate::providers::realtime::RealtimeProvider>> {
+        self.realtime_provider.as_ref()
+    }
+
+    /// Get shared memory (for voice session to reuse).
+    pub fn memory(&self) -> &Arc<dyn Memory> {
+        &self.memory
+    }
+
+    /// Get tool specs (for voice session tool registration).
+    pub fn tool_specs(&self) -> &[crate::tools::ToolSpec] {
+        &self.tool_specs
+    }
+
+    /// Get workspace directory.
+    pub fn workspace_dir(&self) -> &std::path::Path {
+        &self.workspace_dir
+    }
+
+    /// Build a system prompt tailored for voice sessions.
+    pub fn build_voice_system_prompt(&self) -> Result<String> {
+        let ctx = crate::agent::prompt::PromptContext {
+            workspace_dir: &self.workspace_dir,
+            model_name: &self.model_name,
+            tools: &self.tools,
+            skills: &self.skills,
+            skills_prompt_mode: self.skills_prompt_mode,
+            identity_config: Some(&self.identity_config),
+            dispatcher_instructions: "",
+        };
+        self.prompt_builder.build_voice_prompt(&ctx)
+    }
+
+    // Voice session management methods are in src/agent/voice.rs
 
     /// Return the number of registered tools.
     pub fn tool_count(&self) -> usize {
@@ -408,7 +487,7 @@ impl Agent {
             None
         };
 
-        Agent::builder()
+        let builder = Agent::builder()
             .provider(provider)
             .tools(tools)
             .memory(memory)
@@ -433,8 +512,30 @@ impl Agent {
                 config,
             ))
             .skills_prompt_mode(config.skills.prompt_injection_mode)
-            .auto_save(config.memory.auto_save)
-            .build()
+            .auto_save(config.memory.auto_save);
+
+        // Wire up voice/realtime provider if enabled
+        let builder = if config.voice.enabled {
+            match config.voice.to_realtime_config() {
+                Ok(realtime_config) => {
+                    let rt_provider =
+                        crate::providers::realtime::create_realtime_provider(realtime_config);
+                    builder
+                        .realtime_provider(rt_provider)
+                        .voice_config(config.voice.clone())
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Voice enabled but Realtime config invalid: {e}; skipping voice provider"
+                    );
+                    builder
+                }
+            }
+        } else {
+            builder
+        };
+
+        builder.build()
     }
 
     fn trim_history(&mut self) {

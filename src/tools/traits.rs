@@ -17,6 +17,19 @@ pub struct ToolSpec {
     pub parameters: serde_json::Value,
 }
 
+impl ToolSpec {
+    /// Convert to the JSON format expected by the OpenAI Realtime API
+    /// (`session.update` → `tools[]`).
+    pub fn to_realtime_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "function",
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+        })
+    }
+}
+
 /// Core tool trait — implement for any capability
 #[async_trait]
 pub trait Tool: Send + Sync {

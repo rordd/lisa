@@ -372,7 +372,12 @@ async fn auto_compact_history(
     );
 
     let summary_raw = provider
-        .chat_with_system(Some(summarizer_system), &summarizer_user, model, temperature)
+        .chat_with_system(
+            Some(summarizer_system),
+            &summarizer_user,
+            model,
+            temperature,
+        )
         .await
         .unwrap_or_else(|_| {
             // Fallback to deterministic local truncation when summarization fails.

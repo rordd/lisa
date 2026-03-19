@@ -106,6 +106,7 @@ mod skills;
 mod tools;
 mod tunnel;
 mod util;
+mod voice;
 
 use config::Config;
 
@@ -264,6 +265,25 @@ Examples:
         /// Host to bind to; defaults to config gateway.host
         #[arg(long)]
         host: Option<String>,
+    },
+
+    /// Start the voice assistant web server (browser WebSocket relay to Realtime API)
+    Voice {
+        /// Port to listen on (default: 3000)
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+
+        /// Host to bind to (default: 0.0.0.0)
+        #[arg(long, default_value = "0.0.0.0")]
+        host: String,
+
+        /// Path to TLS certificate PEM file (enables HTTPS)
+        #[arg(long)]
+        tls_cert: Option<String>,
+
+        /// Path to TLS private key PEM file (required with --tls-cert)
+        #[arg(long)]
+        tls_key: Option<String>,
     },
 
     /// Manage OS service lifecycle (launchd/systemd user service)
@@ -1216,6 +1236,18 @@ async fn main() -> Result<()> {
             println!("\n  custom:<URL>   Any OpenAI-compatible endpoint");
             println!("  anthropic-custom:<URL>  Any Anthropic-compatible endpoint");
             Ok(())
+        }
+
+        Commands::Voice {
+            port,
+            host,
+            tls_cert,
+            tls_key,
+        } => {
+            Box::pin(voice::cli::run_voice_command(
+                port, host, tls_cert, tls_key, config,
+            ))
+            .await
         }
 
         Commands::Service {
