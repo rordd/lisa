@@ -510,9 +510,9 @@ install_skills() {
 
         # Ensure executable permissions on skill scripts (scp may not preserve them)
         if [[ -n "$TARGET" ]]; then
-            ssh "$TARGET_HOST" "find $WS/skills -name '*.sh' -o -name '*.py' | xargs chmod +x 2>/dev/null" || true
+            ssh "$TARGET_HOST" "find $WS/skills \( -name '*.sh' -o -name '*.py' -o -name 'luna-send' \) | xargs chmod +x 2>/dev/null" || true
         else
-            find "$WS/skills" -name '*.sh' -o -name '*.py' | xargs chmod +x 2>/dev/null || true
+            find "$WS/skills" \( -name '*.sh' -o -name '*.py' -o -name 'luna-send' \) | xargs chmod +x 2>/dev/null || true
         fi
 
         # Symlink mock luna-send into PATH if real luna-send is unavailable

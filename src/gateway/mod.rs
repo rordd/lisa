@@ -709,8 +709,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     println!("  🌐 Web Dashboard: http://{display_addr}/");
     println!("  POST /pair      — pair a new client (X-Pairing-Code header)");
     println!("  POST /webhook   — {{\"message\": \"your prompt\"}}");
-    println!("  POST /api/chat  — {{\"message\": \"...\", \"context\": [...]}} (tools-enabled, OpenClaw compat)");
-    println!("  POST /v1/chat/completions — OpenAI-compatible (full agent loop)");
+    println!("  POST /api/chat  — {{\"message\": \"...\", \"context\": [...]}} (tools-enabled)");
     if whatsapp_channel.is_some() {
         println!("  GET  /whatsapp  — Meta webhook verification");
         println!("  POST /whatsapp  — WhatsApp message webhook");
@@ -821,8 +820,6 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let config_put_router = Router::new()
         .route("/api/config", put(api::handle_api_config_put))
         .layer(RequestBodyLimitLayer::new(1_048_576));
-
-
 
     // Build router with middleware
     let app = Router::new()
