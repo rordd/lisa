@@ -36,6 +36,9 @@ If it fits A2UI components → use A2UI. If it needs custom HTML/JS → use a2we
 - Use data bindings (`{"path": "/data/key"}`) for dynamic values
 - URL buttons → `functionCall.openUrl` (server is headless, NO event actions for URLs)
 - Quiz/choice buttons → `event` action (needs server reasoning)
+- Button `action` MUST use the nested v0.9 format. NEVER use flat `{"type":"event","name":...,"payload":...}`:
+  - Event: `{"action": {"event": {"name": "choice", "context": {"answer": "A"}}}}`
+  - Function: `{"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}}`
 - Use the FULL component range: Card, Column, Row, List, Tabs, Text, Image, Icon, Button, CheckBox, TextField, Slider, ChoicePicker, DateTimeInput, Divider, Modal, AudioPlayer, Video
 
 ## Example

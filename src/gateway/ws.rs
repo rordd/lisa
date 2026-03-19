@@ -221,6 +221,8 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
     // is a regular `{"type":"message",...}` frame, we fall through and
     // process it immediately (backward-compatible).
     let mut first_msg_fallback: Option<String> = None;
+    let a2ui_enabled = { state.config.lock().a2ui.enabled };
+    let mut last_a2ui_data: Vec<serde_json::Value> = vec![];
 
     if let Some(first) = receiver.next().await {
         match first {
@@ -267,7 +269,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
                         let user_msg = crate::providers::ChatMessage::user(&content);
                         let _ = backend.append(&session_key, &user_msg);
                     }
-                    process_chat_message(&state, &mut agent, &mut sender, &content, &session_key).await;
+                    process_chat_message(&state, &mut agent, &mut sender, &content, &session_key, &mut last_a2ui_data).await;
                 }
             }
         }
@@ -291,14 +293,33 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
         };
 
         let msg_type = parsed["type"].as_str().unwrap_or("");
-        if msg_type != "message" {
-            continue;
-        }
 
-        let content = parsed["content"].as_str().unwrap_or("").to_string();
-        if content.is_empty() {
-            continue;
-        }
+        // Extract content based on message type
+        let content = match msg_type {
+            "a2ui_action" => {
+                if !a2ui_enabled {
+                    let err = serde_json::json!({"type": "error", "message": "a2ui is disabled"});
+                    let _ = sender.send(Message::Text(err.to_string().into())).await;
+                    continue;
+                }
+                match parsed.get("payload") {
+                    Some(payload) => super::a2ui::format_user_action_with_context(payload, &last_a2ui_data),
+                    None => {
+                        let err = serde_json::json!({"type": "error", "message": "a2ui_action missing payload"});
+                        let _ = sender.send(Message::Text(err.to_string().into())).await;
+                        continue;
+                    }
+                }
+            }
+            "message" => {
+                let c = parsed["content"].as_str().unwrap_or("").to_string();
+                if c.is_empty() {
+                    continue;
+                }
+                c
+            }
+            _ => continue,
+        };
 
         // Persist user message
         if let Some(ref backend) = state.session_backend {
@@ -306,7 +327,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
             let _ = backend.append(&session_key, &user_msg);
         }
 
-        process_chat_message(&state, &mut agent, &mut sender, &content, &session_key).await;
+        process_chat_message(&state, &mut agent, &mut sender, &content, &session_key, &mut last_a2ui_data).await;
     }
 }
 
@@ -317,6 +338,7 @@ async fn process_chat_message(
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
     content: &str,
     session_key: &str,
+    last_a2ui_data: &mut Vec<serde_json::Value>,
 ) {
     let provider_label = state
         .config
@@ -355,6 +377,8 @@ async fn process_chat_message(
             // Parse a2ui JSON from response and send as separate WS message
             let (text_only, a2ui_messages) = crate::gateway::a2ui::parse_response(&response);
             if !a2ui_messages.is_empty() {
+                // Save A2UI data for next action context
+                *last_a2ui_data = a2ui_messages.clone();
                 let a2ui_msg = serde_json::json!({
                     "type": "a2ui",
                     "messages": a2ui_messages,
