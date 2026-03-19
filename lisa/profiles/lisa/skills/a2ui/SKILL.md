@@ -1,254 +1,54 @@
 ---
 name: a2ui
-description: "Lisa A2UI card rendering. Use compact card types (InfoCard, ControlCard, ListCard, MediaCard) to visually present home/device/daily information. Proactively render cards when data benefits from visual display."
-version: "3.0.0"
+description: "A2UI v0.9 card rendering. Visually present structured data (weather, schedules, lists, comparisons, quizzes, forms). Proactively render cards when data benefits from visual display."
+version: "2.0.0"
 channels: ws
 always: true
 ---
 
-# Lisa A2UI — Compact Card Catalog
+# A2UI v0.9 — Card Rendering
 
-Render visual cards using 4 base card types. Use the A2UI v0.9 protocol (`<a2ui-json>` tags) with Lisa's custom catalog.
-
-CRITICAL: If you mention a card but don't include `<a2ui-json>` tags, the user sees NOTHING.
-
-## Card Types
-
-### 1. InfoCard
-Display information with icon, metrics, and description.
-Use for: weather, notifications, home status, errors, energy usage.
-
-Structure:
-```
-Card > Column > [Icon + Title (Row), MetricRow (Row of metric items), Description (Text)]
-```
-
-Props:
-- `icon`: Icon name (weatherSunny, weatherCloudy, weatherRain, weatherSnow, thermometer, humidity, wind, home, bell, warning, error, energy, air)
-- `title`: Card title
-- `metrics`: Row of `{label, value}` pairs (use Text components)
-- `description`: Optional body text
-- `variant`: normal | compact | alert
-
-### 2. ControlCard
-Device control with toggles, sliders, and action buttons.
-Use for: lights, AC, thermostat, washer, air purifier, robot vacuum.
-
-Structure:
-```
-Card > Column > [DeviceIcon + Name + Status (Row), Controls (Column of Slider/Button/Toggle rows)]
-```
-
-Props:
-- `deviceIcon`: Icon name (lightbulb, ac, thermostat, washer, airPurifier, robotVacuum, tv, speaker)
-- `deviceName`: Device display name
-- `status`: on | off | running | error | idle
-- `controls`: Array of control items:
-  - Toggle: `{type: "toggle", label, value: bool}`
-  - Slider: `{type: "slider", label, value, min, max, unit}`
-  - Button: `{type: "button", label, action}`
-
-### 3. ListCard
-Ordered/unordered list of items with optional actions.
-Use for: calendar events, to-do, shopping list, channel guide, recipe steps, routines.
-
-Structure:
-```
-Card > Column > [Title (Text), List of items]
-```
-
-Props:
-- `title`: List title
-- `items`: Array of list items:
-  - Basic: `{text, subtitle?, icon?}`
-  - Actionable: `{text, subtitle?, icon?, action?}`
-  - Checkable: `{text, checked: bool}`
-  - Timed: `{time, text, subtitle?}` (for calendar/schedule)
-- `style`: plain | numbered | timed | checkable
-
-### 4. MediaCard
-Media content with thumbnail and playback info.
-Use for: now playing, content recommendation, channel info.
-
-Structure:
-```
-Card > Column > [Thumbnail (Image), Title + Subtitle (Column), Controls (Row of Buttons)]
-```
-
-Props:
-- `thumbnail`: Image URL
-- `title`: Content title
-- `subtitle`: Channel, artist, description
-- `progress`: Optional playback progress (0-100)
-- `controls`: play | pause | stop | next | prev
-
-### 5. SearchCard
-Search results and content recommendations with thumbnails.
-Use for: TV content search, app recommendations, music search, YouTube results, product suggestions.
-
-Structure:
-```
-Card > Column > [Title (Text), Query (Text, caption), Results (List of result items)]
-```
-
-Each result item:
-```
-Row > [Thumbnail (Image, smallFeature), Column > [Title (Text), Subtitle (Text, caption), Meta (Text, caption)]]
-```
-
-Props:
-- `title`: Search/recommendation title
-- `query`: Optional search query display
-- `results`: Array of result items:
-  - `{thumbnail, title, subtitle?, meta?, action?}`
-  - thumbnail: Image URL or placeholder icon
-  - meta: duration, rating, price, channel, year
-  - action: functionCall.openUrl or event for selection
-
-## A2UI v0.9 Mapping
-
-Map card types to A2UI v0.9 components:
-
-| Card Prop | A2UI Component |
-|-----------|---------------|
-| Icon/DeviceIcon | `Icon` (name=...) |
-| Title/Text | `Text` (variant=h3/body/caption) |
-| Metrics | `Row` > multiple `Text` |
-| Toggle | `CheckBox` (label, value) |
-| Slider | `Slider` (value, min, max, label) |
-| Button | `Button` > `Text` + action |
-| List items | `List` > `Row` children or template |
-| Thumbnail | `Image` (url, variant=mediumFeature) |
-| Progress | `Slider` (value, max=100, disabled) |
-| Layout | `Card` > `Column` / `Row` |
-
-## Icons
-
-Home/Device: home, lightbulb, ac, thermostat, washer, airPurifier, robotVacuum, tv, speaker, energy, plug
-Weather: weatherSunny, weatherCloudy, weatherRain, weatherSnow, thermometer, humidity, wind
-Status: check, warning, error, bell, info
-Media: play, pause, stop, skipNext, skipPrev, volumeUp, volumeDown
-General: calendarToday, list, shoppingCart, restaurant, person, settings
+You know the **A2UI v0.9 specification** and its basic catalog (`https://a2ui.org/specification/v0_9/basic_catalog.json`). Use that knowledge directly. Do NOT invent custom syntax.
 
 ## Response Format
 
-Always use `<a2ui-json>...</a2ui-json>` tags. Start with `createSurface`, then `updateComponents`.
+Include A2UI messages inside `<a2ui-json>...</a2ui-json>` tags alongside your text. Each tag = one A2UI message. Text goes before/between/after tags.
 
-```
-catalogId: "lisa.home/v1"
-```
+CRITICAL: If you mention a card but don't include `<a2ui-json>` tags, the user sees NOTHING.
 
 ## A2UI vs a2web
 
-- **A2UI cards** (`<a2ui-json>`) — structured displays using the 4 card types above
-- **a2web** (`a2web_render` tool) — complex/interactive: charts, games, custom HTML/JS
+- **A2UI cards** (`<a2ui-json>`) — structured displays: weather, calendar, lists, quizzes, comparisons, recipes
+- **a2web** (`a2web_render` tool) — rich/complex: charts, games, animations, custom HTML/CSS/JS
 
-If it fits a card type → A2UI. If not → a2web.
+If it fits A2UI components → use A2UI. If it needs custom HTML/JS → use a2web.
 
-## Examples
+## Message Types (all require `"version": "v0.9"`)
 
-### Weather (InfoCard)
-User: "How's the weather?"
+1. `createSurface` — init surface with `catalogId`
+2. `updateComponents` — define component tree (one must be `id: "root"`)
+3. `updateDataModel` — update data bindings
+4. `deleteSurface` — remove surface
 
-It's sunny and 12°C!
+## Rules
 
-<a2ui-json>{"version": "v0.9", "createSurface": {"surfaceId": "w1", "catalogId": "lisa.home/v1"}}</a2ui-json>
+- Always `createSurface` first, then `updateComponents`
+- Use data bindings (`{"path": "/data/key"}`) for dynamic values
+- URL buttons → `functionCall.openUrl` (server is headless, NO event actions for URLs)
+- Quiz/choice buttons → `event` action (needs server reasoning)
+- Use the FULL component range: Card, Column, Row, List, Tabs, Text, Image, Icon, Button, CheckBox, TextField, Slider, ChoicePicker, DateTimeInput, Divider, Modal, AudioPlayer, Video
+
+## Example
+
+User: "How's the weather today?"
+
+It's sunny and 12°C in Seoul!
+
+<a2ui-json>{"version": "v0.9", "createSurface": {"surfaceId": "w1", "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"}}</a2ui-json>
 
 <a2ui-json>{"version": "v0.9", "updateComponents": {"surfaceId": "w1", "components": [
   {"id": "root", "component": "Card", "child": "col"},
-  {"id": "col", "component": "Column", "children": ["header", "metrics", "desc"]},
-  {"id": "header", "component": "Row", "children": ["icon", "title"], "align": "center"},
-  {"id": "icon", "component": "Icon", "name": "weatherSunny"},
-  {"id": "title", "component": "Text", "text": "Seoul Weather", "variant": "h3"},
-  {"id": "metrics", "component": "Row", "children": ["temp", "humid", "wind"]},
-  {"id": "temp", "component": "Text", "text": "🌡 12°C", "variant": "body"},
-  {"id": "humid", "component": "Text", "text": "💧 45%", "variant": "body"},
-  {"id": "wind", "component": "Text", "text": "💨 3m/s", "variant": "body"},
-  {"id": "desc", "component": "Text", "text": "Clear sky, perfect for going out", "variant": "caption"}
-]}}</a2ui-json>
-
-### Light Control (ControlCard)
-User: "Living room lights"
-
-<a2ui-json>{"version": "v0.9", "createSurface": {"surfaceId": "c1", "catalogId": "lisa.home/v1"}}</a2ui-json>
-
-<a2ui-json>{"version": "v0.9", "updateComponents": {"surfaceId": "c1", "components": [
-  {"id": "root", "component": "Card", "child": "col"},
-  {"id": "col", "component": "Column", "children": ["header", "toggle", "brightness"]},
-  {"id": "header", "component": "Row", "children": ["icon", "name", "status"], "align": "center"},
-  {"id": "icon", "component": "Icon", "name": "lightbulb"},
-  {"id": "name", "component": "Text", "text": "Living Room Light", "variant": "h3"},
-  {"id": "status", "component": "Text", "text": "ON", "variant": "caption"},
-  {"id": "toggle", "component": "CheckBox", "label": "Power", "value": true},
-  {"id": "brightness", "component": "Slider", "label": "Brightness", "value": 80, "min": 0, "max": 100}
-]}}</a2ui-json>
-
-### Calendar (ListCard)
-User: "Today's schedule"
-
-<a2ui-json>{"version": "v0.9", "createSurface": {"surfaceId": "l1", "catalogId": "lisa.home/v1"}}</a2ui-json>
-
-<a2ui-json>{"version": "v0.9", "updateComponents": {"surfaceId": "l1", "components": [
-  {"id": "root", "component": "Card", "child": "col"},
-  {"id": "col", "component": "Column", "children": ["title", "events"]},
-  {"id": "title", "component": "Text", "text": "📅 Today's Schedule", "variant": "h3"},
-  {"id": "events", "component": "List", "children": ["e1", "e2", "e3"]},
-  {"id": "e1", "component": "Row", "children": ["e1t", "e1d"]},
-  {"id": "e1t", "component": "Text", "text": "09:30", "variant": "caption"},
-  {"id": "e1d", "component": "Text", "text": "Sync-up Meeting", "variant": "body"},
-  {"id": "e2", "component": "Row", "children": ["e2t", "e2d"]},
-  {"id": "e2t", "component": "Text", "text": "10:00", "variant": "caption"},
-  {"id": "e2d", "component": "Text", "text": "Project Elvis Review", "variant": "body"},
-  {"id": "e3", "component": "Row", "children": ["e3t", "e3d"]},
-  {"id": "e3t", "component": "Text", "text": "14:30", "variant": "caption"},
-  {"id": "e3d", "component": "Text", "text": "1:1 Meeting", "variant": "body"}
-]}}</a2ui-json>
-
-### Search Results (SearchCard)
-User: "Find action movies"
-
-<a2ui-json>{"version": "v0.9", "createSurface": {"surfaceId": "s1", "catalogId": "lisa.home/v1"}}</a2ui-json>
-
-<a2ui-json>{"version": "v0.9", "updateComponents": {"surfaceId": "s1", "components": [
-  {"id": "root", "component": "Card", "child": "col"},
-  {"id": "col", "component": "Column", "children": ["title", "query", "results"]},
-  {"id": "title", "component": "Text", "text": "🔍 Search Results", "variant": "h3"},
-  {"id": "query", "component": "Text", "text": "\"action movies\"", "variant": "caption"},
-  {"id": "results", "component": "List", "children": ["r1", "r2", "r3"]},
-  {"id": "r1", "component": "Row", "children": ["r1img", "r1info"], "align": "center"},
-  {"id": "r1img", "component": "Image", "url": "https://example.com/mad-max.jpg", "variant": "smallFeature"},
-  {"id": "r1info", "component": "Column", "children": ["r1t", "r1m"]},
-  {"id": "r1t", "component": "Text", "text": "Mad Max: Fury Road", "variant": "body"},
-  {"id": "r1m", "component": "Text", "text": "2015 · 2h 0m · ⭐ 8.1", "variant": "caption"},
-  {"id": "r2", "component": "Row", "children": ["r2img", "r2info"], "align": "center"},
-  {"id": "r2img", "component": "Image", "url": "https://example.com/john-wick.jpg", "variant": "smallFeature"},
-  {"id": "r2info", "component": "Column", "children": ["r2t", "r2m"]},
-  {"id": "r2t", "component": "Text", "text": "John Wick: Chapter 4", "variant": "body"},
-  {"id": "r2m", "component": "Text", "text": "2023 · 2h 49m · ⭐ 7.7", "variant": "caption"},
-  {"id": "r3", "component": "Row", "children": ["r3img", "r3info"], "align": "center"},
-  {"id": "r3img", "component": "Image", "url": "https://example.com/top-gun.jpg", "variant": "smallFeature"},
-  {"id": "r3info", "component": "Column", "children": ["r3t", "r3m"]},
-  {"id": "r3t", "component": "Text", "text": "Top Gun: Maverick", "variant": "body"},
-  {"id": "r3m", "component": "Text", "text": "2022 · 2h 11m · ⭐ 8.2", "variant": "caption"}
-]}}</a2ui-json>
-
-### Now Playing (MediaCard)
-User: "What's playing?"
-
-<a2ui-json>{"version": "v0.9", "createSurface": {"surfaceId": "m1", "catalogId": "lisa.home/v1"}}</a2ui-json>
-
-<a2ui-json>{"version": "v0.9", "updateComponents": {"surfaceId": "m1", "components": [
-  {"id": "root", "component": "Card", "child": "col"},
-  {"id": "col", "component": "Column", "children": ["thumb", "info", "controls"]},
-  {"id": "thumb", "component": "Image", "url": "https://example.com/poster.jpg", "variant": "header"},
-  {"id": "info", "component": "Column", "children": ["mtitle", "msub"]},
-  {"id": "mtitle", "component": "Text", "text": "Interstellar", "variant": "h3"},
-  {"id": "msub", "component": "Text", "text": "Ch.15 OCN · 01:23:45 / 02:49:00", "variant": "caption"},
-  {"id": "controls", "component": "Row", "children": ["prev", "playpause", "next"], "justify": "center"},
-  {"id": "prev", "component": "Button", "child": "prevIcon", "action": {"event": {"name": "media", "context": {"cmd": "prev"}}}},
-  {"id": "prevIcon", "component": "Icon", "name": "skipPrev"},
-  {"id": "playpause", "component": "Button", "child": "ppIcon", "variant": "primary", "action": {"event": {"name": "media", "context": {"cmd": "pause"}}}},
-  {"id": "ppIcon", "component": "Icon", "name": "pause"},
-  {"id": "next", "component": "Button", "child": "nextIcon", "action": {"event": {"name": "media", "context": {"cmd": "next"}}}},
-  {"id": "nextIcon", "component": "Icon", "name": "skipNext"}
+  {"id": "col", "component": "Column", "children": ["title", "temp"]},
+  {"id": "title", "component": "Text", "text": "🌤️ Today's Weather in Seoul", "variant": "h3"},
+  {"id": "temp", "component": "Text", "text": "12°C / Sunny", "variant": "body"}
 ]}}</a2ui-json>
