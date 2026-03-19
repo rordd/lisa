@@ -3,6 +3,7 @@
 
 Uses app-search.py to find matching apps (with exact-match priority),
 then launches via launchDefaultApp (if appCategory exists) or launch (by id).
+Outputs only the luna-send JSON result to stdout.
 
 Usage: python3 app-launch.py <keyword>
 """
@@ -21,13 +22,17 @@ result = subprocess.run(
 )
 
 if result.returncode != 0:
-    print(result.stderr.strip() or f'Error: search failed for "{target}"', file=sys.stderr)
-    sys.exit(1)
+    print(json.dumps({"returnValue": False, "errorText": result.stderr.strip() or f'search failed for "{target}"'}))
+    sys.exit(0)
 
-matched = json.loads(result.stdout)
+try:
+    matched = json.loads(result.stdout)
+except (json.JSONDecodeError, ValueError):
+    print(json.dumps({"returnValue": False, "errorText": "failed to parse app search result"}))
+    sys.exit(0)
 if not matched:
-    print(f'Error: no app found matching "{target}". Try a different keyword.', file=sys.stderr)
-    sys.exit(1)
+    print(json.dumps({"returnValue": False, "errorText": f'no app found matching "{target}"'}))
+    sys.exit(0)
 
 app = matched[0]
 app_id = app.get('id', '')
@@ -45,7 +50,6 @@ if app_category:
          json.dumps({'category': app_category})],
         capture_output=True, text=True
     )
-    method = f'launch_category (appCategory={app_category})'
 else:
     launch_result = subprocess.run(
         ['luna-send', '-n', '1',
@@ -53,10 +57,10 @@ else:
          json.dumps({'id': app_id})],
         capture_output=True, text=True
     )
-    method = f'launch_id (id={app_id})'
 
-output = launch_result.stdout.strip() or launch_result.stderr.strip()
-print(f'Launched {app.get("title", app_id)} via {method}')
+# Output luna-send result directly
+output = launch_result.stdout.strip()
 if output:
     print(output)
-sys.exit(launch_result.returncode)
+else:
+    print(json.dumps({"returnValue": False, "errorText": launch_result.stderr.strip() or "luna-send failed"}))

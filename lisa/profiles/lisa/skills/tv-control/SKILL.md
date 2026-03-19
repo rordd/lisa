@@ -12,6 +12,7 @@ always: true
 2. Every command must be actually executed by calling the exec tool each time, even if it is the same command.
 3. Even if you have seen the result of the same command in a previous conversation, you must re-execute it to obtain the actual value at the current point in time.
 4. "Generating" command results is prohibited. You must only use results obtained through tool calls.
+5. Tool results are JSON. Check `returnValue`: `true` means success, `false` means error (see `errorText`).
 
 ## Commands
 
@@ -41,15 +42,14 @@ sh skills/tv-control/scripts/volume-control.sh {action} {level}
 
 Manage webOS apps.
 
-- `action` (required): `list` | `launch` | `foreground`
+- `action` (required): `launch` | `foreground`
 - `target`:
-  - `list`: one or more space-separated keywords to search apps (e.g. `netflix`, `home`). Always translate Korean app names to English (e.g. 넷플릭스→netflix, 유튜브→youtube, 디즈니플러스→disney, 티빙→tving, 쿠팡플레이→coupang, 웨이브→wavve, 홈→home, 설정→settings, 라이브→livetv)
-  - `launch`: app keyword to find and launch — automatically resolves the correct method (e.g. `netflix`, `home`)
+  - `launch`: app keyword to find and launch — automatically searches and resolves the correct method (e.g. `netflix`, `home`). Always translate Korean app names to English (e.g. 넷플릭스→netflix, 유튜브→youtube, 디즈니플러스→disney, 티빙→tving, 쿠팡플레이→coupang, 웨이브→wavve, 홈→home, 설정→settings, 라이브→livetv)
   - `foreground`: leave empty
 
 > **TV 틀어/켜/실행**: When the user says 'TV 틀어', 'TV 켜', 'TV 실행', or similar requests to turn on/start TV, always launch 'livetv' (Live TV app).
 
-> **Retry rule**: If the list result is empty, retry with the English name or a shorter keyword before telling the user the app is not found.
+> **Retry rule**: If the launch fails with 'no app found', retry with the English name or a shorter keyword before telling the user the app is not found.
 
 ```
 sh skills/tv-control/scripts/app-control.sh {action} {target}

@@ -28,7 +28,8 @@ def launch_livetv():
     subprocess.run(
         ["luna-send", "-n", "1",
          "luna://com.webos.applicationManager/launch",
-         '{"id":"' + LIVETV + '"}'])
+         '{"id":"' + LIVETV + '"}'],
+        capture_output=True)
 
 
 def wait_for_livetv(timeout=10):

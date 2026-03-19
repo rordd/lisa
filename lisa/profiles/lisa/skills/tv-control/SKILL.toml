@@ -7,10 +7,10 @@ always = true
 [[prompts]]
 content = """
 For every tv-control request, always call the appropriate tool first. Do not respond with text alone — execute the tool, then reply based on the result.
-When searching or launching apps, always translate Korean app names to English (e.g. 넷플릭스→netflix, 유튜브→youtube, 디즈니플러스→disney, 티빙→tving, 쿠팡플레이→coupang, 웨이브→wavve, 홈→home, 설정→settings, 라이브→livetv).
+Tool results are JSON. Check "returnValue": true means success, false means error (see "errorText").
+When launching apps, always translate Korean app names to English (e.g. 넷플릭스→netflix, 유튜브→youtube, 디즈니플러스→disney, 티빙→tving, 쿠팡플레이→coupang, 웨이브→wavve, 홈→home, 설정→settings, 라이브→livetv).
 When the user says 'TV 틀어', 'TV 켜', 'TV 실행', or similar requests to turn on/start TV, always launch 'livetv' (Live TV app).
-If the list result is empty, retry with the English name or a shorter keyword before telling the user the app is not found.
-To launch an app, use the 'launch' action with a keyword — it automatically searches and resolves the correct launch method.
+If the launch fails with 'no app found', retry with the English name or a shorter keyword before telling the user the app is not found.
 """
 
 [[tools]]
@@ -35,10 +35,10 @@ level = "Volume level (integer 0-100, required only for 'set'; leave empty for '
 
 [[tools]]
 name = "app_control"
-description = "Manage webOS apps. Actions: 'list' (search installed apps by keyword, returns matching apps as JSON), 'launch' (find and launch an app by keyword — automatically resolves the best launch method), 'foreground' (get current foreground app info)."
+description = "Manage webOS apps. Actions: 'launch' (find and launch an app by keyword — automatically searches and resolves the best launch method), 'foreground' (get current foreground app info)."
 kind = "shell"
 command = "sh skills/tv-control/scripts/app-control.sh {action} {target}"
 
 [tools.args]
-action = "App action: 'list', 'launch', or 'foreground'."
-target = "For 'list': one or more space-separated keywords to search apps (e.g. 'netflix', 'home'). For 'launch': app keyword to find and launch (e.g. 'netflix', 'youtube', 'home'). Leave empty for 'foreground'."
+action = "App action: 'launch' or 'foreground'."
+target = "For 'launch': app keyword to find and launch (e.g. 'netflix', 'youtube', 'home'). Leave empty for 'foreground'."
