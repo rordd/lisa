@@ -379,6 +379,8 @@ pub struct AppState {
     pub device_registry: Option<Arc<api_pairing::DeviceRegistry>>,
     /// Pending pairing request store
     pub pending_pairings: Option<Arc<api_pairing::PairingStore>>,
+    /// Root directory for a2web rendered pages (`{zeroclaw_dir}/web/`).
+    pub a2web_dir: Option<std::path::PathBuf>,
 }
 
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
@@ -808,6 +810,11 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         session_backend,
         device_registry,
         pending_pairings,
+        a2web_dir: if config.a2web.enabled {
+            Some(config.workspace_dir.join("web"))
+        } else {
+            None
+        },
     };
 
     // Config PUT needs larger body limit (1MB)
@@ -874,6 +881,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/api/events", get(sse::handle_sse_events))
         // ── WebSocket agent chat ──
         .route("/ws/chat", get(ws::handle_ws_chat))
+        // ── A2Web rendered pages ──
+        .route("/web/{id}/", get(handle_a2web_page))
+        .route("/web/{id}", get(handle_a2web_redirect))
         // ── WebSocket node discovery ──
         .route("/ws/nodes", get(nodes::handle_ws_nodes))
         // ── Static assets (web dashboard) ──
@@ -908,6 +918,37 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 // ══════════════════════════════════════════════════════════════════════════════
 // AXUM HANDLERS
 // ══════════════════════════════════════════════════════════════════════════════
+
+/// GET /web/{id}/ — serve a2web rendered page
+async fn handle_a2web_page(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    // Reject path-traversal attempts.
+    if id.contains('.') || id.contains('/') || id.contains('\\') {
+        return (StatusCode::BAD_REQUEST, "invalid id").into_response();
+    }
+    let Some(ref web_dir) = state.a2web_dir else {
+        return (StatusCode::NOT_FOUND, "a2web is disabled").into_response();
+    };
+    let index = web_dir.join(&id).join("index.html");
+    match tokio::fs::read(&index).await {
+        Ok(content) => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            content,
+        )
+            .into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "page not found").into_response(),
+    }
+}
+
+/// Redirect `/web/{id}` → `/web/{id}/`.
+async fn handle_a2web_redirect(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    axum::response::Redirect::permanent(&format!("/web/{id}/"))
+}
 
 /// GET /health — always public (no secrets leaked)
 async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
@@ -1976,7 +2017,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2031,7 +2072,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2410,7 +2451,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2479,7 +2520,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let headers = HeaderMap::new();
@@ -2560,7 +2601,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let response = handle_webhook(
@@ -2613,7 +2654,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2671,7 +2712,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2734,7 +2775,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let response = Box::pin(handle_nextcloud_talk_webhook(
@@ -2793,7 +2834,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();

@@ -2402,6 +2402,13 @@ pub(crate) async fn run_tool_call_loop(
         }
         let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
 
+        tracing::debug!(
+            tool_count = tool_specs.len(),
+            use_native_tools,
+            tool_names = ?tool_specs.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+            "Agent loop: tool_specs for this turn"
+        );
+
         let image_marker_count = multimodal::count_image_markers(history);
         if image_marker_count > 0 && !provider.supports_vision() {
             return Err(ProviderCapabilityError {

@@ -118,8 +118,23 @@ const A2UI_V08_KEYS: &[&str] = &[
 
 /// Check if a JSON value has any A2UI key (v0.8 or v0.9).
 fn is_a2ui_message(v: &Value) -> bool {
-    A2UI_V09_KEYS.iter().any(|k| v.get(k).is_some())
+    // Check top-level keys (standard format)
+    if A2UI_V09_KEYS.iter().any(|k| v.get(k).is_some())
         || A2UI_V08_KEYS.iter().any(|k| v.get(k).is_some())
+    {
+        return true;
+    }
+    // Check nested "v0.9": { "createSurface": ... } format (Gemini style)
+    if let Some(inner) = v.get("v0.9") {
+        if let Some(obj) = inner.as_object() {
+            return A2UI_V09_KEYS.iter().any(|k| obj.contains_key(*k));
+        }
+        // "v0.9": "v0.9" version marker — also valid
+        if inner.is_string() {
+            return A2UI_V09_KEYS.iter().any(|k| v.get(k).is_some());
+        }
+    }
+    false
 }
 
 /// Parse JSONL (one JSON object per line) from a string.
