@@ -109,7 +109,7 @@ lisa/test/benchmark-skill-mode.sh --target 192.168.0.10 --runs 50
 
 ### Gateway 포트
 
-`config.default.toml`의 `[gateway] port` 값을 자동으로 읽습니다. 별도 포트 설정 불필요.
+포트 읽기 순서: `.env`(`ZEROCLAW_GATEWAY_PORT`) → `config.default.toml`(`[gateway] port`) → 기본값 `42617`. 별도 포트 설정 불필요.
 
 ### Runtime trace
 

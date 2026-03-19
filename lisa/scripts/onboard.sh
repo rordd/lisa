@@ -331,7 +331,7 @@ setup_hosts() {
             esac
         }
     else
-        # Local
+        # Local — skip if hostname already present (any IP)
         if grep -q "$hostname" /etc/hosts 2>/dev/null; then
             echo "  $hostname already in /etc/hosts ✓"
         elif sh -c "echo '$hosts_entry' >> /etc/hosts" 2>/dev/null; then
@@ -507,6 +507,13 @@ install_skills() {
             SKILL_COUNT=$((SKILL_COUNT + 1))
         done
         echo "  $SKILL_COUNT skill(s) installed"
+
+        # Ensure executable permissions on skill scripts (scp may not preserve them)
+        if [[ -n "$TARGET" ]]; then
+            ssh "$TARGET_HOST" "find $WS/skills -name '*.sh' -o -name '*.py' | xargs chmod +x 2>/dev/null" || true
+        else
+            find "$WS/skills" -name '*.sh' -o -name '*.py' | xargs chmod +x 2>/dev/null || true
+        fi
 
         # Symlink mock luna-send into PATH if real luna-send is unavailable
         local mock_src="$WS/skills/tv-control/scripts/mock/luna-send"
@@ -917,21 +924,8 @@ clear_all() {
                 echo "  No hosts entry found (skipped)"
             fi
         else
-            if grep -q "$hostname" /etc/hosts 2>/dev/null; then
-                if mountpoint -q /etc/hosts 2>/dev/null; then
-                    # Bind mounted → unmount to restore original
-                    sudo umount /etc/hosts 2>/dev/null || umount /etc/hosts 2>/dev/null || true
-                    rm -f "$HOME/.hosts"
-                    echo "  Removed $hostname from /etc/hosts (bind unmounted)"
-                else
-                    # Directly written → remove the line
-                    sudo sed -i "/$hostname/d" /etc/hosts 2>/dev/null \
-                        || sed -i "/$hostname/d" /etc/hosts 2>/dev/null || true
-                    echo "  Removed $hostname from /etc/hosts"
-                fi
-            else
-                echo "  No hosts entry found (skipped)"
-            fi
+            # Local: keep /etc/hosts entry (may be shared with other tools)
+            echo "  /etc/hosts entry kept (remove manually if needed)"
         fi
     else
         echo "  No custom provider hostname (skipped)"

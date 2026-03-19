@@ -108,7 +108,7 @@ Side-by-side comparison table for each skill:
 
 ### Gateway port
 
-The script automatically reads `[gateway] port` from `config.default.toml`. No manual port configuration needed.
+The script reads the gateway port in this order: `.env` (`ZEROCLAW_GATEWAY_PORT`) → `config.default.toml` (`[gateway] port`) → default `42617`. No manual port configuration needed.
 
 ### Runtime trace
 

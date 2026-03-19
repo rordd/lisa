@@ -55,6 +55,9 @@ APPS
 
     *applicationManager/launchDefaultApp)
         CATEGORY=$(json_val "$PAYLOAD" category)
+        # Update foreground state with the category as app identifier
+        FOREGROUND="${CATEGORY:-$FOREGROUND}"
+        echo '{"volume":'"$VOLUME"',"channel":'"$CHANNEL"',"foreground":"'"$FOREGROUND"'"}' > "$STATE_FILE"
         echo '{"returnValue":true}'
         ;;
 

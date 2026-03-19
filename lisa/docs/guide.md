@@ -72,8 +72,12 @@ After onboarding, files are installed to `~/.zeroclaw/`:
             ├── SKILL.md
             └── scripts/
                 ├── app-control.sh
+                ├── app-search.py
+                ├── app-launch.py
+                ├── app-parse-list.py
                 ├── channel-control.sh
                 ├── volume-control.sh
+                ├── ensure_livetv.py
                 └── mock/       ← Installed only on non-webOS environments
                     └── luna-send
 ```
@@ -217,7 +221,8 @@ If the agent test fails (no LLM connection), skill tests are automatically skipp
 - Removes dependency binaries (`gog`, etc.) from `~/.local/bin/`
 - Removes mock `luna-send` symlink from `~/.local/bin/` (only if it is a symlink)
 - Removes `~/.zeroclaw/` (config + workspace)
-- Removes Azure private endpoint from `/etc/hosts` (unmounts bind if used)
+- Target: unmounts Azure private endpoint `/etc/hosts` bind mount
+- Local: `/etc/hosts` entry is kept (remove manually if needed)
 
 Requires interactive confirmation before proceeding.
 

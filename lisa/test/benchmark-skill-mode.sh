@@ -33,9 +33,16 @@ TARGET_USER="root"
 RUNS=10
 BENCH_USER="$(id -un)"
 RESULTS_FILE="/tmp/zeroclaw_benchmark_${BENCH_USER}_$$.txt"
-# Read gateway port from [gateway] section in config (fallback to 42617)
+# Read gateway port: .env > config.default.toml > 42617
 CONFIG_TOML="$SCRIPT_DIR/../config/config.default.toml"
-GATEWAY_PORT=$(sed -n '/^\[gateway\]/,/^\[/{s/^port[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p;}' "$CONFIG_TOML" 2>/dev/null)
+ENV_FILE="$SCRIPT_DIR/../profiles/.env"
+GATEWAY_PORT=""
+if [[ -f "$ENV_FILE" ]]; then
+    GATEWAY_PORT=$(sed -n 's/^[[:space:]]*export[[:space:]]*ZEROCLAW_GATEWAY_PORT=\([0-9]*\).*/\1/p' "$ENV_FILE" 2>/dev/null)
+fi
+if [[ -z "$GATEWAY_PORT" ]]; then
+    GATEWAY_PORT=$(sed -n '/^\[gateway\]/,/^\[/{s/^port[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p;}' "$CONFIG_TOML" 2>/dev/null)
+fi
 GATEWAY_PORT="${GATEWAY_PORT:-42617}"
 
 # Queries designed to force a tool call on every run:

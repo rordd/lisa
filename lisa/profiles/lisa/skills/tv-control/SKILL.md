@@ -41,14 +41,15 @@ sh skills/tv-control/scripts/volume-control.sh {action} {level}
 
 Manage webOS apps.
 
-- `action` (required): `list` | `launch_id` | `launch_category` | `foreground`
+- `action` (required): `list` | `launch` | `foreground`
 - `target`:
-  - `list`: one or more space-separated keywords (OR match) to filter apps by title, id, or appCategory (e.g. `유투브 youtube`)
-  - `launch_id`: app ID — use only when the app has no `appCategory` (e.g. `com.webos.app.netflix`)
-  - `launch_category`: `appCategory` value from the app info — use when the app has an `appCategory` (e.g. `home`)
+  - `list`: one or more space-separated keywords to search apps (e.g. `netflix`, `home`). Always translate Korean app names to English (e.g. 넷플릭스→netflix, 유튜브→youtube, 디즈니플러스→disney, 티빙→tving, 쿠팡플레이→coupang, 웨이브→wavve, 홈→home, 설정→settings, 라이브→livetv)
+  - `launch`: app keyword to find and launch — automatically resolves the correct method (e.g. `netflix`, `home`)
   - `foreground`: leave empty
 
-> **Launch rule**: if `appCategory` is present in the app info, always use `launch_category`. Use `launch_id` only when there is no `appCategory`.
+> **TV 틀어/켜/실행**: When the user says 'TV 틀어', 'TV 켜', 'TV 실행', or similar requests to turn on/start TV, always launch 'livetv' (Live TV app).
+
+> **Retry rule**: If the list result is empty, retry with the English name or a shorter keyword before telling the user the app is not found.
 
 ```
 sh skills/tv-control/scripts/app-control.sh {action} {target}
@@ -56,4 +57,5 @@ sh skills/tv-control/scripts/app-control.sh {action} {target}
 
 ## Safety Guidelines
 
+- For every tv-control request, always call the appropriate tool first. Do not respond with text alone — execute the tool, then reply based on the result.
 - If a command fails, show the error output and suggest alternatives.
