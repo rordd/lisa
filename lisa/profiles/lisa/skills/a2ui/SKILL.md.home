@@ -130,6 +130,12 @@ Status: check, warning, error, bell, info
 Media: play, pause, stop, skipNext, skipPrev, volumeUp, volumeDown
 General: calendarToday, list, shoppingCart, restaurant, person, settings
 
+## Action Format
+
+Button `action` MUST use the nested v0.9 format. NEVER use flat `{"type":"event","name":...,"payload":...}`:
+- Event: `{"action": {"event": {"name": "choice", "context": {"answer": "A"}}}}`
+- Function: `{"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}}`
+
 ## Response Format
 
 Always use `<a2ui-json>...</a2ui-json>` tags. Start with `createSurface`, then `updateComponents`.
