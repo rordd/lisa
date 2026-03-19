@@ -60,12 +60,22 @@ After onboarding, files are installed to `~/.zeroclaw/`:
     ├── AGENTS.md
     └── skills/
         ├── weather/
+        │   ├── SKILL.toml     ← Tool definitions (native function calling)
+        │   └── SKILL.md       ← Prompt-based tool descriptions
         ├── calendar/
+        │   ├── SKILL.toml
+        │   └── SKILL.md
+        ├── a2ui/
+        │   └── SKILL.md
         └── tv-control/
-            ├── scripts/
-            │   └── mock/       ← Installed only on non-webOS environments
-            │       └── luna-send
-            └── ...
+            ├── SKILL.toml
+            ├── SKILL.md
+            └── scripts/
+                ├── app-control.sh
+                ├── channel-control.sh
+                ├── volume-control.sh
+                └── mock/       ← Installed only on non-webOS environments
+                    └── luna-send
 ```
 
 - `config.default.toml` contains no personal data — safe to commit
@@ -359,6 +369,17 @@ ssh root@<board-ip> 'export PATH=/home/root/lisa:$PATH && source ~/.zeroclaw/.en
 - Cross-build toolchain (one of the following):
   - **Option A**: `cross` CLI + Docker (`cargo install cross`)
   - **Option B**: Native musl toolchain (`sudo apt install gcc-aarch64-linux-gnu musl-tools` + `rustup target add aarch64-unknown-linux-musl`)
+
+## Skill Modes
+
+ZeroClaw supports two modes per skill:
+
+| Mode | File | Tool calling | Description |
+|---|---|---|---|
+| **SKILL.toml** | `SKILL.toml` | Native function calling | Tools defined as JSON schema, LLM invokes via structured tool calls |
+| **SKILL.md** | `SKILL.md` | Prompt-based | Tool usage described in natural language, LLM executes scripts directly |
+
+When both files are present, `SKILL.toml` takes priority.
 
 ## Platform Bundles
 

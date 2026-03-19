@@ -60,12 +60,22 @@ USER.md (로컬)              ← 사용자 프로필 (로컬 전용)
     ├── AGENTS.md
     └── skills/
         ├── weather/
+        │   ├── SKILL.toml     ← 도구 정의 (네이티브 function calling)
+        │   └── SKILL.md       ← 프롬프트 기반 도구 설명
         ├── calendar/
+        │   ├── SKILL.toml
+        │   └── SKILL.md
+        ├── a2ui/
+        │   └── SKILL.md
         └── tv-control/
-            ├── scripts/
-            │   └── mock/       ← non-webOS 환경에서만 설치
-            │       └── luna-send
-            └── ...
+            ├── SKILL.toml
+            ├── SKILL.md
+            └── scripts/
+                ├── app-control.sh
+                ├── channel-control.sh
+                ├── volume-control.sh
+                └── mock/       ← non-webOS 환경에서만 설치
+                    └── luna-send
 ```
 
 - `config.default.toml`에 개인정보 없음 — 커밋 안전
@@ -359,6 +369,17 @@ ssh root@<보드IP> 'export PATH=/home/root/lisa:$PATH && source ~/.zeroclaw/.en
 - 크로스 빌드 툴체인 (택 1):
   - **방법 A**: `cross` CLI + Docker (`cargo install cross`)
   - **방법 B**: 네이티브 musl 툴체인 (`sudo apt install gcc-aarch64-linux-gnu musl-tools` + `rustup target add aarch64-unknown-linux-musl`)
+
+## 스킬 모드
+
+ZeroClaw는 스킬마다 두 가지 모드를 지원합니다:
+
+| 모드 | 파일 | 도구 호출 | 설명 |
+|---|---|---|---|
+| **SKILL.toml** | `SKILL.toml` | 네이티브 function calling | 도구를 JSON schema로 정의, LLM이 structured tool call로 호출 |
+| **SKILL.md** | `SKILL.md` | 프롬프트 기반 | 도구 사용법을 자연어로 기술, LLM이 스크립트 직접 실행 |
+
+두 파일이 모두 있으면 `SKILL.toml`이 우선됩니다.
 
 ## 플랫폼별 번들
 

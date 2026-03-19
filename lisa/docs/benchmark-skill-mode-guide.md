@@ -137,10 +137,10 @@ ps -p <PID> -o user,cmd
 
 Kill the stale daemon and re-run the benchmark.
 
-### Permission denied on /tmp/zeroclaw.log
+### Permission denied on /tmp/zeroclaw-*.log
 
-Another user's log file exists. The script uses PID-based log filenames for local mode to avoid this, but if it occurs, remove the stale file:
+Another user's log file exists. The script uses user-ID-based log filenames (e.g., `/tmp/zeroclaw-bench-sungsik-12345.log`) to avoid collisions, but if it occurs, remove the stale file:
 
 ```bash
-sudo rm /tmp/zeroclaw.log
+sudo rm /tmp/zeroclaw-*.log
 ```

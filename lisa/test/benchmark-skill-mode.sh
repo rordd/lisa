@@ -31,7 +31,8 @@ ONBOARD="$(cd "$SCRIPT_DIR/../scripts" && pwd)/onboard.sh"
 TARGET_IP=""
 TARGET_USER="root"
 RUNS=10
-RESULTS_FILE="/tmp/zeroclaw_benchmark_$$.txt"
+BENCH_USER="$(id -un)"
+RESULTS_FILE="/tmp/zeroclaw_benchmark_${BENCH_USER}_$$.txt"
 # Read gateway port from [gateway] section in config (fallback to 42617)
 CONFIG_TOML="$SCRIPT_DIR/../config/config.default.toml"
 GATEWAY_PORT=$(sed -n '/^\[gateway\]/,/^\[/{s/^port[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p;}' "$CONFIG_TOML" 2>/dev/null)
@@ -160,7 +161,7 @@ activate_skill_md_mode() {
 start_daemon() {
     echo "  [daemon] Starting zeroclaw daemon..."
     if [[ "$LOCAL_MODE" == true ]]; then
-        local logfile="/tmp/zeroclaw-bench-$$.log"
+        local logfile="/tmp/zeroclaw-bench-${BENCH_USER}-$$.log"
         (
             set +e
             source "$ZC_DIR/.env" 2>/dev/null || true
@@ -177,7 +178,7 @@ start_daemon() {
             [ -f $ZC_DIR/.env ] && . $ZC_DIR/.env
             export PATH=$DEPLOY_DIR:\$PATH
             export ZEROCLAW_CONFIG_DIR=$ZC_DIR
-            nohup ./zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &
+            nohup ./zeroclaw daemon > /tmp/zeroclaw-bench-${TARGET_USER}-\$\$.log 2>&1 &
             echo \$!
         " 2>/dev/null
     fi
@@ -221,7 +222,7 @@ run_measurement() {
     run_on_target "> ${TRACE_FILE} 2>/dev/null || true"
 
     # Send request, capture body + elapsed time (last line = time_total)
-    local tmpfile="/tmp/zeroclaw_bench_resp_$$.txt"
+    local tmpfile="/tmp/zeroclaw_bench_resp_${BENCH_USER}_$$.txt"
     run_on_target "
         curl -s \
              -w '\n%{time_total}' \

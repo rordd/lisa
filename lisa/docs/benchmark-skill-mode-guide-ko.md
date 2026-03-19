@@ -138,10 +138,10 @@ ps -p <PID> -o user,cmd
 
 해당 데몬을 종료하고 벤치마크를 다시 실행하세요.
 
-### /tmp/zeroclaw.log 권한 오류
+### /tmp/zeroclaw-*.log 권한 오류
 
-다른 사용자의 로그 파일이 남아있는 경우입니다. 로컬 모드에서는 PID 기반 파일명을 사용하지만, 문제가 발생하면 삭제하세요:
+다른 사용자의 로그 파일이 남아있는 경우입니다. 스크립트는 사용자 ID 기반 파일명(예: `/tmp/zeroclaw-bench-sungsik-12345.log`)을 사용하지만, 문제가 발생하면 삭제하세요:
 
 ```bash
-sudo rm /tmp/zeroclaw.log
+sudo rm /tmp/zeroclaw-*.log
 ```

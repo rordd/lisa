@@ -49,3 +49,8 @@ lcov.info
 
 # Wrangler cache
 .wrangler/
+
+# Lisa local artifacts
+lisa/bin/
+lisa/gogcli/
+lisa/profiles/lisa/USER.md

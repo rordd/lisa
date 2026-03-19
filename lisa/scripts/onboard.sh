@@ -180,10 +180,10 @@ restart_daemon() {
     fi
     sleep 1
     if [[ -n "$TARGET" ]]; then
-        ssh "$TARGET_HOST" "cd $TARGET_DEPLOY_DIR && export PATH=$TARGET_DEPLOY_DIR:\$PATH && . $TARGET_ZEROCLAW_DIR/.env && nohup ./zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &"
+        ssh "$TARGET_HOST" "cd $TARGET_DEPLOY_DIR && export PATH=$TARGET_DEPLOY_DIR:\$PATH && . $TARGET_ZEROCLAW_DIR/.env && nohup ./zeroclaw daemon > /tmp/zeroclaw-${TARGET_USER}.log 2>&1 &"
     else
         source "$ZEROCLAW_DIR/.env" 2>/dev/null || true
-        nohup zeroclaw daemon > /tmp/zeroclaw.log 2>&1 &
+        nohup zeroclaw daemon > /tmp/zeroclaw-$(id -un).log 2>&1 &
     fi
     echo "  Done"
 }
@@ -200,7 +200,9 @@ if [[ "$DO_BUILD" == true ]]; then
         if command -v cross &>/dev/null && (command -v docker &>/dev/null || command -v podman &>/dev/null); then
             cross build --release --target aarch64-unknown-linux-musl
         else
-            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
+            CC_aarch64_unknown_linux_musl=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc \
+            AR_aarch64_unknown_linux_musl=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-ar \
+            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc \
                 cargo build --release --target aarch64-unknown-linux-musl
         fi
         BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw"
@@ -464,6 +466,11 @@ install_config() {
 # ══════════════════════════════════════════════
 install_skills() {
     echo "[Skills]"
+    # Remove legacy symlink from v0.5 local mode (prevents "same file" cp errors)
+    if [[ -L "$WS/skills" ]]; then
+        rm "$WS/skills"
+        echo "  Removed legacy skills symlink"
+    fi
     ensure_dir "$WS/skills"
 
     if [[ -d "$PROFILE_DIR/skills" ]]; then
@@ -684,7 +691,7 @@ run_tests() {
             if [[ -n "${AZURE_PRIVATE_ENDPOINT:-}" ]]; then
                 hosts_setup="[ -f $hosts_copy ] && ! grep -q '${AZURE_PRIVATE_ENDPOINT}' /etc/hosts 2>/dev/null && mount --bind $hosts_copy /etc/hosts 2>/dev/null; "
             fi
-            ssh "$TARGET_HOST" "${hosts_setup}cd $TARGET_DEPLOY_DIR && [ -f $TARGET_ZEROCLAW_DIR/.env ] && . $TARGET_ZEROCLAW_DIR/.env && export PATH=$TARGET_DEPLOY_DIR:\$PATH && export ZEROCLAW_CONFIG_DIR=$TARGET_ZEROCLAW_DIR && $1"
+            ssh "$TARGET_HOST" "${hosts_setup}cd $TARGET_DEPLOY_DIR && [ -f $TARGET_ZEROCLAW_DIR/.env ] && . $TARGET_ZEROCLAW_DIR/.env && export PATH=$TARGET_DEPLOY_DIR:\$PATH && $1"
         else
             ( source "$ZEROCLAW_DIR/.env" 2>/dev/null; eval "$1" )
         fi
@@ -755,7 +762,7 @@ run_tests() {
         elif [[ "$agent_ok" == true ]]; then
             echo "  [calendar] Asking zeroclaw for schedule..."
             local cal_out
-            cal_out=$(run_cmd "zeroclaw agent -m 'list today schedule, one line'") && EXIT=0 || EXIT=$?
+            cal_out=$(run_cmd "zeroclaw agent -m 'list today Google Calendar events, one line summary'") && EXIT=0 || EXIT=$?
             if [[ $EXIT -eq 0 ]] && ! has_skill_failure "$cal_out"; then
                 echo "  [calendar] OK — $(echo "$cal_out" | tail -1 | head -c 80)"
                 pass=$((pass + 1))

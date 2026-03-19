@@ -54,6 +54,12 @@ gog calendar create <calendarId> --summary "Meeting title" --from 2026-03-03T14:
 gog calendar update <calendarId> <eventId> --summary "New title"
 ```
 
+### Delete Event
+```bash
+# Delete by event ID (use calendar_events --json to find the event ID first)
+gog calendar delete <calendarId> <eventId> --force
+```
+
 ### Colors
 ```bash
 gog calendar colors
@@ -80,6 +86,6 @@ done
 
 ## Rules
 
-- Always confirm with the user before creating/updating events
+- Always confirm with the user before creating/updating/deleting events
 - Use `--json` flag for parseable output
 - Without `GOG_ACCOUNT`, `--account` is required each time

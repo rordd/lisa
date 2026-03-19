@@ -57,6 +57,12 @@ pub struct SkillTool {
     pub args: HashMap<String, String>,
 }
 
+/// A prompt entry in SKILL.toml (`[[prompts]]` table array).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SkillPromptEntry {
+    content: String,
+}
+
 /// Skill manifest parsed from SKILL.toml
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SkillManifest {
@@ -64,7 +70,7 @@ struct SkillManifest {
     #[serde(default)]
     tools: Vec<SkillTool>,
     #[serde(default)]
-    prompts: Vec<String>,
+    prompts: Vec<SkillPromptEntry>,
 }
 
 #[allow(dead_code)] // Upstream uses this in MetadataOnly; we parse SkillManifest instead to keep tools.
@@ -83,6 +89,8 @@ struct SkillMeta {
     author: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    always: bool,
 }
 
 fn default_version() -> String {
@@ -628,17 +636,23 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 author: manifest.skill.author,
                 tags: manifest.skill.tags,
                 tools: manifest.tools,
-                prompts: manifest.prompts,
+                prompts: manifest.prompts.into_iter().map(|p| p.content).collect(),
                 location: Some(path.to_path_buf()),
-                always: false,
+                always: manifest.skill.always,
                 channels: Vec::new(),
             })
         }
         SkillLoadMode::MetadataOnly => {
             // Parse full manifest so TOML-defined tools are always available
             // for native function calling, even in compact/metadata-only mode.
-            // Only prompts are skipped (loaded on demand via read_skill).
+            // When `always = true`, load prompts so they appear in compact-mode
+            // system prompt (skills_to_prompt_with_mode checks skill.always).
             let manifest: SkillManifest = toml::from_str(&content)?;
+            let prompts = if manifest.skill.always {
+                manifest.prompts.into_iter().map(|p| p.content).collect()
+            } else {
+                Vec::new()
+            };
             Ok(Skill {
                 name: manifest.skill.name,
                 description: manifest.skill.description,
@@ -646,9 +660,9 @@ fn load_skill_toml(path: &Path, load_mode: SkillLoadMode) -> Result<Skill> {
                 author: manifest.skill.author,
                 tags: manifest.skill.tags,
                 tools: manifest.tools,
-                prompts: Vec::new(),
+                prompts,
                 location: Some(path.to_path_buf()),
-                always: false,
+                always: manifest.skill.always,
                 channels: Vec::new(),
             })
         }
@@ -3216,7 +3230,8 @@ description = "Should not preload"
 kind = "shell"
 command = "echo no"
 
-prompts = ["Do not preload me"]
+[[prompts]]
+content = "Do not preload me"
 "#,
         )
         .unwrap();
@@ -3243,6 +3258,34 @@ prompts = ["Do not preload me"]
         assert!(toml.prompts.is_empty());
         assert_eq!(toml.tools.len(), 1);
         assert_eq!(toml.tools[0].name, "dangerous-tool");
+    }
+
+    #[test]
+    fn load_skill_toml_supports_table_array_prompts() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_dir = dir.path().join("workspace");
+        let skill_dir = workspace_dir.join("skills").join("table-prompts");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.toml"),
+            r#"
+[skill]
+name = "table-prompts"
+description = "Skill using table-array prompts"
+version = "1.0.0"
+
+[[prompts]]
+content = "Always greet the user"
+
+[[prompts]]
+content = "Be polite"
+"#,
+        )
+        .unwrap();
+
+        let skills = load_skills(&workspace_dir);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].prompts, vec!["Always greet the user", "Be polite"]);
     }
 
     // ── is_registry_source ────────────────────────────────────────────────────

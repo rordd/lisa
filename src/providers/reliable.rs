@@ -20,6 +20,15 @@ pub fn is_non_retryable(err: &anyhow::Error) -> bool {
         return true;
     }
 
+    // Azure content management policy filter errors are transient (the model's
+    // sampling can vary between attempts), so treat them as retryable.
+    {
+        let msg_lower = err.to_string().to_lowercase();
+        if is_content_filter_error(&msg_lower) {
+            return false;
+        }
+    }
+
     // 4xx errors are generally non-retryable (bad request, auth failure, etc.),
     // except 429 (rate-limit — transient) and 408 (timeout — worth retrying).
     if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
@@ -69,6 +78,14 @@ pub fn is_non_retryable(err: &anyhow::Error) -> bool {
             || msg_lower.contains("unsupported")
             || msg_lower.contains("does not exist")
             || msg_lower.contains("invalid"))
+}
+
+/// Azure OpenAI content management policy errors are intermittent — the model's
+/// sampling varies between attempts, so a retry with the same input often succeeds.
+fn is_content_filter_error(msg_lower: &str) -> bool {
+    msg_lower.contains("content management policy")
+        || msg_lower.contains("content filter")
+        || msg_lower.contains("content_filter")
 }
 
 fn is_context_window_exceeded(err: &anyhow::Error) -> bool {
@@ -1703,6 +1720,7 @@ mod tests {
         let request = ChatRequest {
             messages: &messages,
             tools: None,
+            tool_choice: None,
         };
         let result = provider.chat(request, "test-model", 0.0).await.unwrap();
 
@@ -1739,6 +1757,7 @@ mod tests {
         let request = ChatRequest {
             messages: &messages,
             tools: None,
+            tool_choice: None,
         };
         let result = provider.chat(request, "test-model", 0.0).await.unwrap();
 
@@ -1810,6 +1829,7 @@ mod tests {
         let request = ChatRequest {
             messages: &messages,
             tools: None,
+            tool_choice: None,
         };
         let err = provider
             .chat(request, "test", 0.0)
@@ -1926,6 +1946,7 @@ mod tests {
         let request = ChatRequest {
             messages: &messages,
             tools: None,
+            tool_choice: None,
         };
         let result = provider.chat(request, "claude-opus", 0.0).await.unwrap();
         assert_eq!(result.text.as_deref(), Some("ok from sonnet"));
@@ -1974,6 +1995,7 @@ mod tests {
         let request = ChatRequest {
             messages: &messages,
             tools: None,
+            tool_choice: None,
         };
         let result = provider.chat(request, "test", 0.0).await.unwrap();
         assert_eq!(result.text.as_deref(), Some("from fallback"));

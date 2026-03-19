@@ -2709,6 +2709,18 @@ pub(crate) async fn run_tool_call_loop(
                     }
                 }
                 history.push(ChatMessage::assistant(assistant_history_content));
+                // Add tool result message so the history stays valid for OpenAI API
+                // (assistant with tool_calls must be followed by tool result messages).
+                if let Some(native_call) = native_tool_calls
+                    .iter()
+                    .find(|c| c.name == crate::tools::respond::RESPOND_TOOL_NAME)
+                {
+                    let tool_msg = serde_json::json!({
+                        "tool_call_id": native_call.id,
+                        "content": &text,
+                    });
+                    history.push(ChatMessage::tool(tool_msg.to_string()));
+                }
                 return Ok(text);
             }
         }
@@ -3174,7 +3186,7 @@ pub async fn run(
     {
         let skills_for_tools =
             crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        let skill_tools = crate::skills::create_skill_tools_with_override(&skills_for_tools, security.clone(), config.skills.tool_choice_required);
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);
@@ -3825,7 +3837,7 @@ pub async fn process_message(
     {
         let skills_for_tools =
             crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
+        let skill_tools = crate::skills::create_skill_tools_with_override(&skills_for_tools, security.clone(), config.skills.tool_choice_required);
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);
