@@ -192,6 +192,9 @@ impl AnthropicProvider {
         token.starts_with("sk-ant-oat01-")
     }
 
+    /// Claude Code CLI version to impersonate for setup-token auth.
+    const CLAUDE_CODE_VERSION: &'static str = "2.1.62";
+
     fn apply_auth(
         &self,
         request: reqwest::RequestBuilder,
@@ -200,7 +203,15 @@ impl AnthropicProvider {
         if Self::is_setup_token(credential) {
             request
                 .header("Authorization", format!("Bearer {credential}"))
-                .header("anthropic-beta", "oauth-2025-04-20")
+                .header(
+                    "anthropic-beta",
+                    "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
+                )
+                .header(
+                    "user-agent",
+                    format!("claude-cli/{}", Self::CLAUDE_CODE_VERSION),
+                )
+                .header("x-app", "cli")
         } else {
             request.header("x-api-key", credential)
         }
@@ -306,7 +317,14 @@ impl AnthropicProvider {
         })
     }
 
-    fn convert_messages(messages: &[ChatMessage]) -> (Option<SystemPrompt>, Vec<NativeMessage>) {
+    /// Claude Code identity prefix required for setup-token auth.
+    const CLAUDE_CODE_IDENTITY: &'static str =
+        "You are Claude Code, Anthropic's official CLI for Claude.";
+
+    fn convert_messages(
+        messages: &[ChatMessage],
+        is_setup_token: bool,
+    ) -> (Option<SystemPrompt>, Vec<NativeMessage>) {
         let mut system_text = None;
         let mut native_messages = Vec::new();
 
@@ -447,18 +465,42 @@ impl AnthropicProvider {
             }
         }
 
-        // Convert system text to SystemPrompt with cache control if large
-        let system_prompt = system_text.map(|text| {
-            if Self::should_cache_system(&text) {
-                SystemPrompt::Blocks(vec![SystemBlock {
+        // Convert system text to SystemPrompt with cache control if large.
+        // For setup-token auth, prepend Claude Code identity block (required
+        // by Anthropic to access premium models via OAuth setup tokens).
+        let system_prompt = if is_setup_token {
+            let mut blocks = vec![SystemBlock {
+                block_type: "text".to_string(),
+                text: Self::CLAUDE_CODE_IDENTITY.to_string(),
+                cache_control: None,
+            }];
+            if let Some(text) = system_text {
+                blocks.push(SystemBlock {
                     block_type: "text".to_string(),
                     text,
-                    cache_control: Some(CacheControl::ephemeral()),
-                }])
-            } else {
-                SystemPrompt::String(text)
+                    cache_control: if Self::should_cache_system(
+                        &blocks.iter().map(|b| b.text.as_str()).collect::<String>(),
+                    ) {
+                        Some(CacheControl::ephemeral())
+                    } else {
+                        None
+                    },
+                });
             }
-        });
+            Some(SystemPrompt::Blocks(blocks))
+        } else {
+            system_text.map(|text| {
+                if Self::should_cache_system(&text) {
+                    SystemPrompt::Blocks(vec![SystemBlock {
+                        block_type: "text".to_string(),
+                        text,
+                        cache_control: Some(CacheControl::ephemeral()),
+                    }])
+                } else {
+                    SystemPrompt::String(text)
+                }
+            })
+        };
 
         (system_prompt, native_messages)
     }
@@ -541,10 +583,22 @@ impl Provider for AnthropicProvider {
             )
         })?;
 
+        let is_setup = Self::is_setup_token(credential);
+        let system = if is_setup {
+            // Prepend Claude Code identity for setup-token auth
+            let identity = Self::CLAUDE_CODE_IDENTITY;
+            Some(match system_prompt {
+                Some(sp) => format!("{identity}\n\n{sp}"),
+                None => identity.to_string(),
+            })
+        } else {
+            system_prompt.map(ToString::to_string)
+        };
+
         let request = ChatRequest {
             model: model.to_string(),
             max_tokens: 4096,
-            system: system_prompt.map(ToString::to_string),
+            system,
             messages: vec![Message {
                 role: "user".to_string(),
                 content: message.to_string(),
@@ -583,7 +637,9 @@ impl Provider for AnthropicProvider {
             )
         })?;
 
-        let (system_prompt, mut messages) = Self::convert_messages(request.messages);
+        let is_setup = Self::is_setup_token(credential);
+        let (system_prompt, mut messages) =
+            Self::convert_messages(request.messages, is_setup);
 
         // Auto-cache last message if conversation is long
         if Self::should_cache_conversation(request.messages) {
@@ -789,7 +845,21 @@ mod tests {
                 .headers()
                 .get("anthropic-beta")
                 .and_then(|v| v.to_str().ok()),
-            Some("oauth-2025-04-20")
+            Some("claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok()),
+            Some(&format!("claude-cli/{}", AnthropicProvider::CLAUDE_CODE_VERSION))
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-app")
+                .and_then(|v| v.to_str().ok()),
+            Some("cli")
         );
         assert!(request.headers().get("x-api-key").is_none());
     }
