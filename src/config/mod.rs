@@ -1,13 +1,14 @@
 pub mod schema;
 pub mod traits;
+pub mod voice;
 pub mod workspace;
 
 #[allow(unused_imports)]
 pub use schema::{
     apply_runtime_proxy_to_builder, build_runtime_proxy_client,
     build_runtime_proxy_client_with_timeouts, runtime_proxy_config, set_runtime_proxy_config,
-    A2uiConfig, A2webConfig, AgentConfig, AssemblyAiSttConfig, AuditConfig, AutonomyConfig, BackupConfig,
-    BrowserComputerUseConfig, BrowserConfig, BuiltinHooksConfig, ChannelsConfig,
+    A2uiConfig, A2webConfig, AgentConfig, AssemblyAiSttConfig, AuditConfig, AutonomyConfig,
+    BackupConfig, BrowserComputerUseConfig, BrowserConfig, BuiltinHooksConfig, ChannelsConfig,
     ClassificationRule, CloudOpsConfig, ComposioConfig, Config, ConversationalAiConfig, CostConfig,
     CronConfig, DataRetentionConfig, DeepgramSttConfig, DelegateAgentConfig, DiscordConfig,
     DockerRuntimeConfig, EdgeTtsConfig, ElevenLabsTtsConfig, EmbeddingRouteConfig, EstopConfig,
@@ -27,6 +28,8 @@ pub use schema::{
     TelegramConfig, ToolFilterGroup, ToolFilterGroupMode, TranscriptionConfig, TtsConfig,
     TunnelConfig, WasmConfig, WebFetchConfig, WebSearchConfig, WebhookConfig, WorkspaceConfig,
 };
+
+pub use voice::VoiceConfig;
 
 pub fn name_and_presence<T: traits::ChannelConfig>(channel: Option<&T>) -> (&'static str, bool) {
     (T::name(), channel.is_some())

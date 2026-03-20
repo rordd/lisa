@@ -170,15 +170,15 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
             &config.workspace_dir,
         ));
         let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skills_for_tools =
-            crate::skills::filter_skills_by_channel(skills, Some("default"));
+        let skills_for_tools = crate::skills::filter_skills_by_channel(skills, Some("default"));
         let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security);
         if !skill_tools.is_empty() {
             tracing::debug!(count = skill_tools.len(), "WS agent: injected skill tools");
             agent.add_tools(skill_tools);
         }
         // In compact mode, add read_skill tool for on-demand skill loading
-        if config.skills.prompt_injection_mode == crate::config::SkillsPromptInjectionMode::Compact {
+        if config.skills.prompt_injection_mode == crate::config::SkillsPromptInjectionMode::Compact
+        {
             let read_skill_tool = crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
             agent.add_tools(vec![Box::new(read_skill_tool)]);
             tracing::debug!("WS agent: read_skill tool registered (compact mode)");
@@ -269,7 +269,15 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
                         let user_msg = crate::providers::ChatMessage::user(&content);
                         let _ = backend.append(&session_key, &user_msg);
                     }
-                    process_chat_message(&state, &mut agent, &mut sender, &content, &session_key, &mut last_a2ui_data).await;
+                    process_chat_message(
+                        &state,
+                        &mut agent,
+                        &mut sender,
+                        &content,
+                        &session_key,
+                        &mut last_a2ui_data,
+                    )
+                    .await;
                 }
             }
         }
@@ -303,7 +311,9 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
                     continue;
                 }
                 match parsed.get("payload") {
-                    Some(payload) => super::a2ui::format_user_action_with_context(payload, &last_a2ui_data),
+                    Some(payload) => {
+                        super::a2ui::format_user_action_with_context(payload, &last_a2ui_data)
+                    }
                     None => {
                         let err = serde_json::json!({"type": "error", "message": "a2ui_action missing payload"});
                         let _ = sender.send(Message::Text(err.to_string().into())).await;
@@ -327,7 +337,15 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
             let _ = backend.append(&session_key, &user_msg);
         }
 
-        process_chat_message(&state, &mut agent, &mut sender, &content, &session_key, &mut last_a2ui_data).await;
+        process_chat_message(
+            &state,
+            &mut agent,
+            &mut sender,
+            &content,
+            &session_key,
+            &mut last_a2ui_data,
+        )
+        .await;
     }
 }
 
@@ -371,7 +389,9 @@ async fn process_chat_message(
                     "id": a2web_data["id"],
                     "title": a2web_data["title"],
                 });
-                let _ = sender.send(Message::Text(a2web_msg.to_string().into())).await;
+                let _ = sender
+                    .send(Message::Text(a2web_msg.to_string().into()))
+                    .await;
             }
 
             // Parse a2ui JSON from response and send as separate WS message
@@ -383,12 +403,16 @@ async fn process_chat_message(
                     "type": "a2ui",
                     "messages": a2ui_messages,
                 });
-                let _ = sender.send(Message::Text(a2ui_msg.to_string().into())).await;
+                let _ = sender
+                    .send(Message::Text(a2ui_msg.to_string().into()))
+                    .await;
             }
 
-            let clean_response = strip_a2web_result_tags(
-                if !a2ui_messages.is_empty() { &text_only } else { &response }
-            );
+            let clean_response = strip_a2web_result_tags(if !a2ui_messages.is_empty() {
+                &text_only
+            } else {
+                &response
+            });
             let done = serde_json::json!({
                 "type": "done",
                 "full_response": clean_response,

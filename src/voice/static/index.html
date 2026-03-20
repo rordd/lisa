@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroClaw Voice</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 0.8rem 1rem;
+      border-bottom: 1px solid #222;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    header h1 {
+      font-size: 1.2rem;
+      color: #7cb3ff;
+      font-weight: 600;
+    }
+    #status {
+      font-size: 0.75rem;
+      color: #666;
+      margin-left: auto;
+    }
+    #transcript {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .msg {
+      padding: 0.6rem 1rem;
+      border-radius: 12px;
+      max-width: 75%;
+      line-height: 1.5;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+    .msg.user {
+      background: #1a2e1a;
+      align-self: flex-end;
+    }
+    .msg.ai {
+      background: #1a1a2e;
+      align-self: flex-start;
+    }
+    .msg .label {
+      font-size: 0.65rem;
+      color: #555;
+      margin-bottom: 0.15rem;
+    }
+    .msg .content { font-size: 0.9rem; }
+    .thinking {
+      align-self: flex-start;
+      color: #666;
+      font-size: 0.85rem;
+      padding: 0.4rem 0;
+    }
+    .thinking::after {
+      content: '';
+      animation: dots 1.5s steps(4, end) infinite;
+    }
+    @keyframes dots {
+      0% { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75% { content: '...'; }
+    }
+    #input-bar {
+      padding: 0.6rem 1rem;
+      border-top: 1px solid #222;
+      display: flex;
+      align-items: flex-end;
+      gap: 0.5rem;
+      background: #141414;
+    }
+    #chat-input {
+      flex: 1;
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #e0e0e0;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      resize: none;
+      max-height: 120px;
+      line-height: 1.4;
+      outline: none;
+    }
+    #chat-input:focus { border-color: #7cb3ff; }
+    #chat-input::placeholder { color: #555; }
+    .btn {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      border: 2px solid #333;
+      background: #1a1a2e;
+      color: #7cb3ff;
+      font-size: 1.1rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .btn:hover { border-color: #7cb3ff; }
+    #send-btn { background: #1a2e1a; color: #4caf50; }
+    #send-btn:hover { border-color: #4caf50; }
+    #send-btn:disabled { opacity: 0.3; cursor: default; }
+    #mic-btn.active {
+      background: #1a2e1a;
+      border-color: #4caf50;
+      animation: pulse 1.5s infinite;
+    }
+    #mic-btn.speaking {
+      background: #2e1a2e;
+      border-color: #bb86fc;
+      animation: pulse 0.8s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(124,179,255,0.3); }
+      50% { box-shadow: 0 0 0 12px rgba(124,179,255,0); }
+    }
+    @media (max-width: 600px) {
+      .msg { max-width: 88%; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🤖 ZeroClaw Voice</h1>
+    <span id="status">Ready</span>
+  </header>
+
+  <div id="transcript"></div>
+
+  <div id="input-bar">
+    <textarea id="chat-input" rows="1" placeholder="메시지 입력... (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+    <button class="btn" id="send-btn" onclick="sendChat()" title="Send">➤</button>
+    <button class="btn" id="mic-btn" onclick="toggleSession()" title="Voice">🎤</button>
+  </div>
+
+  <script>
+    // ── Voice state ──
+    let ws = null;
+    let audioCtx = null;
+    let mediaStream = null;
+    let processor = null;
+    let isActive = false;
+    let nextPlayTime = 0;
+    let activeSources = [];
+    let bargeInTimer = null;
+    let BARGE_IN_DELAY_MS = 500; // default, overridden by server config
+    let reconnectAttempts = 0;
+    // Auth headers for API calls (token injected by server)
+    const authHeaders = typeof VOICE_AUTH_TOKEN !== 'undefined'
+      ? { 'Authorization': 'Bearer ' + VOICE_AUTH_TOKEN } : {};
+
+    fetch('/api/config', { headers: authHeaders }).then(r => r.json()).then(cfg => {
+      if (cfg.bargeInDelayMs) BARGE_IN_DELAY_MS = cfg.bargeInDelayMs;
+    }).catch(() => {});
+
+    const btn = document.getElementById('mic-btn');
+    const sendBtn = document.getElementById('send-btn');
+    const status = document.getElementById('status');
+    const transcript = document.getElementById('transcript');
+    const chatInput = document.getElementById('chat-input');
+
+    // ── Chat ──
+    let chatQueue = Promise.resolve(); // Sequential queue for chat requests
+
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+
+    // Auto-resize textarea
+    chatInput.addEventListener('input', () => {
+      chatInput.style.height = 'auto';
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    });
+
+    function sendChat() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+
+      addMessage('user', text, '💬');
+      chatInput.value = '';
+      chatInput.style.height = 'auto';
+      chatInput.focus();
+
+      // Queue the request so multiple messages can be sent while previous ones are processing.
+      // Server processes them sequentially (Agent mutex), but UI stays responsive.
+      const thinkEl = document.createElement('div');
+      thinkEl.className = 'thinking';
+      thinkEl.textContent = '🤔 Thinking';
+      transcript.appendChild(thinkEl);
+      transcript.scrollTop = transcript.scrollHeight;
+
+      chatQueue = chatQueue.then(async () => {
+        try {
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ message: text }),
+          });
+          thinkEl.remove();
+          if (res.ok) {
+            const data = await res.json();
+            addMessage('ai', data.reply || '(empty)', '💬');
+          } else {
+            addMessage('ai', `❌ Error: ${res.status} ${res.statusText}`, '💬');
+          }
+        } catch (err) {
+          thinkEl.remove();
+          addMessage('ai', '❌ ' + err.message, '💬');
+        }
+      });
+    }
+
+    // ── Voice ──
+    async function toggleSession() {
+      if (isActive) stopSession(); else await startSession();
+    }
+
+    async function startSession() {
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 24000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+        });
+        audioCtx = new AudioContext({ sampleRate: 24000 });
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const tokenParam = typeof VOICE_AUTH_TOKEN !== 'undefined' ? `?token=${encodeURIComponent(VOICE_AUTH_TOKEN)}` : '';
+        ws = new WebSocket(`${protocol}//${location.host}/ws${tokenParam}`);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => { status.textContent = '🎤 Voice connected'; btn.classList.add('active'); isActive = true; setChatEnabled(false); startAudioCapture(); reconnectAttempts = 0; };
+        ws.onmessage = (e) => handleServerEvent(JSON.parse(e.data));
+        ws.onclose = () => {
+          const wasActive = isActive;
+          // Clean up audio resources without clearing reconnect intent
+          if (processor) { processor.disconnect(); processor = null; }
+          if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+          if (audioCtx) { audioCtx.close(); audioCtx = null; }
+          ws = null;
+          nextPlayTime = 0;
+          if (wasActive) {
+            // Unexpected disconnect — attempt reconnection with exponential backoff
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+            reconnectAttempts++;
+            status.textContent = `Reconnecting in ${Math.round(delay/1000)}s...`;
+            setTimeout(async () => {
+              if (!isActive) return; // user manually stopped during delay
+              try { await startSession(); } catch(_) { isActive = false; setChatEnabled(true); status.textContent = 'Ready'; }
+            }, delay);
+          } else {
+            status.textContent = 'Ready';
+          }
+        };
+        ws.onerror = () => { status.textContent = 'Connection error'; };
+      } catch (err) {
+        status.textContent = 'Mic access denied';
+      }
+    }
+
+    function setChatEnabled(enabled) {
+      chatInput.disabled = !enabled;
+      sendBtn.disabled = !enabled;
+      chatInput.placeholder = enabled ? 'Type a message…' : '🎤 Voice session active — chat disabled';
+    }
+
+    function stopSession() {
+      isActive = false;
+      reconnectAttempts = 0;
+      btn.classList.remove('active', 'speaking');
+      setChatEnabled(true);
+      if (processor) { processor.disconnect(); processor = null; }
+      if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
+      if (ws) { const w = ws; ws = null; w.close(); }
+      nextPlayTime = 0;
+      status.textContent = 'Ready';
+    }
+
+    function startAudioCapture() {
+      const source = audioCtx.createMediaStreamSource(mediaStream);
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = (e) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const f32 = e.inputBuffer.getChannelData(0);
+        const i16 = new Int16Array(f32.length);
+        for (let i = 0; i < f32.length; i++) i16[i] = Math.max(-32768, Math.min(32767, Math.round(f32[i] * 32767)));
+        ws.send(i16.buffer);
+      };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+    }
+
+    function handleServerEvent(event) {
+      switch (event.type) {
+        case 'session.created': case 'session.updated':
+          status.textContent = '✅ Voice ready'; break;
+        case 'input_audio_buffer.speech_started':
+          status.textContent = '🎤 Listening...'; btn.classList.add('active'); btn.classList.remove('speaking');
+          if (!bargeInTimer) bargeInTimer = setTimeout(() => { stopAllPlayback(); cancelCurrentResponse(); bargeInTimer = null; }, BARGE_IN_DELAY_MS);
+          break;
+        case 'input_audio_buffer.speech_stopped':
+          if (bargeInTimer) { clearTimeout(bargeInTimer); bargeInTimer = null; }
+          status.textContent = '🤔 Thinking...'; break;
+        case 'response.audio.delta':
+          if (event.delta) schedulePlayback(base64ToArrayBuffer(event.delta)); break;
+        case 'response.audio.done':
+          status.textContent = '✅ Voice ready'; btn.classList.remove('speaking'); btn.classList.add('active'); break;
+        case 'response.created':
+          status.textContent = '🗣️ Speaking...'; btn.classList.add('speaking'); stopAllPlayback(); break;
+        case 'conversation.item.input_audio_transcription.completed':
+          if (event.transcript) addMessage('user', event.transcript, '🎤'); break;
+        case 'response.audio_transcript.done':
+          if (event.transcript) addMessage('ai', event.transcript, '🎤'); break;
+        case 'error':
+          status.textContent = '❌ ' + (event.error?.message || 'Error'); break;
+      }
+    }
+
+    function cancelCurrentResponse() {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'response.cancel' }));
+    }
+
+    function stopAllPlayback() {
+      activeSources.forEach(s => { try { s.stop(); } catch(_) {} });
+      activeSources = [];
+      nextPlayTime = 0;
+    }
+
+    function schedulePlayback(pcm16) {
+      if (!audioCtx) return;
+      const i16 = new Int16Array(pcm16);
+      const f32 = new Float32Array(i16.length);
+      for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768.0;
+      const buf = audioCtx.createBuffer(1, f32.length, 24000);
+      buf.getChannelData(0).set(f32);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(audioCtx.destination);
+      const now = audioCtx.currentTime;
+      if (nextPlayTime < now) nextPlayTime = now;
+      src.start(nextPlayTime);
+      nextPlayTime += buf.duration;
+      activeSources.push(src);
+      src.onended = () => { activeSources = activeSources.filter(s => s !== src); };
+    }
+
+    function base64ToArrayBuffer(b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes.buffer;
+    }
+
+    function addMessage(role, text, mode) {
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      const label = role === 'user' ? `${mode} You` : `${mode} Assistant`;
+      div.innerHTML = `<div class="label">${escapeHtml(label)}</div><div class="content">${escapeHtml(text)}</div>`;
+      transcript.appendChild(div);
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+  </script>
+</body>
+</html>
