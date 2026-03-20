@@ -543,14 +543,15 @@ where
     validate_temperature(value).map_err(serde::de::Error::custom)
 }
 
-fn normalize_reasoning_effort(value: &str) -> std::result::Result<String, String> {
+fn normalize_reasoning_effort(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
-        "minimal" | "low" | "medium" | "high" | "xhigh" => Ok(normalized),
-        _ => Err(format!(
-            "reasoning_effort {value:?} is invalid (expected one of: minimal, low, medium, high, xhigh)"
-        )),
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" => {}
+        _ => tracing::warn!(
+            "Unknown reasoning_effort {value:?} — passing through. Known values: none, minimal, low, medium, high, xhigh"
+        ),
     }
+    normalized
 }
 
 fn deserialize_reasoning_effort_opt<'de, D>(
@@ -560,9 +561,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let value: Option<String> = Option::deserialize(deserializer)?;
-    value
-        .map(|raw| normalize_reasoning_effort(&raw).map_err(serde::de::Error::custom))
-        .transpose()
+    Ok(value.map(|raw| normalize_reasoning_effort(&raw)))
 }
 
 fn default_max_depth() -> u32 {
@@ -7660,20 +7659,12 @@ impl Config {
             .or_else(|_| std::env::var("REASONING_EFFORT"))
             .or_else(|_| std::env::var("ZEROCLAW_CODEX_REASONING_EFFORT"))
         {
-            match normalize_reasoning_effort(&raw) {
-                Ok(effort) => self.runtime.reasoning_effort = Some(effort),
-                Err(message) => tracing::warn!("Ignoring reasoning effort env override: {message}"),
-            }
+            self.runtime.reasoning_effort = Some(normalize_reasoning_effort(&raw));
         }
 
         // Custom provider reasoning level: ZEROCLAW_CUSTOM_REASONING_EFFORT
         if let Ok(raw) = std::env::var("ZEROCLAW_CUSTOM_REASONING_EFFORT") {
-            match normalize_reasoning_effort(&raw) {
-                Ok(level) => self.runtime.reasoning_level = Some(level),
-                Err(message) => {
-                    tracing::warn!("Ignoring custom reasoning effort env override: {message}");
-                }
-            }
+            self.runtime.reasoning_level = Some(normalize_reasoning_effort(&raw));
         }
 
         // Custom provider auth header: ZEROCLAW_CUSTOM_AUTH_HEADER
@@ -8902,7 +8893,7 @@ reasoning_effort = "HIGH"
     }
 
     #[test]
-    async fn runtime_reasoning_effort_rejects_invalid_values() {
+    async fn runtime_reasoning_effort_passes_unknown_values() {
         let raw = r#"
 default_temperature = 0.7
 
@@ -8910,8 +8901,8 @@ default_temperature = 0.7
 reasoning_effort = "turbo"
 "#;
 
-        let error = toml::from_str::<Config>(raw).expect_err("invalid value should fail");
-        assert!(error.to_string().contains("reasoning_effort"));
+        let parsed: Config = toml::from_str(raw).unwrap();
+        assert_eq!(parsed.runtime.reasoning_effort.as_deref(), Some("turbo"));
     }
 
     #[test]
