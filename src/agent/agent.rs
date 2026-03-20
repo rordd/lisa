@@ -327,9 +327,29 @@ impl Agent {
         &self.memory
     }
 
+    /// Get loaded skills.
+    pub fn skills(&self) -> &[crate::skills::Skill] {
+        &self.skills
+    }
+
     /// Get tool specs (for voice session tool registration).
     pub fn tool_specs(&self) -> &[crate::tools::ToolSpec] {
         &self.tool_specs
+    }
+
+    /// Execute a tool by name with the given arguments.
+    /// Used by voice function calling to run tools from the Realtime API.
+    pub async fn execute_tool(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+    ) -> anyhow::Result<crate::tools::ToolResult> {
+        let tool = self
+            .tools
+            .iter()
+            .find(|t| t.name() == name)
+            .ok_or_else(|| anyhow::anyhow!("Tool '{}' not found", name))?;
+        tool.execute(args).await
     }
 
     /// Get workspace directory.

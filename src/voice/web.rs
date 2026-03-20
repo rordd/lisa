@@ -524,12 +524,14 @@ async fn relay_session(
         }
     });
 
-    // Tools are not registered with the Realtime API session because tool execution
-    // is not yet implemented in voice mode. Registering tools without execution would
-    // cause the API to invoke them and receive placeholder errors, confusing users.
-    if !tools.is_empty() {
-        warn!(
-            "Voice mode: {} tool(s) available but not registered — tool execution in voice mode is not yet implemented",
+    // Register tools with the Realtime API session for function calling.
+    // The server intercepts function_call events, executes tools via Agent's dispatcher,
+    // and sends results back to the Realtime API.
+    let mut session_config = session_config;
+    if !tools.is_empty() && agent.is_some() {
+        session_config["tools"] = json!(tools);
+        info!(
+            "Voice mode: {} tool(s) registered for function calling",
             tools.len()
         );
     }
@@ -774,10 +776,71 @@ async fn relay_session(
                             _ => {}
                         }
 
-                        // Function call handling is disabled — tools are not registered
-                        // with the Realtime API session (see session config above).
-                        // When tool execution is implemented, re-enable tool registration
-                        // and handle "response.function_call_arguments.done" events here.
+                        // Handle function calls from the Realtime API.
+                        // When the model decides to call a tool, it sends a
+                        // "response.function_call_arguments.done" event with the call_id,
+                        // function name, and JSON arguments. We execute the tool via Agent's
+                        // dispatcher and return the result to continue the conversation.
+                        if event_type == "response.function_call_arguments.done" {
+                            let call_id = event
+                                .get("call_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let fn_name = event
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let fn_args_str = event
+                                .get("arguments")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("{}")
+                                .to_string();
+
+                            if !call_id.is_empty() && !fn_name.is_empty() {
+                                if let Some(ref agent_mutex) = agent_for_transcript {
+                                    let tx = to_openai_tx.clone();
+                                    let agent_clone = agent_mutex.clone();
+                                    // Spawn tool execution in background to not block the relay
+                                    tokio::spawn(async move {
+                                        let result = execute_voice_tool(
+                                            &agent_clone,
+                                            &fn_name,
+                                            &fn_args_str,
+                                        )
+                                        .await;
+
+                                        // Send tool result back to Realtime API
+                                        let output_item = json!({
+                                            "type": "conversation.item.create",
+                                            "item": {
+                                                "type": "function_call_output",
+                                                "call_id": call_id,
+                                                "output": result
+                                            }
+                                        });
+                                        if tx.send(output_item.to_string()).await.is_err() {
+                                            warn!("Failed to send tool result to Realtime API");
+                                            return;
+                                        }
+
+                                        // Trigger the model to continue responding after receiving the tool result
+                                        let response_create = json!({
+                                            "type": "response.create"
+                                        });
+                                        if tx.send(response_create.to_string()).await.is_err() {
+                                            warn!("Failed to send response.create after tool execution");
+                                        }
+
+                                        info!(
+                                            "Voice tool '{}' executed, result sent back",
+                                            fn_name
+                                        );
+                                    });
+                                }
+                            }
+                        }
                     }
 
                     // Forward to browser
@@ -965,6 +1028,35 @@ async fn chat_handler(
 /// Build a voice system prompt by reading workspace identity files.
 /// Reads SOUL.md, IDENTITY.md, USER.md, TOOLS.md, MEMORY.md from workspace_dir.
 /// Returns an empty string if no files are found.
+/// Execute a tool via the Agent's tool dispatcher for voice function calling.
+/// Returns the tool result as a string (JSON or plain text).
+async fn execute_voice_tool(
+    agent_mutex: &Arc<tokio::sync::Mutex<crate::agent::Agent>>,
+    name: &str,
+    arguments_json: &str,
+) -> String {
+    let args: serde_json::Value = serde_json::from_str(arguments_json).unwrap_or(json!({}));
+
+    let agent = agent_mutex.lock().await;
+    match agent.execute_tool(name, args).await {
+        Ok(result) => {
+            // Return the tool output; truncate if too long for voice context
+            let output = &result.output;
+            let max_chars = 4000;
+            if output.chars().count() > max_chars {
+                let truncated: String = output.chars().take(max_chars).collect();
+                format!("{}... (truncated)", truncated)
+            } else {
+                output.to_string()
+            }
+        }
+        Err(e) => {
+            warn!("Voice tool '{}' execution failed: {}", name, e);
+            format!("Error executing tool '{}': {}", name, e)
+        }
+    }
+}
+
 fn build_voice_system_prompt_from_workspace(workspace_dir: &std::path::Path) -> String {
     let mut prompt = String::from("You are in VOICE mode. Respond concisely and conversationally.\n\n## Identity & Context\n\n");
     let mut found_any = false;
