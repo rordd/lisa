@@ -164,7 +164,11 @@
     let bargeInTimer = null;
     let BARGE_IN_DELAY_MS = 500; // default, overridden by server config
     let reconnectAttempts = 0;
-    fetch('/api/config').then(r => r.json()).then(cfg => {
+    // Auth headers for API calls (token injected by server)
+    const authHeaders = typeof VOICE_AUTH_TOKEN !== 'undefined'
+      ? { 'Authorization': 'Bearer ' + VOICE_AUTH_TOKEN } : {};
+
+    fetch('/api/config', { headers: authHeaders }).then(r => r.json()).then(cfg => {
       if (cfg.bargeInDelayMs) BARGE_IN_DELAY_MS = cfg.bargeInDelayMs;
     }).catch(() => {});
 
@@ -211,7 +215,7 @@
         try {
           const res = await fetch('/api/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
             body: JSON.stringify({ message: text }),
           });
           thinkEl.remove();
@@ -240,7 +244,8 @@
         });
         audioCtx = new AudioContext({ sampleRate: 24000 });
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(`${protocol}//${location.host}/ws`);
+        const tokenParam = typeof VOICE_AUTH_TOKEN !== 'undefined' ? `?token=${encodeURIComponent(VOICE_AUTH_TOKEN)}` : '';
+        ws = new WebSocket(`${protocol}//${location.host}/ws${tokenParam}`);
         ws.binaryType = 'arraybuffer';
 
         ws.onopen = () => { status.textContent = '🎤 Voice connected'; btn.classList.add('active'); isActive = true; setChatEnabled(false); startAudioCapture(); reconnectAttempts = 0; };

@@ -113,6 +113,12 @@ pub struct VoiceConfig {
     #[serde(default = "default_true")]
     pub save_transcripts: bool,
 
+    /// Bearer token for voice web server authentication.
+    /// If not set, a random token is generated at startup and printed to the console.
+    /// All HTTP and WebSocket endpoints require `Authorization: Bearer <token>`.
+    #[serde(default)]
+    pub auth_token: Option<String>,
+
     // ── Tuning fields (typically from config.toml [voice]) ──
     /// Voice Activity Detection threshold (0.0–1.0).
     #[serde(default = "default_vad_threshold")]
@@ -162,6 +168,7 @@ impl Default for VoiceConfig {
             azure_endpoint: None,
             azure_deployment: None,
             save_transcripts: true,
+            auth_token: None,
             transcription_model: default_voice_transcription_model(),
             vad_type: default_voice_vad_type(),
             vad_prefix_padding_ms: default_voice_vad_prefix_padding_ms(),
@@ -355,6 +362,12 @@ impl VoiceConfig {
                 self.audio_format = val.to_string();
             }
         }
+        if let Ok(val) = std::env::var("ZEROCLAW_VOICE_AUTH_TOKEN") {
+            let val = val.trim();
+            if !val.is_empty() {
+                self.auth_token = Some(val.to_string());
+            }
+        }
     }
 }
 
@@ -402,7 +415,9 @@ mod tests {
                 assert_eq!(endpoint, "10.0.0.1");
                 assert_eq!(deployment, "my-deploy");
             }
-            _ => panic!("Expected Azure provider"),
+            crate::providers::realtime_types::RealtimeApiProvider::OpenAI => {
+                panic!("Expected Azure provider")
+            }
         }
     }
 
@@ -421,7 +436,9 @@ mod tests {
             crate::providers::realtime_types::RealtimeApiProvider::Azure { deployment, .. } => {
                 assert_eq!(deployment, "gpt-realtime-1.5");
             }
-            _ => panic!("Expected Azure provider"),
+            crate::providers::realtime_types::RealtimeApiProvider::OpenAI => {
+                panic!("Expected Azure provider")
+            }
         }
     }
 

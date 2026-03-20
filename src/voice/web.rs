@@ -40,6 +40,8 @@ struct AppState {
     agent: Option<Arc<tokio::sync::Mutex<crate::agent::Agent>>>,
     /// Shared HTTP client for chat API proxy (connection pooling).
     http_client: reqwest::Client,
+    /// Bearer token for authenticating all endpoints.
+    auth_token: Arc<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -125,6 +127,14 @@ pub async fn run_voice_web_with_agent(
         config.api_key.as_deref(),
     )?);
 
+    // Resolve or generate auth token (before moving voice_config into Arc)
+    let auth_token = voice_config.auth_token.clone().unwrap_or_else(|| {
+        let token = uuid::Uuid::new_v4().to_string();
+        info!("Generated voice auth token (pass via ZEROCLAW_VOICE_AUTH_TOKEN to persist)");
+        token
+    });
+    let auth_token = Arc::new(auth_token);
+
     let shared_config = Arc::new(voice_config);
     let shared_mem = mem;
     let shared_tools: Arc<Vec<serde_json::Value>> = Arc::new(
@@ -133,6 +143,7 @@ pub async fn run_voice_web_with_agent(
             .map(|spec| spec.to_realtime_json())
             .collect(),
     );
+
     let has_agent = shared_agent.is_some();
     let state = AppState {
         voice_config: shared_config.clone(),
@@ -142,6 +153,7 @@ pub async fn run_voice_web_with_agent(
         config: Arc::new(config),
         agent: shared_agent,
         http_client: reqwest::Client::new(),
+        auth_token: auth_token.clone(),
     };
     if has_agent {
         info!("Web chat will route through shared Agent (full pipeline: tools, memory, skills)");
@@ -150,7 +162,10 @@ pub async fn run_voice_web_with_agent(
     }
 
     let app = Router::new()
-        .route("/", get(index_handler))
+        .route("/", get({
+            let token = auth_token.clone();
+            move || index_handler_with_token(token)
+        }))
         .route(
             "/ws",
             get({
@@ -158,11 +173,18 @@ pub async fn run_voice_web_with_agent(
                 let mem = shared_mem.clone();
                 let tools = shared_tools.clone();
                 let agent_for_voice = state.agent.clone();
-                move |ws| ws_handler(ws, cfg, mem, tools, agent_for_voice)
+                let token = auth_token.clone();
+                move |ws: WebSocketUpgrade, headers: axum::http::HeaderMap, query: axum::extract::Query<std::collections::HashMap<String, String>>| {
+                    ws_handler_with_auth(ws, headers, query, cfg, mem, tools, agent_for_voice, token)
+                }
             }),
         )
         .route("/api/chat", post(chat_handler))
         .route("/api/config", get(client_config_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .with_state(state);
 
     let addr: SocketAddr = format!("{host}:{port}").parse()?;
@@ -188,6 +210,7 @@ pub async fn run_voice_web_with_agent(
                 "   WebSocket endpoint: wss://{}:{}/ws",
                 browser_host, actual_port
             );
+            println!("   Auth token: {}", auth_token);
             println!("   Press Ctrl+C to stop.\n");
 
             serve_tls(listener, app, tls_acceptor).await
@@ -203,6 +226,7 @@ pub async fn run_voice_web_with_agent(
                 "   WebSocket endpoint: ws://{}:{}/ws",
                 browser_host, actual_port
             );
+            println!("   Auth token: {}", auth_token);
             println!("   Press Ctrl+C to stop.\n");
 
             axum::serve(listener, app).await?;
@@ -295,8 +319,55 @@ async fn serve_tls(
     }
 }
 
-async fn index_handler() -> Html<&'static str> {
-    Html(INDEX_HTML)
+/// Auth middleware — checks `Authorization: Bearer <token>` on all API routes.
+/// The `/` (index) route is excluded because it serves the HTML page that contains the token.
+async fn auth_middleware(
+    State(state): State<AppState>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = req.uri().path();
+    // Allow the index page (embeds the token), /ws (has its own auth via query param),
+    // and static resources like favicon.ico
+    if path == "/" || path == "/ws" || path == "/favicon.ico" {
+        return next.run(req).await;
+    }
+
+    let expected = state.auth_token.as_str();
+    let authorized = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|auth| auth.strip_prefix("Bearer "))
+        .is_some_and(|token| token == expected);
+
+    if authorized {
+        next.run(req).await
+    } else {
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                r#"{"error":"Unauthorized. Provide Authorization: Bearer <token> header."}"#,
+            ))
+            .unwrap_or_else(|_| {
+                axum::response::Response::new(axum::body::Body::from("Unauthorized"))
+            })
+    }
+}
+
+/// Serve the index page with the auth token injected for browser auto-auth.
+#[allow(clippy::unused_async)]
+async fn index_handler_with_token(token: Arc<String>) -> Html<String> {
+    // Inject the token as a JS variable so the browser can send it in fetch/WebSocket requests
+    let html = INDEX_HTML.replace(
+        "// ── Voice state ──",
+        &format!(
+            "const VOICE_AUTH_TOKEN = '{}';\n    // ── Voice state ──",
+            token
+        ),
+    );
+    Html(html)
 }
 
 /// Expose client-side tuning parameters from server config.
@@ -306,14 +377,38 @@ async fn client_config_handler(State(state): State<AppState>) -> Json<serde_json
     }))
 }
 
+/// WebSocket handler with auth — checks token from query param `?token=` or Authorization header.
+/// WebSocket upgrade requests cannot carry custom headers from browser JS, so we accept query params.
 #[allow(clippy::unused_async)]
-async fn ws_handler(
+async fn ws_handler_with_auth(
     ws: WebSocketUpgrade,
+    headers: axum::http::HeaderMap,
+    query: axum::extract::Query<std::collections::HashMap<String, String>>,
     config: Arc<crate::config::VoiceConfig>,
     memory: Arc<dyn crate::memory::Memory>,
     tools: Arc<Vec<serde_json::Value>>,
     agent: Option<Arc<tokio::sync::Mutex<crate::agent::Agent>>>,
+    expected_token: Arc<String>,
 ) -> axum::response::Response {
+    // Check query param first (browser WebSocket), then Authorization header
+    let token_from_query = query.get("token").map(|s| s.as_str());
+    let token_from_header = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|auth| auth.strip_prefix("Bearer "));
+
+    let provided_token = token_from_query.or(token_from_header);
+    let authorized = provided_token.is_some_and(|t| t == expected_token.as_str());
+
+    if !authorized {
+        return axum::response::Response::builder()
+            .status(axum::http::StatusCode::UNAUTHORIZED)
+            .body(axum::body::Body::from("Unauthorized"))
+            .unwrap_or_else(|_| {
+                axum::response::Response::new(axum::body::Body::from("Unauthorized"))
+            });
+    }
+
     ws.on_upgrade(move |socket| handle_browser_session(socket, config, memory, tools, agent))
 }
 
@@ -340,6 +435,28 @@ async fn handle_browser_session(
 /// Minimum character count for a voice transcript turn pair to be persisted to memory.
 /// Matches the chat pipeline's threshold to filter noise (short utterances like "음", "어").
 const VOICE_AUTOSAVE_MIN_CHARS: usize = 10;
+
+/// Whitelist of event types allowed from the browser to the OpenAI Realtime API.
+/// All other events (especially `session.update`, `conversation.item.create`) are blocked
+/// to prevent client-side manipulation of system prompt, model, or session config.
+const ALLOWED_BROWSER_EVENTS: &[&str] = &[
+    "input_audio_buffer.append",
+    "input_audio_buffer.commit",
+    "input_audio_buffer.clear",
+    "response.create",
+    "response.cancel",
+];
+
+/// Check if a browser event JSON message is allowed to be forwarded to OpenAI.
+fn is_browser_event_allowed(text: &str) -> bool {
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(ev) => {
+            let event_type = ev.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            ALLOWED_BROWSER_EVENTS.contains(&event_type)
+        }
+        Err(_) => false,
+    }
+}
 
 async fn relay_session(
     browser_ws: WebSocket,
@@ -486,23 +603,8 @@ async fn relay_session(
         while let Some(Ok(msg)) = browser_rx.next().await {
             match msg {
                 WsMsg::Text(text) => {
-                    // Whitelist: only forward audio and response control events from browser.
-                    // Block session.update, conversation.item.create, etc. to prevent
-                    // client-side manipulation of system prompt, model, or session config.
-                    let allowed = match serde_json::from_str::<serde_json::Value>(&text) {
-                        Ok(ev) => matches!(
-                            ev.get("type").and_then(|t| t.as_str()),
-                            Some(
-                                "input_audio_buffer.append"
-                                    | "input_audio_buffer.commit"
-                                    | "input_audio_buffer.clear"
-                                    | "response.create"
-                                    | "response.cancel"
-                            )
-                        ),
-                        Err(_) => false,
-                    };
-                    if allowed {
+                    // Whitelist: only forward safe event types from browser.
+                    if is_browser_event_allowed(&text) {
                         if to_openai_tx.send(text.to_string()).await.is_err() {
                             break;
                         }
@@ -914,6 +1016,115 @@ fn build_voice_system_prompt_from_workspace(workspace_dir: &std::path::Path) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Event whitelist tests ──
+
+    #[test]
+    fn whitelist_allows_audio_buffer_append() {
+        let msg = r#"{"type":"input_audio_buffer.append","audio":"AAAA"}"#;
+        assert!(is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_allows_audio_buffer_commit() {
+        let msg = r#"{"type":"input_audio_buffer.commit"}"#;
+        assert!(is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_allows_audio_buffer_clear() {
+        let msg = r#"{"type":"input_audio_buffer.clear"}"#;
+        assert!(is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_allows_response_create() {
+        let msg = r#"{"type":"response.create"}"#;
+        assert!(is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_allows_response_cancel() {
+        let msg = r#"{"type":"response.cancel"}"#;
+        assert!(is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_blocks_session_update() {
+        let msg = r#"{"type":"session.update","session":{"instructions":"evil prompt"}}"#;
+        assert!(!is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_blocks_conversation_item_create() {
+        let msg = r#"{"type":"conversation.item.create","item":{"type":"message","role":"user","content":[{"type":"input_text","text":"injected"}]}}"#;
+        assert!(!is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_blocks_unknown_event() {
+        let msg = r#"{"type":"response.function_call_arguments.done"}"#;
+        assert!(!is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_blocks_missing_type_field() {
+        let msg = r#"{"data":"no type field"}"#;
+        assert!(!is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_blocks_invalid_json() {
+        assert!(!is_browser_event_allowed("not json at all"));
+    }
+
+    #[test]
+    fn whitelist_blocks_empty_string() {
+        assert!(!is_browser_event_allowed(""));
+    }
+
+    #[test]
+    fn whitelist_blocks_null_type() {
+        let msg = r#"{"type":null}"#;
+        assert!(!is_browser_event_allowed(msg));
+    }
+
+    #[test]
+    fn whitelist_blocks_numeric_type() {
+        let msg = r#"{"type":42}"#;
+        assert!(!is_browser_event_allowed(msg));
+    }
+
+    // ── Transcript autosave threshold tests ──
+
+    #[test]
+    fn autosave_threshold_filters_short_pairs() {
+        // "ok" (2) + "Got it!" (7) = 9 chars < 10 minimum
+        let user = "ok";
+        let assistant = "Got it!";
+        let total = user.chars().count() + assistant.chars().count();
+        assert!(total < VOICE_AUTOSAVE_MIN_CHARS);
+    }
+
+    #[test]
+    fn autosave_threshold_accepts_sufficient_pairs() {
+        // "안녕하세요" (5) + "네, 안녕하세요!" (7) = 12 chars >= 10
+        let user = "안녕하세요";
+        let assistant = "네, 안녕하세요!";
+        let total = user.chars().count() + assistant.chars().count();
+        assert!(total >= VOICE_AUTOSAVE_MIN_CHARS);
+    }
+
+    // ── Auth middleware tests ──
+
+    #[test]
+    fn auth_token_generation_produces_valid_uuid() {
+        let token = uuid::Uuid::new_v4().to_string();
+        assert!(!token.is_empty());
+        assert!(uuid::Uuid::parse_str(&token).is_ok());
+    }
+
+    // ── Workspace prompt tests ──
 
     #[test]
     fn voice_prompt_from_workspace_with_files() {
