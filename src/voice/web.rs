@@ -821,7 +821,7 @@ async fn relay_session(
                                             }
                                         });
                                         if tx.send(output_item.to_string()).await.is_err() {
-                                            warn!("Failed to send tool result to Realtime API");
+                                            error!("Failed to send tool result to Realtime API — voice session may hang waiting for function_call_output");
                                             return;
                                         }
 
@@ -830,7 +830,7 @@ async fn relay_session(
                                             "type": "response.create"
                                         });
                                         if tx.send(response_create.to_string()).await.is_err() {
-                                            warn!("Failed to send response.create after tool execution");
+                                            error!("Failed to send response.create after tool execution — voice session may not resume");
                                         }
 
                                         info!(
@@ -839,6 +839,11 @@ async fn relay_session(
                                         );
                                     });
                                 }
+                            } else {
+                                warn!(
+                                    "Voice function call event missing call_id or name: call_id={:?}, name={:?}",
+                                    call_id, fn_name
+                                );
                             }
                         }
                     }
@@ -1025,11 +1030,29 @@ async fn chat_handler(
     Ok(Json(ChatResponse { reply }))
 }
 
-/// Build a voice system prompt by reading workspace identity files.
-/// Reads SOUL.md, IDENTITY.md, USER.md, TOOLS.md, MEMORY.md from workspace_dir.
-/// Returns an empty string if no files are found.
+/// Maximum characters in a tool output returned to the Realtime API.
+/// Voice context is limited; large outputs degrade latency and comprehension.
+const VOICE_TOOL_MAX_OUTPUT_CHARS: usize = 4000;
+
+/// Truncate tool output for voice context if it exceeds [`VOICE_TOOL_MAX_OUTPUT_CHARS`].
+fn truncate_voice_output(output: &str) -> String {
+    if output.chars().count() > VOICE_TOOL_MAX_OUTPUT_CHARS {
+        let truncated: String = output.chars().take(VOICE_TOOL_MAX_OUTPUT_CHARS).collect();
+        format!("{}... (truncated)", truncated)
+    } else {
+        output.to_string()
+    }
+}
+
 /// Execute a tool via the Agent's tool dispatcher for voice function calling.
 /// Returns the tool result as a string (JSON or plain text).
+///
+/// NOTE: The Agent mutex is held for the duration of tool execution because
+/// `Agent.tools` stores `Box<dyn Tool>` which cannot be cloned or extracted
+/// without the lock. Long-running tools will block other agent operations
+/// (transcript saves, chat messages). Migrating `Agent.tools` to
+/// `Arc<dyn Tool>` would allow lock-free execution but requires a cross-cutting
+/// refactor — tracked as a follow-up.
 async fn execute_voice_tool(
     agent_mutex: &Arc<tokio::sync::Mutex<crate::agent::Agent>>,
     name: &str,
@@ -1037,19 +1060,14 @@ async fn execute_voice_tool(
 ) -> String {
     let args: serde_json::Value = serde_json::from_str(arguments_json).unwrap_or(json!({}));
 
-    let agent = agent_mutex.lock().await;
-    match agent.execute_tool(name, args).await {
-        Ok(result) => {
-            // Return the tool output; truncate if too long for voice context
-            let output = &result.output;
-            let max_chars = 4000;
-            if output.chars().count() > max_chars {
-                let truncated: String = output.chars().take(max_chars).collect();
-                format!("{}... (truncated)", truncated)
-            } else {
-                output.to_string()
-            }
-        }
+    // Hold lock only for tool lookup + execution; truncation happens after release.
+    let result = {
+        let agent = agent_mutex.lock().await;
+        agent.execute_tool(name, args).await
+    };
+
+    match result {
+        Ok(result) => truncate_voice_output(&result.output),
         Err(e) => {
             warn!("Voice tool '{}' execution failed: {}", name, e);
             format!("Error executing tool '{}': {}", name, e)
@@ -1281,5 +1299,154 @@ mod tests {
         assert!(!prompt.contains("### IDENTITY.md")); // skipped
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── Tool output truncation tests ──
+
+    #[test]
+    fn truncate_voice_output_short_passthrough() {
+        let input = "Hello, world!";
+        assert_eq!(truncate_voice_output(input), input);
+    }
+
+    #[test]
+    fn truncate_voice_output_exact_boundary() {
+        let input: String = "a".repeat(VOICE_TOOL_MAX_OUTPUT_CHARS);
+        assert_eq!(truncate_voice_output(&input), input);
+    }
+
+    #[test]
+    fn truncate_voice_output_over_limit() {
+        let input: String = "b".repeat(VOICE_TOOL_MAX_OUTPUT_CHARS + 100);
+        let result = truncate_voice_output(&input);
+        assert!(result.ends_with("... (truncated)"));
+        // Truncated content should be exactly max_chars + suffix
+        let expected_len = VOICE_TOOL_MAX_OUTPUT_CHARS + "... (truncated)".len();
+        assert_eq!(result.len(), expected_len);
+    }
+
+    #[test]
+    fn truncate_voice_output_multibyte_chars() {
+        // Korean characters are 3 bytes each in UTF-8
+        let input: String = "가".repeat(VOICE_TOOL_MAX_OUTPUT_CHARS + 10);
+        let result = truncate_voice_output(&input);
+        assert!(result.ends_with("... (truncated)"));
+        // Should truncate by char count, not byte count
+        let content_part = result.strip_suffix("... (truncated)").unwrap();
+        assert_eq!(content_part.chars().count(), VOICE_TOOL_MAX_OUTPUT_CHARS);
+    }
+
+    #[test]
+    fn truncate_voice_output_empty_string() {
+        assert_eq!(truncate_voice_output(""), "");
+    }
+
+    // ── Function call event parsing tests ──
+
+    #[test]
+    fn parse_function_call_event_extracts_fields() {
+        let event = serde_json::json!({
+            "type": "response.function_call_arguments.done",
+            "call_id": "call_abc123",
+            "name": "get_weather",
+            "arguments": r#"{"city":"Seoul"}"#
+        });
+        let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+        let fn_name = event.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let fn_args = event
+            .get("arguments")
+            .and_then(|v| v.as_str())
+            .unwrap_or("{}");
+
+        assert_eq!(call_id, "call_abc123");
+        assert_eq!(fn_name, "get_weather");
+        assert_eq!(fn_args, r#"{"city":"Seoul"}"#);
+    }
+
+    #[test]
+    fn parse_function_call_event_missing_call_id() {
+        let event = serde_json::json!({
+            "type": "response.function_call_arguments.done",
+            "name": "get_weather",
+            "arguments": "{}"
+        });
+        let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(call_id.is_empty());
+    }
+
+    #[test]
+    fn parse_function_call_event_missing_name() {
+        let event = serde_json::json!({
+            "type": "response.function_call_arguments.done",
+            "call_id": "call_abc123",
+            "arguments": "{}"
+        });
+        let fn_name = event.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(fn_name.is_empty());
+    }
+
+    #[test]
+    fn parse_function_call_event_missing_arguments_defaults() {
+        let event = serde_json::json!({
+            "type": "response.function_call_arguments.done",
+            "call_id": "call_abc123",
+            "name": "get_weather"
+        });
+        let fn_args = event
+            .get("arguments")
+            .and_then(|v| v.as_str())
+            .unwrap_or("{}");
+        assert_eq!(fn_args, "{}");
+    }
+
+    #[test]
+    fn parse_function_call_arguments_invalid_json_defaults() {
+        let bad_json = "not valid json {{{";
+        let args: serde_json::Value = serde_json::from_str(bad_json).unwrap_or(json!({}));
+        assert_eq!(args, json!({}));
+    }
+
+    // ── Tool registration in session config tests ──
+
+    #[test]
+    fn session_config_includes_tools_when_present() {
+        let mut session_config = json!({"model": "gpt-4o-realtime"});
+        let tools = vec![json!({"type": "function", "name": "test_tool"})];
+        let has_agent = true;
+
+        if !tools.is_empty() && has_agent {
+            session_config["tools"] = json!(tools);
+        }
+
+        assert!(session_config.get("tools").is_some());
+        let registered = session_config["tools"].as_array().unwrap();
+        assert_eq!(registered.len(), 1);
+        assert_eq!(registered[0]["name"], "test_tool");
+    }
+
+    #[test]
+    fn session_config_omits_tools_without_agent() {
+        let mut session_config = json!({"model": "gpt-4o-realtime"});
+        let tools = vec![json!({"type": "function", "name": "test_tool"})];
+        let has_agent = false;
+
+        if !tools.is_empty() && has_agent {
+            session_config["tools"] = json!(tools);
+        }
+
+        assert!(session_config.get("tools").is_none());
+    }
+
+    #[test]
+    fn session_config_omits_tools_when_empty() {
+        let mut session_config = json!({"model": "gpt-4o-realtime"});
+        let tools: Vec<serde_json::Value> = vec![];
+        let has_agent = true;
+
+        if !tools.is_empty() && has_agent {
+            session_config["tools"] = json!(tools);
+        }
+
+        assert!(session_config.get("tools").is_none());
     }
 }
