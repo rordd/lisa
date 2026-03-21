@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 pub struct AnthropicProvider {
     credential: Option<String>,
     base_url: String,
+    thinking_mode: Option<String>,  // "adaptive", "enabled", "disabled", or None (default=off)
+    thinking_budget: Option<u32>,   // for type="enabled" only
+    effort: Option<String>,         // "low", "medium", "high", "max"
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +55,23 @@ struct NativeChatRequest<'a> {
     temperature: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<NativeToolSpec<'a>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ThinkingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_config: Option<OutputConfig>,
+}
+
+#[derive(Debug, Serialize)]
+struct ThinkingConfig {
+    #[serde(rename = "type")]
+    thinking_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    budget_tokens: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+struct OutputConfig {
+    effort: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -179,12 +199,27 @@ impl AnthropicProvider {
             .map(|u| u.trim_end_matches('/'))
             .unwrap_or("https://api.anthropic.com")
             .to_string();
+
+        // Read thinking config from env:
+        //   ANTHROPIC_THINKING_MODE = adaptive | enabled | disabled
+        //   ANTHROPIC_THINKING_BUDGET = 10000  (for enabled mode)
+        //   ANTHROPIC_EFFORT = low | medium | high | max
+        let thinking_mode = std::env::var("ANTHROPIC_THINKING_MODE").ok()
+            .filter(|s| !s.is_empty());
+        let thinking_budget = std::env::var("ANTHROPIC_THINKING_BUDGET").ok()
+            .and_then(|s| s.parse::<u32>().ok());
+        let effort = std::env::var("ANTHROPIC_EFFORT").ok()
+            .filter(|s| !s.is_empty());
+
         Self {
             credential: credential
                 .map(str::trim)
                 .filter(|k| !k.is_empty())
                 .map(ToString::to_string),
             base_url,
+            thinking_mode,
+            thinking_budget,
+            effort,
         }
     }
 
@@ -516,6 +551,7 @@ impl AnthropicProvider {
 
     fn parse_native_response(response: NativeChatResponse) -> ProviderChatResponse {
         let mut text_parts = Vec::new();
+        let mut reasoning_parts = Vec::new();
         let mut tool_calls = Vec::new();
 
         let usage = response.usage.map(|u| TokenUsage {
@@ -547,6 +583,12 @@ impl AnthropicProvider {
                         arguments: arguments.to_string(),
                     });
                 }
+                "thinking" => {
+                    if let Some(thinking_text) = block.text {
+                        tracing::debug!("Thinking block: {} chars", thinking_text.len());
+                        reasoning_parts.push(thinking_text);
+                    }
+                }
                 _ => {}
             }
         }
@@ -559,7 +601,11 @@ impl AnthropicProvider {
             },
             tool_calls,
             usage,
-            reasoning_content: None,
+            reasoning_content: if reasoning_parts.is_empty() {
+                None
+            } else {
+                Some(reasoning_parts.join("\n"))
+            },
         }
     }
 
@@ -646,13 +692,45 @@ impl Provider for AnthropicProvider {
             Self::apply_cache_to_last_message(&mut messages);
         }
 
+        let thinking = self.thinking_mode.as_deref().and_then(|mode| match mode {
+            "adaptive" | "enabled" => {
+                let budget = self.thinking_budget.unwrap_or(10000);
+                Some(ThinkingConfig {
+                    thinking_type: mode.to_string(),
+                    budget_tokens: Some(budget),
+                })
+            }
+            "disabled" => None, // default behavior, no need to send
+            other => {
+                tracing::warn!("Unknown ANTHROPIC_THINKING_MODE '{}', ignoring", other);
+                None
+            }
+        });
+        let output_config = self.effort.as_deref().and_then(|e| match e {
+            "low" | "medium" | "high" | "max" => Some(OutputConfig { effort: e.to_string() }),
+            other => {
+                tracing::warn!("Unknown ANTHROPIC_EFFORT '{}', ignoring", other);
+                None
+            }
+        });
+
+        // Thinking requires temperature=1 and max_tokens > budget_tokens
+        let (temp, max_tok) = if let Some(ref t) = thinking {
+            let budget = t.budget_tokens.unwrap_or(10000);
+            (1.0, std::cmp::max(16384, budget + 1024))
+        } else {
+            (temperature, 4096)
+        };
+
         let native_request = NativeChatRequest {
             model: model.to_string(),
-            max_tokens: 4096,
+            max_tokens: max_tok,
             system: system_prompt,
             messages,
-            temperature,
+            temperature: temp,
             tools: Self::convert_tools(request.tools),
+            thinking,
+            output_config,
         };
 
         let req = self
