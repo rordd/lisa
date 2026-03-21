@@ -136,6 +136,22 @@ Button `action` MUST use the nested v0.9 format. NEVER use flat `{"type":"event"
 - Event: `{"action": {"event": {"name": "choice", "context": {"answer": "A"}}}}`
 - Function: `{"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}}`
 
+## Card Lifecycle (surfaceId routing)
+
+The app uses `surfaceId` to route cards:
+- **Same surfaceId** as existing on-screen card → **update in-place**
+- **New surfaceId** → create new card
+
+Rules:
+- **Continuous flows** (quiz, settings, multi-step): reuse the SAME `surfaceId` across turns
+- **Independent lookups** (weather, search): use a new `surfaceId` each time
+
+Example — quiz flow:
+```
+Turn 1: createSurface { surfaceId: "quiz-1", catalogId: "lisa.home/v1" }
+Turn 2: createSurface { surfaceId: "quiz-1", catalogId: "lisa.home/v1" }  ← same → app updates existing card
+```
+
 ## Response Format
 
 Always use `<a2ui-json>...</a2ui-json>` tags. Start with `createSurface`, then `updateComponents`.

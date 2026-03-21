@@ -30,6 +30,17 @@ If it fits A2UI components → use A2UI. If it needs custom HTML/JS → use a2we
 3. `updateDataModel` — update data bindings
 4. `deleteSurface` — remove surface
 
+## Surface Lifecycle
+
+A surface is a persistent UI session identified by `surfaceId`:
+1. `createSurface` — create once per flow (surfaceId + catalogId are fixed after creation)
+2. `updateComponents` / `updateDataModel` — send updates to the same `surfaceId`
+3. `deleteSurface` — remove when done
+
+Rules:
+- **Continuous flows** (quiz, multi-step): `createSurface` on turn 1, then only `updateComponents` on subsequent turns (same `surfaceId`)
+- **Independent lookups** (weather, search): new `surfaceId` each time
+
 ## Rules
 
 - Always `createSurface` first, then `updateComponents`

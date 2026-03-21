@@ -15,6 +15,9 @@ let thinkingTimer: number | null = null;
 let thinkingEl: HTMLElement | null = null;
 let currentA2UIMessages: unknown[] = [];
 
+
+
+
 // ── DOM helpers ──
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -96,17 +99,47 @@ function renderA2UISurface(elapsedSec: number | null) {
     container.appendChild(el);
   }
 
-  // Raw JSON inspector
+  // Raw JSON inspector with copy button
   if (currentA2UIMessages.length > 0) {
+    const inspectorWrap = document.createElement('div');
+    inspectorWrap.className = 'inspector-wrap';
+    const jsonText = JSON.stringify(currentA2UIMessages, null, 2);
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.textContent = '📋 Copy';
+    copyBtn.addEventListener('click', () => {
+      const doCopy = () => {
+        if (navigator.clipboard?.writeText) {
+          return navigator.clipboard.writeText(jsonText);
+        }
+        const ta = document.createElement('textarea');
+        ta.value = jsonText;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok ? Promise.resolve() : Promise.reject();
+      };
+      doCopy().then(() => {
+        copyBtn.textContent = '✅ Copied!';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500);
+      }).catch(() => {
+        copyBtn.textContent = '❌ Failed';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500);
+      });
+    });
+    inspectorWrap.appendChild(copyBtn);
     const details = document.createElement('details');
     details.className = 'inspector';
     const summary = document.createElement('summary');
     summary.textContent = `Raw A2UI JSON (${currentA2UIMessages.length} messages)`;
     const pre = document.createElement('pre');
-    pre.textContent = JSON.stringify(currentA2UIMessages, null, 2);
+    pre.textContent = jsonText;
     details.appendChild(summary);
     details.appendChild(pre);
-    container.appendChild(details);
+    inspectorWrap.appendChild(details);
+    container.appendChild(inspectorWrap);
   }
 
   // Elapsed badge
