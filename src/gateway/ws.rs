@@ -170,7 +170,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
             &config.workspace_dir,
         ));
         let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skills_for_tools = crate::skills::filter_skills_by_channel(skills, Some("default"));
+        let skills_for_tools = crate::skills::filter_skills_by_channel(skills, Some("ws"));
         let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security);
         if !skill_tools.is_empty() {
             tracing::debug!(count = skill_tools.len(), "WS agent: injected skill tools");

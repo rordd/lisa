@@ -15,8 +15,6 @@ pub mod sse;
 pub mod static_files;
 pub mod ws;
 
-use axum::middleware::Next;
-use axum::response::Response;
 use crate::channels::{
     session_backend::SessionBackend, session_sqlite::SqliteSessionBackend, Channel, LinqChannel,
     NextcloudTalkChannel, SendMessage, WatiChannel, WhatsAppChannel,
@@ -32,6 +30,8 @@ use crate::tools;
 use crate::tools::traits::ToolSpec;
 use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
+use axum::middleware::Next;
+use axum::response::Response;
 use axum::{
     body::Bytes,
     extract::{ConnectInfo, Query, State},
@@ -79,11 +79,20 @@ async fn security_headers_middleware(req: axum::extract::Request, next: Next) ->
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    // Allow iframe embedding for a2web pages so clients can render them inline
+    // Allow iframe embedding for a2web pages so clients can render them inline.
+    // Permit external scripts (CDN chart libs), images, styles, and fonts.
     if is_a2web {
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("default-src 'self' 'unsafe-inline'"),
+            HeaderValue::from_static(
+                "default-src 'self' 'unsafe-inline' 'unsafe-eval'; \
+                 script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; \
+                 img-src 'self' https: data:; \
+                 style-src 'self' 'unsafe-inline' https:; \
+                 font-src 'self' https: data:; \
+                 connect-src 'self' https:; \
+                 frame-ancestors *"
+            ),
         );
     } else {
         headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
@@ -2010,7 +2019,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2065,7 +2075,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2444,7 +2455,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2513,7 +2525,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let headers = HeaderMap::new();
@@ -2594,7 +2607,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let response = handle_webhook(
@@ -2647,7 +2661,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2705,7 +2720,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2768,7 +2784,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let response = Box::pin(handle_nextcloud_talk_webhook(
@@ -2827,7 +2844,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();

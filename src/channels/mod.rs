@@ -3892,7 +3892,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     {
         let skills_for_tools = crate::skills::filter_skills_by_channel(
             crate::skills::load_skills_with_config(&workspace, &config),
-            Some("default"),
+            Some("telegram"),
         );
         let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
         if !skill_tools.is_empty() {
@@ -3916,7 +3916,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     let skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&workspace, &config),
-        Some("default"),
+        Some("telegram"),
     );
 
     // Collect tool descriptions for the prompt
@@ -6887,8 +6887,9 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("<description>Review code for bugs</description>"));
         assert!(prompt.contains("SKILL.md</location>"));
         assert!(prompt.contains("<instructions>"));
-        assert!(prompt
-            .contains("<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"));
+        assert!(prompt.contains(
+            "<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"
+        ));
         assert!(prompt.contains("<tools>"));
         assert!(prompt.contains("<name>lint</name>"));
         assert!(prompt.contains("<kind>shell</kind>"));
@@ -6933,8 +6934,9 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("<location>skills/code-review/SKILL.md</location>"));
         assert!(prompt.contains("loaded on demand"));
         assert!(!prompt.contains("<instructions>"));
-        assert!(!prompt
-            .contains("<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"));
+        assert!(!prompt.contains(
+            "<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"
+        ));
         assert!(!prompt.contains("<tools>"));
     }
 
