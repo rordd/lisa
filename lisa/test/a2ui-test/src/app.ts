@@ -94,12 +94,16 @@ function renderA2UISurface(elapsedSec: number | null) {
     const el = document.createElement('a2ui-surface-v09') as any;
     el.surface = surface;
     el.addEventListener('a2ui-action', (e: CustomEvent) => {
-      handleA2UIAction(e.detail, surface.surfaceId);
+      handleA2UIAction(e.detail, surface);
     });
     container.appendChild(el);
   }
 
   // Raw JSON inspector with copy button
+  const surfaceId = surface?.surfaceId;
+  if (surfaceId) {
+    container.dataset.surfaceId = surfaceId;
+  }
   if (currentA2UIMessages.length > 0) {
     const inspectorWrap = document.createElement('div');
     inspectorWrap.className = 'inspector-wrap';
@@ -204,19 +208,21 @@ function renderA2WebFrame(data: { url?: string; title?: string; id?: string }) {
   requestStartTime = null;
 }
 
-function handleA2UIAction(detail: any, surfaceId: string) {
+function handleA2UIAction(detail: any, surface: any) {
   console.log('A2UI action:', detail);
   if (ws && ws.readyState === WebSocket.OPEN) {
     currentA2UIMessages = [];  // reset for next response
-    ws.send(JSON.stringify({
-      type: 'a2ui_action',
-      payload: {
-        surfaceId,
-        name: detail?.name || 'unknown',
-        sourceComponentId: detail?.sourceComponentId || 'unknown',
-        context: detail?.context || {},
-      },
-    }));
+    const payload: any = {
+      surfaceId: surface.surfaceId,
+      name: detail?.name || 'unknown',
+      sourceComponentId: detail?.sourceComponentId || 'unknown',
+      context: detail?.context || {},
+    };
+    // v0.9 standard: include dataModel when sendDataModel is enabled
+    if (surface.sendDataModel && surface.dataModel) {
+      payload.dataModel = surface.dataModel;
+    }
+    ws.send(JSON.stringify({ type: 'a2ui_action', payload }));
     showThinking();
   }
 }
@@ -234,6 +240,15 @@ function handleWSMessage(data: any) {
     case 'a2ui':
       if (data.messages) {
         console.log('[A2UI] received', data.messages.length, 'messages');
+        // Handle deleteSurface — remove matching card from DOM
+        for (const msg of data.messages as any[]) {
+          if (msg.deleteSurface?.surfaceId) {
+            const sid = msg.deleteSurface.surfaceId;
+            const el = document.querySelector(`[data-surface-id="${sid}"]`);
+            if (el) el.remove();
+            console.log('[A2UI] deleteSurface:', sid);
+          }
+        }
         currentA2UIMessages = data.messages;
       }
       break;

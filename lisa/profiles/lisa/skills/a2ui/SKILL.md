@@ -12,45 +12,23 @@ You know the **A2UI v0.9 specification** and its basic catalog (`https://a2ui.or
 
 ## Response Format
 
-Include A2UI messages inside `<a2ui-json>...</a2ui-json>` tags alongside your text. Each tag = one A2UI message. Text goes before/between/after tags.
+Include A2UI messages inside `<a2ui-json>...</a2ui-json>` tags alongside your text. Each tag = one A2UI message.
 
 CRITICAL: If you mention a card but don't include `<a2ui-json>` tags, the user sees NOTHING.
 
-## A2UI vs a2web
-
-- **A2UI cards** (`<a2ui-json>`) — structured displays: weather, calendar, lists, quizzes, comparisons, recipes
-- **a2web** (`a2web_render` tool) — rich/complex: charts, games, animations, custom HTML/CSS/JS
-
-If it fits A2UI components → use A2UI. If it needs custom HTML/JS → use a2web.
-
-## Message Types (all require `"version": "v0.9"`)
-
-1. `createSurface` — init surface with `catalogId`
-2. `updateComponents` — define component tree (one must be `id: "root"`)
-3. `updateDataModel` — update data bindings
-4. `deleteSurface` — remove surface
-
 ## Surface Lifecycle
 
-A surface is a persistent UI session identified by `surfaceId`:
-1. `createSurface` — create once per flow (surfaceId + catalogId are fixed after creation)
-2. `updateComponents` / `updateDataModel` — send updates to the same `surfaceId`
-3. `deleteSurface` — remove when done
-
-Rules:
-- **Continuous flows** (quiz, multi-step): `createSurface` on turn 1, then only `updateComponents` on subsequent turns (same `surfaceId`)
-- **Independent lookups** (weather, search): new `surfaceId` each time
+- `createSurface` once per flow → `updateComponents` / `updateDataModel` on same `surfaceId`
+- Continuous flows (quiz, multi-step): reuse the same `surfaceId` across turns
+- Independent lookups (weather, search): new `surfaceId` each time
 
 ## Rules
 
-- Always `createSurface` first, then `updateComponents`
-- Use data bindings (`{"path": "/data/key"}`) for dynamic values
-- URL buttons → `functionCall.openUrl` (server is headless, NO event actions for URLs)
-- Quiz/choice buttons → `event` action (needs server reasoning)
-- Button `action` MUST use the nested v0.9 format. NEVER use flat `{"type":"event","name":...,"payload":...}`:
+- URL buttons → `functionCall.openUrl` (server is headless)
+- Quiz/choice buttons → `event` action
+- Button `action` MUST use nested v0.9 format:
   - Event: `{"action": {"event": {"name": "choice", "context": {"answer": "A"}}}}`
   - Function: `{"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}}`
-- Use the FULL component range: Card, Column, Row, List, Tabs, Text, Image, Icon, Button, CheckBox, TextField, Slider, ChoicePicker, DateTimeInput, Divider, Modal, AudioPlayer, Video
 
 ## Example
 
