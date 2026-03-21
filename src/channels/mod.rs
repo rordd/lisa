@@ -3892,7 +3892,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     {
         let skills_for_tools = crate::skills::filter_skills_by_channel(
             crate::skills::load_skills_with_config(&workspace, &config),
-            Some("default"),
+            Some("telegram"),
         );
         let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security.clone());
         if !skill_tools.is_empty() {
@@ -3916,7 +3916,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     let skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&workspace, &config),
-        Some("default"),
+        Some("telegram"),
     );
 
     // Collect tool descriptions for the prompt
