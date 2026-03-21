@@ -1,27 +1,31 @@
-#!/bin/bash
+#!/bin/sh
 # 카카오 모빌리티 자동차 길찾기
 # Usage: drive.sh <출발지> <도착지>
 # 입력: 주소/장소명 또는 좌표(lon,lat)
 # Env: KAKAO_REST_API_KEY
 
-set -euo pipefail
+set -eu
 
-if [[ -z "${KAKAO_REST_API_KEY:-}" ]]; then
+if [ -z "${KAKAO_REST_API_KEY:-}" ]; then
   echo '{"error": "KAKAO_REST_API_KEY not set"}' >&2
   exit 1
 fi
 
 geocode() {
-  local input="$1"
+  input="$1"
   # 이미 좌표면 그대로
-  if [[ "$input" =~ ^[0-9]+\.[0-9]+,[0-9]+\.[0-9]+$ ]]; then
+  if echo "$input" | grep -qE '^[0-9]+\.[0-9]+,[0-9]+\.[0-9]+$'; then
     echo "$input"
     return
   fi
-  local query
-  query=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$input'))")
-  curl -s "https://dapi.kakao.com/v2/local/search/keyword.json?query=${query}&size=1" \
-    -H "Authorization: KakaoAK ${KAKAO_REST_API_KEY}" | jq -r '.documents[0] | "\(.x),\(.y)"'
+  query=$(printf '%s' "$input" | jq -Rr @uri)
+  result=$(curl -s "https://dapi.kakao.com/v2/local/search/keyword.json?query=${query}&size=1" \
+    -H "Authorization: KakaoAK ${KAKAO_REST_API_KEY}" | jq -r '.documents[0] | "\(.x),\(.y)"')
+  if [ "$result" = "null,null" ] || [ -z "$result" ]; then
+    echo '{"error": "geocode failed"}' >&2
+    return 1
+  fi
+  echo "$result"
 }
 
 origin=$(geocode "$1")

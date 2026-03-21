@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/bin/sh
 # 종목 뉴스 조회
 # Usage: news.sh <종목코드> [개수]
 # Source: 네이버 증권 API
 
-set -euo pipefail
+set -eu
 
 code="$1"
 count="${2:-5}"

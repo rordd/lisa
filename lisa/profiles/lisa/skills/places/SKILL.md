@@ -23,10 +23,10 @@ Google Places API로 장소 검색, Static Maps API로 지도 이미지. shell �
 
 ### 장소 검색 (`search.sh`)
 ```bash
-cd skills/places && bash scripts/search.sh "강남역 맛집"
-cd skills/places && bash scripts/search.sh "홍대 카페" 3
-cd skills/places && bash scripts/search.sh "서울역 약국" 5 nomap
-cd skills/places && bash scripts/search.sh "강남역" 0 maponly
+cd skills/places && sh scripts/search.sh "강남역 맛집"
+cd skills/places && sh scripts/search.sh "홍대 카페" 3
+cd skills/places && sh scripts/search.sh "서울역 약국" 5 nomap
+cd skills/places && sh scripts/search.sh "강남역" 0 maponly
 ```
 Returns `{"url": "https://..."}` — use in A2UI Image component.
 

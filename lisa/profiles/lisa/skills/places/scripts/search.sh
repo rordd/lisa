@@ -1,11 +1,11 @@
-#!/bin/bash
+#!/bin/sh
 # Google Places 장소검색 + 지도
 # Usage: search.sh <키워드> [결과수] [nomap]
 # Env: GOOGLE_MAPS_API_KEY
 
-set -euo pipefail
+set -eu
 
-if [[ -z "${GOOGLE_MAPS_API_KEY:-}" ]]; then
+if [ -z "${GOOGLE_MAPS_API_KEY:-}" ]; then
   echo '{"error": "GOOGLE_MAPS_API_KEY not set"}' >&2
   exit 1
 fi
@@ -15,12 +15,15 @@ count="${2:-5}"
 mode="${3:-}"
 
 # 지도만 모드: 장소 geocode → 지도 URL
-if [[ "$mode" == "maponly" ]]; then
+if [ "$mode" = "maponly" ]; then
   loc=$(curl -s "https://places.googleapis.com/v1/places:searchText" \
     -H "Content-Type: application/json" \
     -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
     -H "X-Goog-FieldMask: places.location,places.displayName" \
-    -d "{\"textQuery\": \"${query}\", \"maxResultCount\": 1, \"languageCode\": \"ko\"}" | jq '.places[0]')
+    -d "$(jq -cn --arg q "$query" '{textQuery: $q, maxResultCount: 1, languageCode: "ko"}')" | jq '.places[0]')
+  if [ "$loc" = "null" ] || [ -z "$loc" ]; then
+    echo '{"error": "no results found"}'; exit 1
+  fi
   lat=$(echo "$loc" | jq -r '.location.latitude')
   lng=$(echo "$loc" | jq -r '.location.longitude')
   name=$(echo "$loc" | jq -r '.displayName.text')
@@ -33,7 +36,7 @@ results=$(curl -s "https://places.googleapis.com/v1/places:searchText" \
   -H "Content-Type: application/json" \
   -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
   -H "X-Goog-FieldMask: places.displayName,places.formattedAddress,places.googleMapsUri,places.location,places.internationalPhoneNumber,places.primaryType,places.rating,places.userRatingCount" \
-  -d "{\"textQuery\": \"${query}\", \"maxResultCount\": ${count}, \"languageCode\": \"ko\"}" | jq '[.places // [] | .[] | {
+  -d "$(jq -cn --arg q "$query" --argjson c "$count" '{textQuery: $q, maxResultCount: $c, languageCode: "ko"}')" | jq '[.places // [] | .[] | {
   name: .displayName.text,
   type: .primaryType,
   address: .formattedAddress,
@@ -46,7 +49,7 @@ results=$(curl -s "https://places.googleapis.com/v1/places:searchText" \
 }]')
 
 # 지도 URL 생성 (nomap이 아닌 경우)
-if [[ "$mode" != "nomap" ]]; then
+if [ "$mode" != "nomap" ]; then
   markers=$(echo "$results" | jq -r '.[] | "\(.lat),\(.lng)"' | head -5 | \
     awk '{printf "&markers=color:red|%s", $0}')
   center=$(echo "$results" | jq -r '.[0] | "\(.lat),\(.lng)"')
