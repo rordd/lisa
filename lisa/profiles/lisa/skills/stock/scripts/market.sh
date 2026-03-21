@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/bin/sh
 # 한국 시장 지수 조회 (코스피/코스닥)
 # Usage: market.sh [KOSPI|KOSDAQ|both]
 # Source: 네이버 증권 API
 
-set -euo pipefail
+set -eu
 
 fetch_index() {
   local index="$1"

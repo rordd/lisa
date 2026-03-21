@@ -54,13 +54,13 @@ for i in $(seq 0 $((total - 1))); do
   log_start=$(wc -l < "$LOG_FILE")
   
   # Send WS message and wait for done/error
-  start_ms=$(python3 -c "import time; print(int(time.time()*1000))")
+  start_ms=$(date +%s)000
   
-  ws_response=$(echo "{\"type\":\"message\",\"content\":\"$query\"}" | \
+  ws_response=$(jq -cn --arg content "$query" '{"type":"message","content":$content}' | \
     websocat -t "$WS_URL" 2>/dev/null | \
     grep -m1 '"type":"done"\|"type":"error"' || echo '{"type":"error","message":"timeout"}')
   
-  end_ms=$(python3 -c "import time; print(int(time.time()*1000))")
+  end_ms=$(date +%s)000
   wall_ms=$((end_ms - start_ms))
   
   # Parse response
