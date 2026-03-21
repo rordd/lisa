@@ -24,43 +24,19 @@ channels: ws, telegram
 
 ## Commands
 
-경로: `scripts/`
-
-### 자동차 (`drive.sh`)
+### 길찾기 (`route.sh`)
 ```bash
-# 주소명 직접 사용 가능 (내부에서 좌표 변환)
-shell drive.sh "강남역" "서울역"
+cd skills/directions-kr && bash scripts/route.sh "강남역" "서울역"           # 자동차 (기본)
+cd skills/directions-kr && bash scripts/route.sh "강남역" "서울역" transit   # 대중교통
+cd skills/directions-kr && bash scripts/route.sh "강남역" "서울역" all       # 자동차+대중교통
 ```
 
-Output:
+Output: 배열로 반환
 ```json
-{
-  "mode": "drive",
-  "distance_m": 11399,
-  "duration_min": 19,
-  "taxi_fare": 17900,
-  "toll": 0,
-  "guides": [{"name": "서초대로", "guidance": "우회전", "distance_m": 1797}]
-}
-```
-
-### 대중교통 (`transit.sh`)
-```bash
-# 주소명 직접 사용 가능
-shell transit.sh "강남역" "서울역"
-```
-
-Output:
-```json
-{
-  "mode": "transit",
-  "duration": "2000s",
-  "distance_m": 15415,
-  "steps": [
-    {"line": "2호선", "from": "강남", "to": "사당", "depart": "PM 10:55", "stops": 5},
-    {"line": "4호선", "from": "사당", "to": "서울", "depart": "PM 11:07", "stops": 8}
-  ]
-}
+[
+  {"mode": "drive", "duration_min": 19, "taxi_fare": 17900, "toll": 0, "traffic_summary": [...]},
+  {"mode": "transit", "duration": "2000s", "steps": [{"line": "2호선", "from": "강남", "to": "사당", "stops": 5}]}
+]
 ```
 
 ## Output Format

@@ -4,6 +4,7 @@ description: "A2UI v0.9 card rendering. Visually present structured data (weathe
 version: "2.0.0"
 channels: ws
 always: true
+always: true
 ---
 
 # A2UI v0.9 — Card Rendering

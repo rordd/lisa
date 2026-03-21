@@ -22,33 +22,12 @@ Google Directions API. 해외 자동차/대중교통/도보/자전거 전부 지
 
 ## Commands
 
-경로: `scripts/`
-
 ### 경로 검색 (`route.sh`)
 ```bash
-# 대중교통 (기본)
-shell route.sh "Times Square NYC" "Central Park NYC"
-
-# 자동차
-shell route.sh "Tokyo Station" "Shibuya Station" driving
-
-# 도보
-shell route.sh "Eiffel Tower" "Louvre Museum" walking
-
-# 자전거
-shell route.sh "Hyde Park London" "Big Ben" bicycling
-```
-
-### Output (transit)
-```json
-{
-  "mode": "transit",
-  "duration": "15 mins",
-  "distance": "3.2 km",
-  "steps": [
-    {"line": "2", "name": "Subway Line 2", "from": "Station A", "to": "Station B", "stops": 3}
-  ]
-}
+cd skills/directions && bash scripts/route.sh "Times Square NYC" "Central Park NYC"           # 자동차 (기본)
+cd skills/directions && bash scripts/route.sh "Tokyo Station" "Shibuya Station" transit        # 대중교통
+cd skills/directions && bash scripts/route.sh "Eiffel Tower" "Louvre Museum" walk              # 도보
+cd skills/directions && bash scripts/route.sh "Times Square NYC" "Central Park NYC" all        # 자동차+대중교통
 ```
 
 ## Links

@@ -21,35 +21,21 @@ Google Places API로 장소 검색, Static Maps API로 지도 이미지. shell �
 
 ## Commands
 
-경로: `scripts/`
-
 ### 장소 검색 (`search.sh`)
 ```bash
-shell search.sh "강남역 맛집"
-shell search.sh "홍대 카페" 3
-```
-
-### 지도 이미지 (`map.sh`)
-```bash
-shell map.sh 37.495,127.028
-shell map.sh 37.495,127.028 37.500,127.024
-shell map.sh 37.495,127.028 12
+cd skills/places && bash scripts/search.sh "강남역 맛집"
+cd skills/places && bash scripts/search.sh "홍대 카페" 3
+cd skills/places && bash scripts/search.sh "서울역 약국" 5 nomap
+cd skills/places && bash scripts/search.sh "강남역" 0 maponly
 ```
 Returns `{"url": "https://..."}` — use in A2UI Image component.
 
-### Output (search.sh)
+### Output
 ```json
-[{
-  "name": "맛있는집",
-  "type": "korean_restaurant",
-  "address": "서울 강남구...",
-  "phone": "+82 2-555-1234",
-  "rating": 4.5,
-  "reviews": 230,
-  "url": "https://maps.google.com/?cid=...",
-  "lat": 37.495,
-  "lng": 127.028
-}]
+{
+  "places": [{"name": "맛있는집", "rating": 4.5, "address": "서울 강남구...", "url": "https://maps.google.com/?cid=..."}],
+  "map_url": "https://maps.googleapis.com/maps/api/staticmap?..."
+}
 ```
 
 ## Output Format

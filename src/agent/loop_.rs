@@ -2373,6 +2373,8 @@ pub(crate) async fn run_tool_call_loop(
     let turn_id = Uuid::new_v4().to_string();
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
 
+    let loop_start = std::time::Instant::now();
+    let mut total_tool_calls: usize = 0;
     for iteration in 0..max_iterations {
         if cancellation_token
             .as_ref()
@@ -2672,6 +2674,12 @@ pub(crate) async fn run_tool_call_loop(
                 }
             }
             history.push(ChatMessage::assistant(response_text.clone()));
+            tracing::debug!(
+                total_tool_calls,
+                iterations = iteration + 1,
+                total_ms = loop_start.elapsed().as_millis(),
+                "📊 agent loop complete"
+            );
             return Ok(display_text);
         }
 
@@ -2877,6 +2885,16 @@ pub(crate) async fn run_tool_call_loop(
             });
         }
 
+        total_tool_calls += executable_calls.len();
+        let parallel = allow_parallel_execution && executable_calls.len() > 1;
+        tracing::debug!(
+            iteration = iteration + 1,
+            tool_count = executable_calls.len(),
+            parallel,
+            tools = ?executable_calls.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            elapsed_ms = loop_start.elapsed().as_millis(),
+            "⚡ iteration tool calls"
+        );
         for call in &executable_calls {
             tracing::info!(tool = %call.name, args = %scrub_credentials(&call.arguments.to_string()), ">>> Tool call executing");
         }
@@ -3017,6 +3035,12 @@ pub(crate) async fn run_tool_call_loop(
         serde_json::json!({
             "max_iterations": max_iterations,
         }),
+    );
+    tracing::debug!(
+        total_tool_calls,
+        iterations = max_iterations,
+        total_ms = loop_start.elapsed().as_millis(),
+        "📊 agent loop exceeded max iterations"
     );
     anyhow::bail!("Agent exceeded maximum tool iterations ({max_iterations})")
 }
