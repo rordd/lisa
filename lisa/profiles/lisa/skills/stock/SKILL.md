@@ -27,18 +27,11 @@ channels: ws, telegram
 
 ## Scripts
 
-경로: `scripts/`
-
 ### 종목 시세 (`quote.sh`)
 ```bash
-# 종목코드로 조회
-shell quote.sh 005930
-
-# 종목명으로 조회 (자동 코드 변환)
-shell quote.sh 삼성전자
-
-# 여러 종목 동시 조회
-shell quote.sh 삼성전자 SK하이닉스 네이버
+cd skills/stock && sh scripts/quote.sh 005930
+cd skills/stock && sh scripts/quote.sh 삼성전자
+cd skills/stock && sh scripts/quote.sh 삼성전자 SK하이닉스 네이버
 ```
 
 Output:
@@ -58,14 +51,8 @@ Output:
 
 ### 시장 지수 (`market.sh`)
 ```bash
-# 코스피 + 코스닥
-shell market.sh
-
-# 코스피만
-shell market.sh KOSPI
-
-# 코스닥만
-shell market.sh KOSDAQ
+cd skills/stock && sh scripts/market.sh
+cd skills/stock && sh scripts/market.sh KOSPI
 ```
 
 Output:
@@ -82,26 +69,15 @@ Output:
 
 ### 관심종목 (`watchlist.sh`)
 ```bash
-# 관심종목 전체 시세 조회
-shell watchlist.sh
-
-# 종목 추가
-shell watchlist.sh add 삼성전자
-
-# 종목 삭제
-shell watchlist.sh remove SK하이닉스
-
-# 목록만 (시세 없이)
-shell watchlist.sh list
+cd skills/stock && sh scripts/watchlist.sh
+cd skills/stock && sh scripts/watchlist.sh add 삼성전자
+cd skills/stock && sh scripts/watchlist.sh remove SK하이닉스
 ```
 
 ### 종목 뉴스 (`news.sh`)
 ```bash
-# 최근 뉴스 5건 (기본)
-shell news.sh 005930
-
-# 3건만
-shell news.sh 005930 3
+cd skills/stock && sh scripts/news.sh 005930
+cd skills/stock && sh scripts/news.sh 005930 3
 ```
 
 Output:

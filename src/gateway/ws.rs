@@ -354,6 +354,8 @@ async fn process_chat_message(
     }));
 
     // Multi-turn chat via persistent Agent (history is maintained across turns)
+    let turn_start = std::time::Instant::now();
+    tracing::debug!(content = %content, "WS turn start");
     match agent.turn(content).await {
         Ok(response) => {
             // Persist assistant response
@@ -392,6 +394,13 @@ async fn process_chat_message(
             } else {
                 &response
             });
+            let turn_elapsed = turn_start.elapsed();
+            tracing::debug!(
+                duration_ms = turn_elapsed.as_millis(),
+                response_len = clean_response.len(),
+                "WS turn complete"
+            );
+
             let done = serde_json::json!({
                 "type": "done",
                 "full_response": clean_response,
