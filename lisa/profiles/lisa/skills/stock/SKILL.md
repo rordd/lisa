@@ -27,7 +27,7 @@ channels: ws, telegram
 
 ## Scripts
 
-경로: `~/.zeroclaw/workspace/skills/stock/scripts/`
+경로: `scripts/`
 
 ### 종목 시세 (`quote.sh`)
 ```bash

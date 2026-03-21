@@ -493,29 +493,26 @@ install_skills() {
         done
         echo "  $SKILL_COUNT skill(s) installed"
     else
-        # Local: symlink entire skills directory to profile
+        # Local: copy skills directory (symlinks break glob_search)
         local profile_skills
         profile_skills="$(cd "$PROFILE_DIR/skills" && pwd)"
 
         if [[ -L "$WS/skills" ]]; then
-            local current_target
-            current_target="$(readlink "$WS/skills")"
-            if [[ "$current_target" == "$profile_skills" ]]; then
-                echo "  skills/ → $profile_skills (already linked)"
-                echo ""
-                return 0
-            fi
             rm "$WS/skills"
         elif [[ -d "$WS/skills" ]]; then
-            # Backup existing directory, then replace with symlink
             mv "$WS/skills" "$WS/skills.bak.$(date +%s)"
             echo "  Backed up existing skills/ directory"
         fi
 
-        ln -s "$profile_skills" "$WS/skills"
+        mkdir -p "$WS/skills"
+        for skill_dir in "$profile_skills"/*/; do
+            local skill_name
+            skill_name="$(basename "$skill_dir")"
+            cp -R "$skill_dir" "$WS/skills/$skill_name"
+        done
         local skill_count
-        skill_count=$(find "$profile_skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-        echo "  skills/ → $profile_skills ($skill_count skills, symlinked)"
+        skill_count=$(find "$WS/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+        echo "  skills/ ← $profile_skills ($skill_count skills, copied)"
     fi
     echo ""
 }

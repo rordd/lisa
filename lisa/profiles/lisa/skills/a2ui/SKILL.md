@@ -30,7 +30,9 @@ CRITICAL: If you mention a card but don't include `<a2ui-json>` tags, the user s
   - Event: `{"action": {"event": {"name": "choice", "context": {"answer": "A"}}}}`
   - Function: `{"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}}`
 
-## Example
+## Examples
+
+### Card with text
 
 User: "How's the weather today?"
 
@@ -44,3 +46,7 @@ It's sunny and 12°C in Seoul!
   {"id": "title", "component": "Text", "text": "🌤️ Today's Weather in Seoul", "variant": "h3"},
   {"id": "temp", "component": "Text", "text": "12°C / Sunny", "variant": "body"}
 ]}}</a2ui-json>
+
+### List pattern
+
+`List > Column[Text(h4), Text, Button(openUrl)]` per item. Repeat Column for each result.
