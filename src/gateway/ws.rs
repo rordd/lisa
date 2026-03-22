@@ -161,47 +161,11 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
     };
     agent.set_memory_session_id(Some(session_id.clone()));
 
-    // Inject skill tools from gateway registry into the WS agent
-    // so TOML-defined tools (weather_check, calendar_events, etc.) are available
-    // as native function calls, not just in system prompt text.
-    {
-        let config = state.config.lock().clone();
-        let security = std::sync::Arc::new(crate::security::SecurityPolicy::from_config(
-            &config.autonomy,
-            &config.workspace_dir,
-        ));
-        let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skills_for_tools = crate::skills::filter_skills_by_channel(skills, Some("ws"));
-        let skill_tools = crate::skills::create_skill_tools(&skills_for_tools, security);
-        if !skill_tools.is_empty() {
-            tracing::debug!(count = skill_tools.len(), "WS agent: injected skill tools");
-            agent.add_tools(skill_tools);
-        }
-        // In compact mode, add read_skill tool for on-demand skill loading
-        if config.skills.prompt_injection_mode == crate::config::SkillsPromptInjectionMode::Compact
-        {
-            let read_skill_tool = crate::skills::ReadSkillTool::from_skills(&skills_for_tools);
-            agent.add_tools(vec![Box::new(read_skill_tool)]);
-            tracing::debug!("WS agent: read_skill tool registered (compact mode)");
-        }
-    }
-
-    tracing::debug!(
-        total_tools = agent.tool_count(),
-        tool_names = ?agent.tool_names(),
-        "WS agent: total tools after injection"
-    );
-
     // Hydrate agent from persisted session (if available)
     let mut resumed = false;
     let mut message_count: usize = 0;
     if let Some(ref backend) = state.session_backend {
-        let mut messages = backend.load(&session_key);
-        // Ensure history starts with a user message after trim
-        let skip = messages.iter().take_while(|m| m.role != "user").count();
-        if skip > 0 {
-            messages.drain(0..skip);
-        }
+        let messages = backend.load(&session_key);
         if !messages.is_empty() {
             message_count = messages.len();
             agent.seed_history(&messages);
@@ -227,7 +191,6 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
     // is a regular `{"type":"message",...}` frame, we fall through and
     // process it immediately (backward-compatible).
     let mut first_msg_fallback: Option<String> = None;
-    let a2ui_enabled = { state.config.lock().a2ui.enabled };
 
     if let Some(first) = receiver.next().await {
         match first {
@@ -299,33 +262,14 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
         };
 
         let msg_type = parsed["type"].as_str().unwrap_or("");
+        if msg_type != "message" {
+            continue;
+        }
 
-        // Extract content based on message type
-        let content = match msg_type {
-            "a2ui_action" => {
-                if !a2ui_enabled {
-                    let err = serde_json::json!({"type": "error", "message": "a2ui is disabled"});
-                    let _ = sender.send(Message::Text(err.to_string().into())).await;
-                    continue;
-                }
-                match parsed.get("payload") {
-                    Some(payload) => super::a2ui::format_user_action(payload),
-                    None => {
-                        let err = serde_json::json!({"type": "error", "message": "a2ui_action missing payload"});
-                        let _ = sender.send(Message::Text(err.to_string().into())).await;
-                        continue;
-                    }
-                }
-            }
-            "message" => {
-                let c = parsed["content"].as_str().unwrap_or("").to_string();
-                if c.is_empty() {
-                    continue;
-                }
-                c
-            }
-            _ => continue,
-        };
+        let content = parsed["content"].as_str().unwrap_or("").to_string();
+        if content.is_empty() {
+            continue;
+        }
 
         // Persist user message
         if let Some(ref backend) = state.session_backend {
@@ -360,8 +304,6 @@ async fn process_chat_message(
     }));
 
     // Multi-turn chat via persistent Agent (history is maintained across turns)
-    let turn_start = std::time::Instant::now();
-    tracing::debug!(content = %content, "WS turn start");
     match agent.turn(content).await {
         Ok(response) => {
             // Persist assistant response
@@ -370,71 +312,9 @@ async fn process_chat_message(
                 let _ = backend.append(session_key, &assistant_msg);
             }
 
-            // Fire-and-forget LLM-driven memory consolidation
-            if state.auto_save
-                && content.chars().count() >= 20
-                && !crate::memory::should_skip_autosave_content(content)
-            {
-                let provider = Arc::clone(&state.provider);
-                let model = state.model.clone();
-                let memory = Arc::clone(&state.mem);
-                let user_msg = content.to_string();
-                let assistant_resp = response.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = crate::memory::consolidation::consolidate_turn(
-                        provider.as_ref(),
-                        &model,
-                        memory.as_ref(),
-                        &user_msg,
-                        &assistant_resp,
-                    )
-                    .await
-                    {
-                        tracing::debug!("WS memory consolidation failed: {e}");
-                    }
-                });
-            }
-
-            // Parse a2web-result tags from tool output and send as separate WS message
-            if let Some(a2web_data) = parse_a2web_result(&response) {
-                let a2web_msg = serde_json::json!({
-                    "type": "a2web",
-                    "url": a2web_data["url"],
-                    "id": a2web_data["id"],
-                    "title": a2web_data["title"],
-                });
-                let _ = sender
-                    .send(Message::Text(a2web_msg.to_string().into()))
-                    .await;
-            }
-
-            // Parse a2ui JSON from response and send as separate WS message
-            let (text_only, a2ui_messages) = crate::gateway::a2ui::parse_response(&response);
-            if !a2ui_messages.is_empty() {
-                let a2ui_msg = serde_json::json!({
-                    "type": "a2ui",
-                    "messages": a2ui_messages,
-                });
-                let _ = sender
-                    .send(Message::Text(a2ui_msg.to_string().into()))
-                    .await;
-            }
-
-            let clean_response = strip_a2web_result_tags(if !a2ui_messages.is_empty() {
-                &text_only
-            } else {
-                &response
-            });
-            let turn_elapsed = turn_start.elapsed();
-            tracing::debug!(
-                duration_ms = turn_elapsed.as_millis(),
-                response_len = clean_response.len(),
-                "WS turn complete"
-            );
-
             let done = serde_json::json!({
                 "type": "done",
-                "full_response": clean_response,
+                "full_response": response,
             });
             let _ = sender.send(Message::Text(done.to_string().into())).await;
 
@@ -461,39 +341,6 @@ async fn process_chat_message(
             }));
         }
     }
-}
-
-/// Extract a2web result data from `<a2web-result>...</a2web-result>` tags in response text.
-fn parse_a2web_result(text: &str) -> Option<serde_json::Value> {
-    const START: &str = "<a2web-result>";
-    const END: &str = "</a2web-result>";
-    let start_idx = text.find(START)?;
-    let json_start = start_idx + START.len();
-    let end_idx = text[json_start..].find(END)?;
-    let json_str = &text[json_start..json_start + end_idx];
-    serde_json::from_str(json_str.trim()).ok()
-}
-
-/// Strip `<a2web-result>...</a2web-result>` tags from text, cleaning up surrounding whitespace.
-fn strip_a2web_result_tags(text: &str) -> String {
-    const START: &str = "<a2web-result>";
-    const END: &str = "</a2web-result>";
-    if let Some(start_idx) = text.find(START) {
-        let after_start = start_idx + START.len();
-        if let Some(end_offset) = text[after_start..].find(END) {
-            let end_idx = after_start + end_offset + END.len();
-            let before = text[..start_idx].trim_end();
-            let after = text[end_idx..].trim_start();
-            if before.is_empty() {
-                return after.to_string();
-            }
-            if after.is_empty() {
-                return before.to_string();
-            }
-            return format!("{before}\n\n{after}");
-        }
-    }
-    text.to_string()
 }
 
 #[cfg(test)]
@@ -575,20 +422,5 @@ mod tests {
             "zeroclaw.v1, bearer.zc_tok, other".parse().unwrap(),
         );
         assert_eq!(extract_ws_token(&headers, None), Some("zc_tok"));
-    }
-
-    #[test]
-    fn parse_a2web_result_extracts_json() {
-        let text = r#"Some text <a2web-result>{"url":"http://localhost:42617/web/abc123/","id":"abc123","title":"Test"}</a2web-result>
-Page created: http://localhost:42617/web/abc123/"#;
-        let data = parse_a2web_result(text).unwrap();
-        assert_eq!(data["id"], "abc123");
-        assert_eq!(data["title"], "Test");
-        assert!(data["url"].as_str().unwrap().contains("/web/abc123/"));
-    }
-
-    #[test]
-    fn parse_a2web_result_returns_none_when_missing() {
-        assert!(parse_a2web_result("no tags here").is_none());
     }
 }
