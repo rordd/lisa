@@ -25,7 +25,7 @@ channels: ws, telegram
 ## Commands
 
 ### 길찾기 (`route.sh`)
-```bash
+```sh
 cd skills/directions-kr && sh scripts/route.sh "강남역" "서울역"           # 자동차 (기본)
 cd skills/directions-kr && sh scripts/route.sh "강남역" "서울역" transit   # 대중교통
 cd skills/directions-kr && sh scripts/route.sh "강남역" "서울역" all       # 자동차+대중교통

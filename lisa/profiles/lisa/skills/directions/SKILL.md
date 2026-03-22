@@ -23,7 +23,7 @@ Google Directions API. 해외 자동차/대중교통/도보/자전거 전부 지
 ## Commands
 
 ### 경로 검색 (`route.sh`)
-```bash
+```sh
 cd skills/directions && sh scripts/route.sh "Times Square NYC" "Central Park NYC"           # 자동차 (기본)
 cd skills/directions && sh scripts/route.sh "Tokyo Station" "Shibuya Station" transit        # 대중교통
 cd skills/directions && sh scripts/route.sh "Eiffel Tower" "Louvre Museum" walk              # 도보

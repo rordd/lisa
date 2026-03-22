@@ -25,17 +25,17 @@ Seoul Gangseo-gu (latitude=37.55, longitude=126.85). Check USER.md for overrides
 No API key required. Returns JSON.
 
 ### Current Weather
-```bash
+```sh
 curl -s "https://api.open-meteo.com/v1/forecast?latitude=37.55&longitude=126.85&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation&timezone=Asia/Seoul"
 ```
 
 ### 3-Day Forecast
-```bash
+```sh
 curl -s "https://api.open-meteo.com/v1/forecast?latitude=37.55&longitude=126.85&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code&timezone=Asia/Seoul&forecast_days=3"
 ```
 
 ### Hourly (today)
-```bash
+```sh
 curl -s "https://api.open-meteo.com/v1/forecast?latitude=37.55&longitude=126.85&hourly=temperature_2m,precipitation_probability,weather_code&timezone=Asia/Seoul&forecast_days=1"
 ```
 
@@ -57,7 +57,7 @@ Change latitude/longitude. Examples:
 
 ## Fallback: wttr.in (use ONLY if Open-Meteo fails)
 
-```bash
+```sh
 curl -s "wttr.in/Seoul+Gangseo-gu?format=%c+%t+(feels+like+%f),+wind+%w,+humidity+%h&lang=ko"
 ```
 
