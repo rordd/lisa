@@ -650,6 +650,13 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             .map(Arc::from);
 
     // Lisa WebSocket channel (if configured)
+    let lisa_path: String = config
+        .channels_config
+        .lisa
+        .as_ref()
+        .filter(|lc| lc.enabled)
+        .map(|lc| lc.path.clone())
+        .unwrap_or_else(|| "/app".to_string());
     let lisa_channel: Option<Arc<LisaChannel>> = config
         .channels_config
         .lisa
@@ -902,7 +909,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         // ── WebSocket agent chat ──
         .route("/ws/chat", get(ws::handle_ws_chat))
         // ── Lisa WebSocket channel ──
-        .route("/app", get(handle_lisa_ws))
+        .route(&lisa_path, get(handle_lisa_ws))
         // ── A2Web rendered pages ──
         .route("/web/{id}/", get(handle_a2web_page))
         .route("/web/{id}", get(handle_a2web_redirect))
@@ -1876,30 +1883,7 @@ async fn handle_lisa_ws(
 
     // Auth: same as /ws/chat
     if state.pairing.require_pairing() {
-        use axum::http::header;
-        let token = {
-            let h = &headers;
-            let query_token = params.token.as_deref();
-            let from_header = h
-                .get(header::AUTHORIZATION)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|auth| auth.strip_prefix("Bearer "))
-                .filter(|t| !t.is_empty());
-            let from_sub = h
-                .get("sec-websocket-protocol")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|protos| {
-                    protos
-                        .split(',')
-                        .map(|p| p.trim())
-                        .find_map(|p| p.strip_prefix("bearer."))
-                })
-                .filter(|t| !t.is_empty());
-            from_header
-                .or(from_sub)
-                .or(query_token.filter(|t| !t.is_empty()))
-                .unwrap_or("")
-        };
+        let token = ws::extract_ws_token(&headers, params.token.as_deref()).unwrap_or("");
         if !state.pairing.is_authenticated(token) {
             return (
                 axum::http::StatusCode::UNAUTHORIZED,
@@ -2201,7 +2185,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2257,7 +2241,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2637,7 +2621,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2707,7 +2691,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let headers = HeaderMap::new();
@@ -2789,7 +2773,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let response = handle_webhook(
@@ -2843,7 +2827,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2902,7 +2886,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2966,7 +2950,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let response = Box::pin(handle_nextcloud_talk_webhook(
@@ -3026,7 +3010,7 @@ mod tests {
             session_backend: None,
             device_registry: None,
             pending_pairings: None,
-            a2web_dir: None,
+            a2web_dir: None, lisa: None,
         };
 
         let mut headers = HeaderMap::new();

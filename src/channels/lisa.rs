@@ -177,8 +177,12 @@ mod tests {
 
     #[tokio::test]
     async fn listen_forwards_pushed_messages() {
-        let ch = LisaChannel::new();
+        let ch = Arc::new(LisaChannel::new());
         let (tx, mut rx) = mpsc::channel(4);
+
+        // Spawn listen() first so it runs concurrently with the push.
+        let ch2 = Arc::clone(&ch);
+        let handle = tokio::spawn(async move { ch2.listen(tx).await.unwrap_or_default() });
 
         ch.push_message(ChannelMessage {
             id: "1".into(),
@@ -190,11 +194,12 @@ mod tests {
             thread_ts: None,
         });
 
-        ch.listen(tx).await.unwrap_or_default();
-
         let msg = rx.recv().await.expect("should receive a message");
         assert_eq!(msg.content, "hello from browser");
         assert_eq!(msg.channel, "lisa");
+
+        // listen() blocks waiting for more messages; abort the task to clean up.
+        handle.abort();
     }
 
     #[tokio::test]

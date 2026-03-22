@@ -65,7 +65,7 @@ pub struct WsQuery {
 ///
 /// Browsers cannot set custom headers on `new WebSocket(url)`, so the query
 /// parameter and subprotocol paths are required for browser-based clients.
-fn extract_ws_token<'a>(headers: &'a HeaderMap, query_token: Option<&'a str>) -> Option<&'a str> {
+pub(crate) fn extract_ws_token<'a>(headers: &'a HeaderMap, query_token: Option<&'a str>) -> Option<&'a str> {
     // 1. Authorization header
     if let Some(t) = headers
         .get(header::AUTHORIZATION)
