@@ -97,6 +97,16 @@ pub trait Channel: Send + Sync {
         true
     }
 
+    /// Whether this channel supports A2UI v0.9 rich card rendering.
+    ///
+    /// When true, `process_channel_message` will parse `<a2ui-json>` and
+    /// `<a2web-result>` tags from the LLM response, strip them from the
+    /// text content, and attach the extracted data as [`DataPart`] values
+    /// in the [`SendMessage::data`] field.
+    fn supports_a2ui(&self) -> bool {
+        false
+    }
+
     /// Signal that the bot is processing a response (e.g. "typing" indicator).
     /// Implementations should repeat the indicator as needed for their platform.
     async fn start_typing(&self, _recipient: &str) -> anyhow::Result<()> {

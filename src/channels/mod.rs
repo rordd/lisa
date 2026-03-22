@@ -1507,6 +1507,69 @@ fn sanitize_channel_response(response: &str, tools: &[Box<dyn Tool>]) -> String 
     strip_tool_narration(&stripped_json)
 }
 
+/// Parse A2UI cards and a2web navigation payloads from a channel response.
+///
+/// Returns `(clean_text, Option<Vec<DataPart>>)`. When the response contains
+/// neither a2ui nor a2web tags the original string is returned unchanged and
+/// the data vec is `None`.
+fn build_a2ui_send_parts(response: &str) -> (String, Option<Vec<traits::DataPart>>) {
+    // Parse A2UI cards (strips <a2ui-json> / delimiter sections).
+    let (text_after_a2ui, a2ui_messages) = crate::gateway::a2ui::parse_response(response);
+    // Parse a2web navigation tag from whichever text remains.
+    let (a2web_data, text_final) = extract_a2web_part(&text_after_a2ui);
+
+    let mut data_parts: Vec<traits::DataPart> = Vec::new();
+    if !a2ui_messages.is_empty() {
+        data_parts.push(traits::DataPart::A2ui(a2ui_messages));
+    }
+    if let Some((url, id, title)) = a2web_data {
+        data_parts.push(traits::DataPart::A2web { url, id, title });
+    }
+
+    let data = if data_parts.is_empty() {
+        None
+    } else {
+        Some(data_parts)
+    };
+    (text_final, data)
+}
+
+/// Extract `<a2web-result>` payload and strip the tag from text.
+///
+/// Returns `(Some((url, id, title)), cleaned_text)` when a tag is found,
+/// otherwise `(None, original_text.to_string())`.
+fn extract_a2web_part(text: &str) -> (Option<(String, String, String)>, String) {
+    const START: &str = "<a2web-result>";
+    const END: &str = "</a2web-result>";
+    let Some(start_idx) = text.find(START) else {
+        return (None, text.to_string());
+    };
+    let json_start = start_idx + START.len();
+    let Some(end_offset) = text[json_start..].find(END) else {
+        return (None, text.to_string());
+    };
+    let json_str = &text[json_start..json_start + end_offset];
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str.trim()) else {
+        return (None, text.to_string());
+    };
+    let url = val["url"].as_str().unwrap_or("").to_string();
+    let id = val["id"].as_str().unwrap_or("").to_string();
+    let title = val["title"].as_str().unwrap_or("").to_string();
+
+    // Strip the tag from the text.
+    let end_idx = json_start + end_offset + END.len();
+    let before = text[..start_idx].trim_end();
+    let after = text[end_idx..].trim_start();
+    let cleaned = if before.is_empty() {
+        after.to_string()
+    } else if after.is_empty() {
+        before.to_string()
+    } else {
+        format!("{before}\n\n{after}")
+    };
+    (Some((url, id, title)), cleaned)
+}
+
 /// Remove leading lines that narrate tool usage (e.g. "Let me check the weather for you.").
 ///
 /// Only strips lines from the very beginning of the message that match common
@@ -2395,27 +2458,37 @@ async fn process_channel_message(
                 truncate_with_ellipsis(&delivered_response, 80)
             );
             if let Some(channel) = target_channel.as_ref() {
+                // For A2UI-capable channels: extract <a2ui-json> and <a2web-result>
+                // tags from the response, attach them as DataPart values, and send
+                // the stripped text so the client receives structured data separately.
+                let (outbound_text, outbound_data) = if channel.supports_a2ui() {
+                    build_a2ui_send_parts(&delivered_response)
+                } else {
+                    (delivered_response.clone(), None)
+                };
+
                 if let Some(ref draft_id) = draft_message_id {
                     if let Err(e) = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &delivered_response)
+                        .finalize_draft(&msg.reply_target, draft_id, &outbound_text)
                         .await
                     {
                         tracing::warn!("Failed to finalize draft: {e}; sending as new message");
-                        let _ = channel
-                            .send(
-                                &SendMessage::new(&delivered_response, &msg.reply_target)
-                                    .in_thread(msg.thread_ts.clone()),
-                            )
-                            .await;
+                        let mut send_msg = SendMessage::new(&outbound_text, &msg.reply_target)
+                            .in_thread(msg.thread_ts.clone());
+                        if let Some(data) = outbound_data.clone() {
+                            send_msg = send_msg.with_data(data);
+                        }
+                        let _ = channel.send(&send_msg).await;
                     }
-                } else if let Err(e) = channel
-                    .send(
-                        &SendMessage::new(delivered_response, &msg.reply_target)
-                            .in_thread(msg.thread_ts.clone()),
-                    )
-                    .await
-                {
-                    eprintln!("  ❌ Failed to reply on {}: {e}", channel.name());
+                } else {
+                    let mut send_msg = SendMessage::new(outbound_text, &msg.reply_target)
+                        .in_thread(msg.thread_ts.clone());
+                    if let Some(data) = outbound_data {
+                        send_msg = send_msg.with_data(data);
+                    }
+                    if let Err(e) = channel.send(&send_msg).await {
+                        eprintln!("  ❌ Failed to reply on {}: {e}", channel.name());
+                    }
                 }
             }
         }
