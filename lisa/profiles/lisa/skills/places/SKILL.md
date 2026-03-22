@@ -47,6 +47,12 @@ Text list with name, rating, address, phone.
 A2UI Card with list + map image. Use map.sh with coordinates from search results.
 Do NOT use a2web for place display.
 
+### 리뷰 조회
+```sh
+cd skills/places && sh scripts/review.sh <place_id> [count]
+```
+search.sh 결과의 `id` 필드를 사용. 기본 5개.
+
 ## Notes
 - GOOGLE_MAPS_API_KEY 환경변수 필요
 - 월 $200 무료 크레딧

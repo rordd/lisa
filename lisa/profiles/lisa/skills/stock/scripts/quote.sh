@@ -35,6 +35,7 @@ fetch_quote() {
     direction: .compareToPreviousPrice.text,
     status: .marketStatus,
     tradedAt: .localTradedAt,
+    url: ("https://m.stock.naver.com/domestic/stock/" + .itemCode + "/total"),
     charts: {
       day: .imageChartUrlInfo.line.day,
       month3: .imageChartUrlInfo.line.month3,

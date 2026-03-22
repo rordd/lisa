@@ -35,8 +35,9 @@ fi
 results=$(curl -s "https://places.googleapis.com/v1/places:searchText" \
   -H "Content-Type: application/json" \
   -H "X-Goog-Api-Key: ${GOOGLE_MAPS_API_KEY}" \
-  -H "X-Goog-FieldMask: places.displayName,places.formattedAddress,places.googleMapsUri,places.location,places.internationalPhoneNumber,places.primaryType,places.rating,places.userRatingCount" \
+  -H "X-Goog-FieldMask: places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.location,places.internationalPhoneNumber,places.primaryType,places.rating,places.userRatingCount" \
   -d "$(jq -cn --arg q "$query" --argjson c "$count" '{textQuery: $q, maxResultCount: $c, languageCode: "ko"}')" | jq '[.places // [] | .[] | {
+  id: .id,
   name: .displayName.text,
   type: .primaryType,
   address: .formattedAddress,
