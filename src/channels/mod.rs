@@ -25,6 +25,7 @@ pub mod irc;
 #[cfg(feature = "channel-lark")]
 pub mod lark;
 pub mod linq;
+pub mod lisa;
 #[cfg(feature = "channel-matrix")]
 pub mod matrix;
 pub mod mattermost;
@@ -65,6 +66,7 @@ pub use irc::IrcChannel;
 #[cfg(feature = "channel-lark")]
 pub use lark::LarkChannel;
 pub use linq::LinqChannel;
+pub use lisa::LisaChannel;
 #[cfg(feature = "channel-matrix")]
 pub use matrix::MatrixChannel;
 pub use mattermost::MattermostChannel;
@@ -3545,6 +3547,15 @@ fn collect_configured_channels(
                 nc.allowed_users.clone(),
             )),
         });
+    }
+
+    if let Some(ref lc) = config.channels_config.lisa {
+        if lc.enabled {
+            channels.push(ConfiguredChannel {
+                display_name: "Lisa",
+                channel: LisaChannel::global(),
+            });
+        }
     }
 
     if let Some(ref email_cfg) = config.channels_config.email {
