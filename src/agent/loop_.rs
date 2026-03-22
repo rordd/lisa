@@ -297,10 +297,17 @@ fn trim_history(history: &mut Vec<ChatMessage>, max_history: usize) {
     let to_remove = non_system_count - max_history;
     history.drain(start..start + to_remove);
 
-    // Remove orphaned tool_result messages at the start (after system prompt)
+    // Ensure history starts with a user message after trim
     let first_non_system = if has_system { 1 } else { 0 };
-    while history.len() > first_non_system && history[first_non_system].role == "tool" {
-        history.remove(first_non_system);
+    let skip = history[first_non_system..]
+        .iter()
+        .take_while(|m| m.role != "user")
+        .count();
+    if skip > 0 {
+        history.drain(first_non_system..first_non_system + skip);
+        if history.len() <= first_non_system {
+            tracing::warn!("trim_history: all non-system messages drained as orphans");
+        }
     }
 }
 

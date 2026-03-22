@@ -9,6 +9,7 @@
 //! Server -> Client: {"type":"done","full_response":"..."}
 //! ```
 
+use std::sync::Arc;
 use super::AppState;
 use axum::{
     extract::{
@@ -196,9 +197,10 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
     let mut message_count: usize = 0;
     if let Some(ref backend) = state.session_backend {
         let mut messages = backend.load(&session_key);
-        // Remove orphaned tool_result messages at the start after trim
-        while !messages.is_empty() && messages[0].role == "tool" {
-            messages.remove(0);
+        // Ensure history starts with a user message after trim
+        let skip = messages.iter().take_while(|m| m.role != "user").count();
+        if skip > 0 {
+            messages.drain(0..skip);
         }
         if !messages.is_empty() {
             message_count = messages.len();
@@ -366,6 +368,31 @@ async fn process_chat_message(
             if let Some(ref backend) = state.session_backend {
                 let assistant_msg = crate::providers::ChatMessage::assistant(&response);
                 let _ = backend.append(session_key, &assistant_msg);
+            }
+
+            // Fire-and-forget LLM-driven memory consolidation
+            if state.auto_save
+                && content.chars().count() >= 20
+                && !crate::memory::should_skip_autosave_content(content)
+            {
+                let provider = Arc::clone(&state.provider);
+                let model = state.model.clone();
+                let memory = Arc::clone(&state.mem);
+                let user_msg = content.to_string();
+                let assistant_resp = response.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::memory::consolidation::consolidate_turn(
+                        provider.as_ref(),
+                        &model,
+                        memory.as_ref(),
+                        &user_msg,
+                        &assistant_resp,
+                    )
+                    .await
+                    {
+                        tracing::debug!("WS memory consolidation failed: {e}");
+                    }
+                });
             }
 
             // Parse a2web-result tags from tool output and send as separate WS message

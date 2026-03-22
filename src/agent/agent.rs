@@ -459,18 +459,19 @@ impl Agent {
             let drop_count = other_messages.len() - max;
             other_messages.drain(0..drop_count);
 
-            // Ensure we don't start with orphaned tool_result messages
-            // (their corresponding tool_use was just trimmed)
-            while !other_messages.is_empty() {
-                let is_tool_result = match &other_messages[0] {
-                    ConversationMessage::Chat(chat) => chat.role == "tool",
-                    ConversationMessage::ToolResults(_) => true,
-                    _ => false,
-                };
-                if is_tool_result {
-                    other_messages.remove(0);
-                } else {
-                    break;
+            // Ensure history starts with a user message after trim
+            // (orphaned tool_results or assistant messages cause API 400)
+            let skip = other_messages
+                .iter()
+                .take_while(|m| match m {
+                    ConversationMessage::Chat(chat) => chat.role != "user",
+                    _ => true,
+                })
+                .count();
+            if skip > 0 {
+                other_messages.drain(0..skip);
+                if other_messages.is_empty() {
+                    tracing::warn!("trim_history: all non-system messages drained as orphans");
                 }
             }
         }
