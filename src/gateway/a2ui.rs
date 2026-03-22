@@ -17,7 +17,7 @@ use serde_json::Value;
 /// returns the original text and an empty vec.
 pub fn parse_response(raw: &str) -> (String, Vec<Value>) {
     // Try Google official <a2ui-json> tags first (v0.9 primary format)
-    if raw.contains(A2UI_TAG_OPEN) && raw.contains(A2UI_TAG_CLOSE) {
+    if raw.contains(A2UI_TAG_OPEN) {
         return parse_a2ui_tags(raw);
     }
     // Try v0.9 delimiter
@@ -164,8 +164,37 @@ fn parse_a2ui_tags(raw: &str) -> (String, Vec<Value>) {
             }
             remaining = &after_open[close_pos + A2UI_TAG_CLOSE.len()..];
         } else {
-            // No closing tag found; treat rest as text
-            text_parts.push(remaining.to_string());
+            // No closing tag found — try to extract JSON anyway (LLM may omit closing tag)
+            let json_content = after_open.trim();
+            let mut extracted = false;
+            if let Some((messages, _)) = try_parse_json_array(json_content) {
+                for msg in messages {
+                    if is_a2ui_message(&msg) {
+                        a2ui_messages.push(msg);
+                        extracted = true;
+                    }
+                }
+            } else if let Ok(val) = serde_json::from_str::<Value>(json_content) {
+                if is_a2ui_message(&val) {
+                    a2ui_messages.push(val);
+                    extracted = true;
+                }
+            }
+            if !extracted {
+                // Try trimming trailing garbage after JSON (e.g. "</parameter>", extra text)
+                if let Some(end) = json_content.rfind('}') {
+                    let trimmed = &json_content[..=end];
+                    if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+                        if is_a2ui_message(&val) {
+                            a2ui_messages.push(val);
+                            extracted = true;
+                        }
+                    }
+                }
+            }
+            if !extracted {
+                text_parts.push(remaining.to_string());
+            }
             remaining = "";
             break;
         }

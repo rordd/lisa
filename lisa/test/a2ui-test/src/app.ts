@@ -13,6 +13,78 @@ let ws: WebSocket | null = null;
 let requestStartTime: number | null = null;
 let thinkingTimer: number | null = null;
 let thinkingEl: HTMLElement | null = null;
+
+// ── Session Management ──
+const SESSIONS_KEY = 'lisa-sessions';
+
+function getSessions(): string[] {
+  const raw = localStorage.getItem(SESSIONS_KEY);
+  return raw ? JSON.parse(raw) : ['lisa-test'];
+}
+
+function saveSessions(sessions: string[]) {
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+}
+
+function renderSessionList() {
+  const sel = document.getElementById('session-select') as HTMLSelectElement;
+  const sessions = getSessions();
+  const cur = sel.value || sessions[0];
+  sel.innerHTML = sessions.map(s =>
+    `<option value="${s}"${s === cur ? ' selected' : ''}>${s}</option>`
+  ).join('');
+}
+
+function getSessionId(): string {
+  const sel = document.getElementById('session-select') as HTMLSelectElement;
+  return sel?.value || 'lisa-test';
+}
+
+(window as any).newSession = function () {
+  const name = prompt('세션 이름:');
+  if (!name || !name.trim()) return;
+  const sessions = getSessions();
+  if (!sessions.includes(name.trim())) {
+    sessions.push(name.trim());
+    saveSessions(sessions);
+  }
+  renderSessionList();
+  (document.getElementById('session-select') as HTMLSelectElement).value = name.trim();
+};
+
+(window as any).deleteSession = function () {
+  const id = getSessionId();
+  if (id === 'lisa-test') { alert('기본 세션은 삭제할 수 없습니다'); return; }
+  if (!confirm(`"${id}" 세션을 삭제하시겠습니까?`)) return;
+  const sessions = getSessions().filter(s => s !== id);
+  saveSessions(sessions);
+  renderSessionList();
+};
+
+(window as any).toggleMenu = function () {
+  const menu = document.getElementById('session-menu')!;
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+};
+
+(window as any).switchSession = function () {
+  document.getElementById('session-menu')!.style.display = 'none';
+  const label = document.getElementById('current-session-label');
+  if (label) label.textContent = getSessionId();
+  // Reconnect with new session
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close();
+  }
+  setTimeout(() => (window as any).toggleConnection(), 300);
+};
+
+// Close menu on outside click
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('session-menu');
+  const btn = document.getElementById('menu-btn');
+  if (menu && btn && !menu.contains(e.target as Node) && !btn.contains(e.target as Node)) {
+    menu.style.display = 'none';
+  }
+});
 let currentA2UIMessages: unknown[] = [];
 
 
@@ -293,8 +365,14 @@ function handleWSMessage(data: any) {
     ws.close();
     return;
   }
-  const url = ($('ws-url') as HTMLInputElement).value.trim();
+  let url = ($('ws-url') as HTMLInputElement).value.trim();
   if (!url) return;
+
+  // Append session_id for persistent sessions
+  const sep = url.includes('?') ? '&' : '?';
+  if (!url.includes('session_id=')) {
+    url += `${sep}session_id=${encodeURIComponent(getSessionId())}`;
+  }
 
   addMessage('system', `Connecting to ${url}...`);
   ws = new WebSocket(url);
@@ -322,6 +400,7 @@ function handleWSMessage(data: any) {
 
 // ── Init ──
 window.addEventListener('load', () => {
+  renderSessionList();
   ($('chat-input') as HTMLInputElement).focus();
   const wsInput = $('ws-url') as HTMLInputElement;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';

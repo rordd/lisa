@@ -458,6 +458,21 @@ impl Agent {
         if other_messages.len() > max {
             let drop_count = other_messages.len() - max;
             other_messages.drain(0..drop_count);
+
+            // Ensure we don't start with orphaned tool_result messages
+            // (their corresponding tool_use was just trimmed)
+            while !other_messages.is_empty() {
+                let is_tool_result = match &other_messages[0] {
+                    ConversationMessage::Chat(chat) => chat.role == "tool",
+                    ConversationMessage::ToolResults(_) => true,
+                    _ => false,
+                };
+                if is_tool_result {
+                    other_messages.remove(0);
+                } else {
+                    break;
+                }
+            }
         }
 
         self.history = system_messages;

@@ -296,6 +296,12 @@ fn trim_history(history: &mut Vec<ChatMessage>, max_history: usize) {
     let start = if has_system { 1 } else { 0 };
     let to_remove = non_system_count - max_history;
     history.drain(start..start + to_remove);
+
+    // Remove orphaned tool_result messages at the start (after system prompt)
+    let first_non_system = if has_system { 1 } else { 0 };
+    while history.len() > first_non_system && history[first_non_system].role == "tool" {
+        history.remove(first_non_system);
+    }
 }
 
 fn build_compaction_transcript(messages: &[ChatMessage]) -> String {

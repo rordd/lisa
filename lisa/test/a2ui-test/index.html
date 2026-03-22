@@ -198,7 +198,25 @@
   <h1>Lisa A2UI Test Client</h1>
   <span style="font-size:11px;color:#9aa0a6;margin-left:4px">(A2UI v0.9)</span>
   <div id="status"><span class="dot"></span><span id="status-text">Disconnected</span></div>
+  <button id="menu-btn" onclick="toggleMenu()" style="background:none;border:none;cursor:pointer;padding:4px;margin-left:8px">
+    <span class="material-symbols-outlined" style="font-size:24px;color:var(--md-sys-color-on-surface-variant)">menu</span>
+  </button>
 </header>
+
+<div id="session-menu" style="display:none;position:absolute;top:48px;right:12px;z-index:100;background:var(--md-sys-color-surface);border:1px solid var(--md-sys-color-outline);border-radius:12px;padding:16px;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:240px">
+  <div style="font-size:14px;font-weight:500;margin-bottom:12px">세션 관리</div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <select id="session-select" style="padding:8px 12px;border:1px solid var(--md-sys-color-outline);border-radius:8px;font-size:13px;width:100%">
+      <option value="lisa-test">lisa-test</option>
+    </select>
+    <div style="display:flex;gap:8px">
+      <button onclick="switchSession()" style="flex:1;padding:8px;border:1px solid var(--md-sys-color-primary);border-radius:8px;background:var(--md-sys-color-primary);color:#fff;cursor:pointer;font-size:13px">연결</button>
+      <button onclick="newSession()" style="flex:1;padding:8px;border:1px solid var(--md-sys-color-outline);border-radius:8px;background:var(--md-sys-color-surface);cursor:pointer;font-size:13px">+ 새 세션</button>
+      <button onclick="deleteSession()" style="padding:8px 12px;border:1px solid var(--md-sys-color-outline);border-radius:8px;background:var(--md-sys-color-surface);cursor:pointer;font-size:13px;color:var(--md-sys-color-error)">삭제</button>
+    </div>
+    <div style="font-size:11px;color:var(--md-sys-color-on-surface-variant);margin-top:4px">현재: <span id="current-session-label">lisa-test</span></div>
+  </div>
+</div>
 
 <div class="connect-bar">
   <label>Gateway:</label>
