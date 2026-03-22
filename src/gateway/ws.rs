@@ -195,7 +195,11 @@ async fn handle_socket(socket: WebSocket, state: AppState, session_id: Option<St
     let mut resumed = false;
     let mut message_count: usize = 0;
     if let Some(ref backend) = state.session_backend {
-        let messages = backend.load(&session_key);
+        let mut messages = backend.load(&session_key);
+        // Remove orphaned tool_result messages at the start after trim
+        while !messages.is_empty() && messages[0].role == "tool" {
+            messages.remove(0);
+        }
         if !messages.is_empty() {
             message_count = messages.len();
             agent.seed_history(&messages);
