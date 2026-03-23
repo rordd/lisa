@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 pub struct AnthropicProvider {
     credential: Option<String>,
     base_url: String,
-    thinking_mode: Option<String>,  // "adaptive", "enabled", "disabled", or None (default=off)
-    thinking_budget: Option<u32>,   // for type="enabled" only
-    effort: Option<String>,         // "low", "medium", "high", "max"
+    thinking_mode: Option<String>, // "adaptive", "enabled", "disabled", or None (default=off)
+    thinking_budget: Option<u32>,  // for type="enabled" only
+    effort: Option<String>,        // "low", "medium", "high", "max"
 }
 
 #[derive(Debug, Serialize)]
@@ -206,11 +206,14 @@ impl AnthropicProvider {
         //   ANTHROPIC_THINKING_MODE = adaptive | enabled | disabled
         //   ANTHROPIC_THINKING_BUDGET = 10000  (for enabled mode)
         //   ANTHROPIC_EFFORT = low | medium | high | max
-        let thinking_mode = std::env::var("ANTHROPIC_THINKING_MODE").ok()
+        let thinking_mode = std::env::var("ANTHROPIC_THINKING_MODE")
+            .ok()
             .filter(|s| !s.is_empty());
-        let thinking_budget = std::env::var("ANTHROPIC_THINKING_BUDGET").ok()
+        let thinking_budget = std::env::var("ANTHROPIC_THINKING_BUDGET")
+            .ok()
             .and_then(|s| s.parse::<u32>().ok());
-        let effort = std::env::var("ANTHROPIC_EFFORT").ok()
+        let effort = std::env::var("ANTHROPIC_EFFORT")
+            .ok()
             .filter(|s| !s.is_empty());
 
         Self {
@@ -686,8 +689,7 @@ impl Provider for AnthropicProvider {
         })?;
 
         let is_setup = Self::is_setup_token(credential);
-        let (system_prompt, mut messages) =
-            Self::convert_messages(request.messages, is_setup);
+        let (system_prompt, mut messages) = Self::convert_messages(request.messages, is_setup);
 
         // Auto-cache last message if conversation is long
         if Self::should_cache_conversation(request.messages) {
@@ -709,7 +711,9 @@ impl Provider for AnthropicProvider {
             }
         });
         let output_config = self.effort.as_deref().and_then(|e| match e {
-            "low" | "medium" | "high" | "max" => Some(OutputConfig { effort: e.to_string() }),
+            "low" | "medium" | "high" | "max" => Some(OutputConfig {
+                effort: e.to_string(),
+            }),
             other => {
                 tracing::warn!("Unknown ANTHROPIC_EFFORT '{}', ignoring", other);
                 None
@@ -939,13 +943,10 @@ mod tests {
                 .headers()
                 .get("user-agent")
                 .and_then(|v| v.to_str().ok()),
-            Some(&format!("claude-cli/{}", AnthropicProvider::CLAUDE_CODE_VERSION))
+            Some(format!("claude-cli/{}", AnthropicProvider::CLAUDE_CODE_VERSION).as_str())
         );
         assert_eq!(
-            request
-                .headers()
-                .get("x-app")
-                .and_then(|v| v.to_str().ok()),
+            request.headers().get("x-app").and_then(|v| v.to_str().ok()),
             Some("cli")
         );
         assert!(request.headers().get("x-api-key").is_none());
@@ -1380,7 +1381,7 @@ mod tests {
             content: "Short system prompt".to_string(),
         }];
 
-        let (system_prompt, _) = AnthropicProvider::convert_messages(&messages);
+        let (system_prompt, _) = AnthropicProvider::convert_messages(&messages, false);
 
         match system_prompt.unwrap() {
             SystemPrompt::String(s) => {
@@ -1398,7 +1399,7 @@ mod tests {
             content: large_content.clone(),
         }];
 
-        let (system_prompt, _) = AnthropicProvider::convert_messages(&messages);
+        let (system_prompt, _) = AnthropicProvider::convert_messages(&messages, false);
 
         match system_prompt.unwrap() {
             SystemPrompt::Blocks(blocks) => {
@@ -1427,6 +1428,8 @@ mod tests {
             temperature: 0.7,
             tools: None,
             tool_choice: None,
+            thinking: None,
+            output_config: None,
         };
 
         let json = serde_json::to_string(&req).unwrap();
@@ -1462,7 +1465,7 @@ mod tests {
             },
         ];
 
-        let (system, native_msgs) = AnthropicProvider::convert_messages(&messages);
+        let (system, native_msgs) = AnthropicProvider::convert_messages(&messages, false);
 
         // System prompt extracted
         assert!(system.is_some());
@@ -1516,6 +1519,9 @@ mod tests {
         let provider = AnthropicProvider {
             credential: Some("test-key".to_string()),
             base_url: format!("http://{addr}"),
+            thinking_mode: None,
+            thinking_budget: None,
+            effort: None,
         };
 
         // Multi-turn conversation: system → user (Go code) → assistant (code response) → user (follow-up)
@@ -1644,7 +1650,7 @@ mod tests {
                 .to_string(),
         }];
 
-        let (_, native_msgs) = AnthropicProvider::convert_messages(&messages);
+        let (_, native_msgs) = AnthropicProvider::convert_messages(&messages, false);
 
         assert_eq!(native_msgs.len(), 1);
         assert_eq!(native_msgs[0].role, "user");
@@ -1682,7 +1688,7 @@ mod tests {
             content: "[IMAGE:data:image/png;base64,iVBORw0KGgo]".to_string(),
         }];
 
-        let (_, native_msgs) = AnthropicProvider::convert_messages(&messages);
+        let (_, native_msgs) = AnthropicProvider::convert_messages(&messages, false);
 
         assert_eq!(native_msgs.len(), 1);
         assert_eq!(native_msgs[0].content.len(), 2);
@@ -1711,7 +1717,7 @@ mod tests {
             content: "Hello, how are you?".to_string(),
         }];
 
-        let (_, native_msgs) = AnthropicProvider::convert_messages(&messages);
+        let (_, native_msgs) = AnthropicProvider::convert_messages(&messages, false);
 
         assert_eq!(native_msgs.len(), 1);
         assert_eq!(native_msgs[0].content.len(), 1);
@@ -1787,7 +1793,7 @@ mod tests {
             },
         ];
 
-        let (system, native_msgs) = AnthropicProvider::convert_messages(&messages);
+        let (system, native_msgs) = AnthropicProvider::convert_messages(&messages, false);
 
         assert!(system.is_some());
         // Should be: user, assistant, user (merged tool results)
@@ -1843,7 +1849,7 @@ mod tests {
             },
         ];
 
-        let (_system, native_msgs) = AnthropicProvider::convert_messages(&messages);
+        let (_system, native_msgs) = AnthropicProvider::convert_messages(&messages, false);
 
         for window in native_msgs.windows(2) {
             assert_ne!(

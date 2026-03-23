@@ -839,12 +839,22 @@ mod tests {
 
     #[test]
     fn audit_rejects_markdown_escape_links() {
+        // Build a directory structure where the link escapes beyond the
+        // collection root (skill_dir.parent()), so it cannot be treated
+        // as a valid cross-skill reference.
+        //
+        //   dir/
+        //   ├── outside.md            ← target (above collection root)
+        //   └── collection/
+        //       └── escape/           ← skill_dir
+        //           └── SKILL.md      ← link: ../../outside.md
         let dir = tempfile::tempdir().unwrap();
-        let skill_dir = dir.path().join("escape");
+        let collection = dir.path().join("collection");
+        let skill_dir = collection.join("escape");
         std::fs::create_dir_all(&skill_dir).unwrap();
         std::fs::write(
             skill_dir.join("SKILL.md"),
-            "# Skill\nRead [hidden](../outside.md)\n",
+            "# Skill\nRead [hidden](../../outside.md)\n",
         )
         .unwrap();
         std::fs::write(dir.path().join("outside.md"), "not allowed\n").unwrap();
