@@ -25,6 +25,7 @@ pub mod irc;
 #[cfg(feature = "channel-lark")]
 pub mod lark;
 pub mod linq;
+pub mod lisa;
 #[cfg(feature = "channel-matrix")]
 pub mod matrix;
 pub mod mattermost;
@@ -65,6 +66,7 @@ pub use irc::IrcChannel;
 #[cfg(feature = "channel-lark")]
 pub use lark::LarkChannel;
 pub use linq::LinqChannel;
+pub use lisa::LisaChannel;
 #[cfg(feature = "channel-matrix")]
 pub use matrix::MatrixChannel;
 pub use mattermost::MattermostChannel;
@@ -1504,13 +1506,96 @@ fn sanitize_channel_response(response: &str, tools: &[Box<dyn Tool>]) -> String 
     // Strip isolated tool-call JSON artifacts
     let stripped_json = strip_isolated_tool_json_artifacts(&stripped_xml, &known_tool_names);
     // Strip leading narration lines that announce tool usage
-    strip_tool_narration(&stripped_json)
+    let stripped_narration = strip_tool_narration(&stripped_json);
+    // Strip [Used tools: ...] lines that the LLM sometimes echoes
+    strip_used_tools_lines(&stripped_narration)
+}
+
+/// Parse A2UI cards and a2web navigation payloads from a channel response.
+///
+/// Returns `(clean_text, Option<Vec<DataPart>>)`. When the response contains
+/// neither a2ui nor a2web tags the original string is returned unchanged and
+/// the data vec is `None`.
+fn build_a2ui_send_parts(response: &str) -> (String, Option<Vec<traits::DataPart>>) {
+    // Parse A2UI cards (strips <a2ui-json> / delimiter sections).
+    let (text_after_a2ui, a2ui_messages) = crate::gateway::a2ui::parse_response(response);
+    // Parse a2web navigation tag from whichever text remains.
+    let (a2web_data, text_final) = extract_a2web_part(&text_after_a2ui);
+
+    let mut data_parts: Vec<traits::DataPart> = Vec::new();
+    if !a2ui_messages.is_empty() {
+        data_parts.push(traits::DataPart::A2ui(a2ui_messages));
+    }
+    if let Some((url, id, title)) = a2web_data {
+        data_parts.push(traits::DataPart::A2web { url, id, title });
+    }
+
+    let data = if data_parts.is_empty() {
+        None
+    } else {
+        Some(data_parts)
+    };
+    (text_final, data)
+}
+
+/// Extract `<a2web-result>` payload and strip the tag from text.
+///
+/// Returns `(Some((url, id, title)), cleaned_text)` when a tag is found,
+/// otherwise `(None, original_text.to_string())`.
+fn extract_a2web_part(text: &str) -> (Option<(String, String, String)>, String) {
+    const START: &str = "<a2web-result>";
+    const END: &str = "</a2web-result>";
+    let Some(start_idx) = text.find(START) else {
+        return (None, text.to_string());
+    };
+    let json_start = start_idx + START.len();
+    let Some(end_offset) = text[json_start..].find(END) else {
+        return (None, text.to_string());
+    };
+    let json_str = &text[json_start..json_start + end_offset];
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str.trim()) else {
+        return (None, text.to_string());
+    };
+    let url = val["url"].as_str().unwrap_or("").to_string();
+    let id = val["id"].as_str().unwrap_or("").to_string();
+    let title = val["title"].as_str().unwrap_or("").to_string();
+
+    // Strip the tag from the text.
+    let end_idx = json_start + end_offset + END.len();
+    let before = text[..start_idx].trim_end();
+    let after = text[end_idx..].trim_start();
+    let cleaned = if before.is_empty() {
+        after.to_string()
+    } else if after.is_empty() {
+        before.to_string()
+    } else {
+        format!("{before}\n\n{after}")
+    };
+    (Some((url, id, title)), cleaned)
 }
 
 /// Remove leading lines that narrate tool usage (e.g. "Let me check the weather for you.").
 ///
 /// Only strips lines from the very beginning of the message that match common
 /// narration patterns, so genuine content is preserved.
+/// Remove lines matching `[Used tools: ...]` that the LLM occasionally echoes.
+fn strip_used_tools_lines(message: &str) -> String {
+    let cleaned: Vec<&str> = message
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            !(t.starts_with("[Used tools:") && t.ends_with(']'))
+        })
+        .collect();
+    let result = cleaned.join("\n");
+    let trimmed = result.trim();
+    if trimmed.is_empty() && !message.trim().is_empty() {
+        message.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 fn strip_tool_narration(message: &str) -> String {
     let narration_prefixes: &[&str] = &[
         "let me ",
@@ -2355,7 +2440,7 @@ async fn process_channel_message(
             // added during run_tool_call_loop, so the LLM retains awareness
             // of what it did on subsequent turns.
             let tool_summary = extract_tool_context_summary(&history, history_len_before_tools);
-            let history_response = if tool_summary.is_empty() || msg.channel == "telegram" {
+            let history_response = if tool_summary.is_empty() || msg.channel == "telegram" || msg.channel == "lisa" {
                 delivered_response.clone()
             } else {
                 format!("{tool_summary}\n{delivered_response}")
@@ -2395,27 +2480,37 @@ async fn process_channel_message(
                 truncate_with_ellipsis(&delivered_response, 80)
             );
             if let Some(channel) = target_channel.as_ref() {
+                // For A2UI-capable channels: extract <a2ui-json> and <a2web-result>
+                // tags from the response, attach them as DataPart values, and send
+                // the stripped text so the client receives structured data separately.
+                let (outbound_text, outbound_data) = if channel.supports_a2ui() {
+                    build_a2ui_send_parts(&delivered_response)
+                } else {
+                    (delivered_response.clone(), None)
+                };
+
                 if let Some(ref draft_id) = draft_message_id {
                     if let Err(e) = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &delivered_response)
+                        .finalize_draft(&msg.reply_target, draft_id, &outbound_text)
                         .await
                     {
                         tracing::warn!("Failed to finalize draft: {e}; sending as new message");
-                        let _ = channel
-                            .send(
-                                &SendMessage::new(&delivered_response, &msg.reply_target)
-                                    .in_thread(msg.thread_ts.clone()),
-                            )
-                            .await;
+                        let mut send_msg = SendMessage::new(&outbound_text, &msg.reply_target)
+                            .in_thread(msg.thread_ts.clone());
+                        if let Some(data) = outbound_data.clone() {
+                            send_msg = send_msg.with_data(data);
+                        }
+                        let _ = channel.send(&send_msg).await;
                     }
-                } else if let Err(e) = channel
-                    .send(
-                        &SendMessage::new(delivered_response, &msg.reply_target)
-                            .in_thread(msg.thread_ts.clone()),
-                    )
-                    .await
-                {
-                    eprintln!("  ❌ Failed to reply on {}: {e}", channel.name());
+                } else {
+                    let mut send_msg = SendMessage::new(outbound_text, &msg.reply_target)
+                        .in_thread(msg.thread_ts.clone());
+                    if let Some(data) = outbound_data {
+                        send_msg = send_msg.with_data(data);
+                    }
+                    if let Err(e) = channel.send(&send_msg).await {
+                        eprintln!("  ❌ Failed to reply on {}: {e}", channel.name());
+                    }
                 }
             }
         }
@@ -3474,6 +3569,15 @@ fn collect_configured_channels(
         });
     }
 
+    if let Some(ref lc) = config.channels_config.lisa {
+        if lc.enabled {
+            channels.push(ConfiguredChannel {
+                display_name: "Lisa",
+                channel: LisaChannel::global(),
+            });
+        }
+    }
+
     if let Some(ref email_cfg) = config.channels_config.email {
         channels.push(ConfiguredChannel {
             display_name: "Email",
@@ -3887,13 +3991,15 @@ pub async fn start_channels(config: Config) -> Result<()> {
         }
     }
 
-    // ── Register SKILL.toml-defined tools (channel scope: "default") ──
+    // ── Register SKILL.toml-defined tools (all active channels) ──
     // Use load_skills_with_config (not load_skills) so that config options such as
     // allow_scripts are respected when auditing skill directories.
+    // Pass None to include skills for all channels; per-channel filtering
+    // happens at system-prompt build time via channel_name.
     {
         let skills_for_tools = crate::skills::filter_skills_by_channel(
             crate::skills::load_skills_full_with_config(&workspace, &config),
-            Some("default"),
+            None,
         );
         let skill_tools = crate::skills::create_skill_tools_with_override(
             &skills_for_tools,
@@ -3921,7 +4027,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     let skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&workspace, &config),
-        Some("telegram"),
+        None,
     );
 
     // Collect tool descriptions for the prompt
@@ -6892,8 +6998,9 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("<description>Review code for bugs</description>"));
         assert!(prompt.contains("SKILL.md</location>"));
         assert!(prompt.contains("<instructions>"));
-        assert!(prompt
-            .contains("<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"));
+        assert!(prompt.contains(
+            "<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"
+        ));
         assert!(prompt.contains("<tools>"));
         assert!(prompt.contains("<name>lint</name>"));
         assert!(prompt.contains("<kind>shell</kind>"));
@@ -6938,8 +7045,9 @@ BTC is currently around $65,000 based on latest tool output."#
         assert!(prompt.contains("<location>skills/code-review/SKILL.md</location>"));
         assert!(prompt.contains("loaded on demand"));
         assert!(!prompt.contains("<instructions>"));
-        assert!(!prompt
-            .contains("<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"));
+        assert!(!prompt.contains(
+            "<instruction><![CDATA[Always run cargo test before final response.]]></instruction>"
+        ));
         assert!(!prompt.contains("<tools>"));
     }
 

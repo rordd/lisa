@@ -1,8 +1,8 @@
 #[cfg(feature = "channel-matrix")]
 use crate::channels::MatrixChannel;
 use crate::channels::{
-    Channel, DiscordChannel, MattermostChannel, SendMessage, SignalChannel, SlackChannel,
-    TelegramChannel,
+    Channel, DiscordChannel, LisaChannel, MattermostChannel, SendMessage, SignalChannel,
+    SlackChannel, TelegramChannel,
 };
 use crate::config::Config;
 use crate::cron::{
@@ -431,6 +431,18 @@ pub(crate) async fn deliver_announcement(
             {
                 anyhow::bail!("matrix delivery channel requires `channel-matrix` feature");
             }
+        }
+        "lisa" => {
+            let _ = config
+                .channels_config
+                .lisa
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("lisa channel not configured"))?;
+            // Deliver via the global LisaChannel singleton.
+            // `target` is the session_id of the connected client.
+            LisaChannel::global()
+                .send(&SendMessage::new(output, target))
+                .await?;
         }
         other => anyhow::bail!("unsupported delivery channel: {other}"),
     }

@@ -1,4 +1,17 @@
 use async_trait::async_trait;
+use serde_json::Value;
+
+/// Structured data parts that may accompany a channel message.
+///
+/// Used by channels that support rich UI (e.g. LisaChannel) to carry
+/// A2UI card data or a2web navigation payloads alongside plain text.
+#[derive(Debug, Clone)]
+pub enum DataPart {
+    /// A2UI v0.9 card messages (Google A2UI protocol).
+    A2ui(Vec<Value>),
+    /// A2web navigation payload — open a generated web page in the client.
+    A2web { url: String, id: String, title: String },
+}
 
 /// A message received from or sent to a channel
 #[derive(Debug, Clone)]
@@ -22,6 +35,9 @@ pub struct SendMessage {
     pub subject: Option<String>,
     /// Platform thread identifier for threaded replies (e.g. Slack `thread_ts`).
     pub thread_ts: Option<String>,
+    /// Optional structured data parts (e.g. A2UI cards, a2web payloads).
+    /// Only consumed by channels that declare `supports_a2ui() == true`.
+    pub data: Option<Vec<DataPart>>,
 }
 
 impl SendMessage {
@@ -32,6 +48,7 @@ impl SendMessage {
             recipient: recipient.into(),
             subject: None,
             thread_ts: None,
+            data: None,
         }
     }
 
@@ -46,8 +63,16 @@ impl SendMessage {
             recipient: recipient.into(),
             subject: Some(subject.into()),
             thread_ts: None,
+            data: None,
         }
     }
+
+    /// Attach structured data parts (A2UI cards, a2web payloads) to this message.
+    pub fn with_data(mut self, data: Vec<DataPart>) -> Self {
+        self.data = Some(data);
+        self
+    }
+
 
     /// Set the thread identifier for threaded replies.
     pub fn in_thread(mut self, thread_ts: Option<String>) -> Self {
@@ -71,6 +96,16 @@ pub trait Channel: Send + Sync {
     /// Check if channel is healthy
     async fn health_check(&self) -> bool {
         true
+    }
+
+    /// Whether this channel supports A2UI v0.9 rich card rendering.
+    ///
+    /// When true, `process_channel_message` will parse `<a2ui-json>` and
+    /// `<a2web-result>` tags from the LLM response, strip them from the
+    /// text content, and attach the extracted data as [`DataPart`] values
+    /// in the [`SendMessage::data`] field.
+    fn supports_a2ui(&self) -> bool {
+        false
     }
 
     /// Signal that the bot is processing a response (e.g. "typing" indicator).

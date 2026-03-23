@@ -20,7 +20,7 @@ import time
 
 import websockets
 
-WS_URL = "ws://127.0.0.1:42617/ws/chat"
+WS_URL = "ws://127.0.0.1:42617/app"
 TIMEOUT_INITIAL = 120  # seconds to wait for first response (LLM can be slow)
 TIMEOUT_ACTION = 120   # seconds to wait for action response
 

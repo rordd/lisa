@@ -19,6 +19,10 @@ enabled = false
 cli = true
 # Telegram: activated via TELEGRAM_BOT_TOKEN env var (see .env)
 
+[channels_config.lisa]
+enabled = true
+path = "/app"
+
 [gateway]
 port = 42617
 host = "0.0.0.0"

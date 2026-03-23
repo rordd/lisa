@@ -7,7 +7,7 @@ Guide for client app developers integrating with Lisa (ZeroClaw) via WebSocket.
 ```
 ┌─────────────┐     WebSocket      ┌──────────────┐      LLM API       ┌─────────┐
 │   Client    │◄──────────────────►│    Lisa      │◄───────────────────►│Anthropic│
-│  (Browser/  │   /ws/chat         │  (ZeroClaw)  │                     │  Claude │
+│  (Browser/  │   /app         │  (ZeroClaw)  │                     │  Claude │
 │   TV App)   │                    │   Gateway    │                     │         │
 │             │  ◄── text/a2ui ──  │              │                     │         │
 │             │  ── msg/action ──► │              │                     │         │
@@ -29,7 +29,7 @@ Lisa communicates with clients via a single WebSocket connection. Three content 
 ### 2.1 Connection
 
 ```
-ws://<host>:<port>/ws/chat?session_id=<optional_id>
+ws://<host>:<port>/app?session_id=<optional_id>
 ```
 
 - **Default port**: `42617`
@@ -218,7 +218,7 @@ Open `http://<host>:5173` in a browser.
 
 ### 5.2 Features
 
-- Auto-connects to Lisa WS gateway (`ws://<host>:42617/ws/chat`)
+- Auto-connects to Lisa WS gateway (`ws://<host>:42617/app`)
 - Renders A2UI cards using the official web component
 - Shows raw A2UI JSON with copy button (for debugging)
 - Handles button actions (event → server, functionCall → client)

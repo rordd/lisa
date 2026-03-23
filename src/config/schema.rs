@@ -4379,6 +4379,8 @@ pub struct ChannelsConfig {
     pub reddit: Option<RedditConfig>,
     /// Bluesky channel configuration (AT Protocol).
     pub bluesky: Option<BlueskyConfig>,
+    /// Lisa WebSocket channel configuration (browser/app clients, A2UI).
+    pub lisa: Option<LisaConfig>,
     /// Base timeout in seconds for processing a single channel message (LLM + tools).
     /// Runtime uses this as a per-turn budget that scales with tool-loop depth
     /// (up to 4x, capped) so one slow/retried model call does not consume the
@@ -4502,6 +4504,10 @@ impl ChannelsConfig {
                 Box::new(ConfigWrapper::new(self.bluesky.as_ref())),
                 self.bluesky.is_some(),
             ),
+            (
+                Box::new(ConfigWrapper::new(self.lisa.as_ref())),
+                self.lisa.is_some(),
+            ),
         ]
     }
 
@@ -4553,6 +4559,7 @@ impl Default for ChannelsConfig {
             clawdtalk: None,
             reddit: None,
             bluesky: None,
+            lisa: None,
             message_timeout_secs: default_channel_message_timeout_secs(),
             ack_reactions: true,
             show_tool_calls: false,
@@ -4933,6 +4940,34 @@ impl ChannelConfig for NextcloudTalkConfig {
     }
     fn desc() -> &'static str {
         "NextCloud Talk platform"
+    }
+}
+
+/// Lisa WebSocket channel configuration.
+///
+/// Enables the `/app` WebSocket endpoint in the gateway for browser/app
+/// clients that speak the ZeroClaw A2UI protocol.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LisaConfig {
+    /// Whether the Lisa channel is enabled. Default: `true` when the section
+    /// is present.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// WebSocket path for the `/app` endpoint. Default: `/app`.
+    #[serde(default = "default_lisa_path")]
+    pub path: String,
+}
+
+fn default_lisa_path() -> String {
+    "/app".to_string()
+}
+
+impl ChannelConfig for LisaConfig {
+    fn name() -> &'static str {
+        "Lisa"
+    }
+    fn desc() -> &'static str {
+        "Built-in WebSocket channel for browser/app clients (A2UI)"
     }
 }
 
@@ -8656,6 +8691,7 @@ default_temperature = 0.7
                 clawdtalk: None,
                 reddit: None,
                 bluesky: None,
+                lisa: None,
                 message_timeout_secs: 300,
                 ack_reactions: true,
                 show_tool_calls: true,
@@ -9434,6 +9470,7 @@ allowed_users = ["@ops:matrix.org"]
             clawdtalk: None,
             reddit: None,
             bluesky: None,
+            lisa: None,
             message_timeout_secs: 300,
             ack_reactions: true,
             show_tool_calls: true,
@@ -9680,6 +9717,7 @@ channel_id = "C123"
             clawdtalk: None,
             reddit: None,
             bluesky: None,
+            lisa: None,
             message_timeout_secs: 300,
             ack_reactions: true,
             show_tool_calls: true,

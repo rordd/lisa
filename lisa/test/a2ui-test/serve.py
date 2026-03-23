@@ -5,7 +5,7 @@ Serves index.html on HTTP and proxies /ws to the zeroclaw gateway,
 so only one port needs to be open externally.
 
 Usage:
-    python3 serve.py [--port 8321] [--gateway ws://127.0.0.1:42617/ws/chat]
+    python3 serve.py [--port 8321] [--gateway ws://127.0.0.1:42617/app]
 """
 
 import asyncio
@@ -18,7 +18,7 @@ from websockets.asyncio.server import serve as ws_serve
 
 HERE = pathlib.Path(__file__).parent
 STATIC_DIR = HERE / "dist"  # Vite build output
-GATEWAY = "ws://127.0.0.1:42617/ws/chat"
+GATEWAY = "ws://127.0.0.1:42617/app"
 
 
 async def proxy_ws(client_ws):
@@ -110,6 +110,6 @@ async def main(port: int, gateway: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="A2UI Test App Server")
     parser.add_argument("--port", type=int, default=8321)
-    parser.add_argument("--gateway", default="ws://127.0.0.1:42617/ws/chat")
+    parser.add_argument("--gateway", default="ws://127.0.0.1:42617/app")
     args = parser.parse_args()
     asyncio.run(main(args.port, args.gateway))

@@ -16,11 +16,9 @@ pub mod sse;
 pub mod static_files;
 pub mod ws;
 
-use axum::middleware::Next;
-use axum::response::Response;
 use crate::channels::{
     session_backend::SessionBackend, session_sqlite::SqliteSessionBackend, Channel, LinqChannel,
-    NextcloudTalkChannel, SendMessage, WatiChannel, WhatsAppChannel,
+    LisaChannel, NextcloudTalkChannel, SendMessage, WatiChannel, WhatsAppChannel,
 };
 use crate::config::Config;
 use crate::cost::CostTracker;
@@ -33,6 +31,8 @@ use crate::tools;
 use crate::tools::traits::ToolSpec;
 use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
+use axum::middleware::Next;
+use axum::response::Response;
 use axum::{
     body::Bytes,
     extract::{ConnectInfo, Query, State},
@@ -92,7 +92,7 @@ async fn security_headers_middleware(req: axum::extract::Request, next: Next) ->
                  style-src 'self' 'unsafe-inline' https:; \
                  font-src 'self' https: data:; \
                  connect-src 'self' https:; \
-                 frame-ancestors *"
+                 frame-ancestors *",
             ),
         );
     } else {
@@ -370,6 +370,8 @@ pub struct AppState {
     /// Nextcloud Talk webhook secret for signature verification
     pub nextcloud_talk_webhook_secret: Option<Arc<str>>,
     pub wati: Option<Arc<WatiChannel>>,
+    /// Lisa WebSocket channel (bridges /app WS connections to start_channels).
+    pub lisa: Option<Arc<LisaChannel>>,
     /// Observability backend for metrics scraping
     pub observer: Arc<dyn crate::observability::Observer>,
     /// Registered tool specs (for web dashboard tools page)
@@ -648,6 +650,21 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             })
             .map(Arc::from);
 
+    // Lisa WebSocket channel (if configured)
+    let lisa_path: String = config
+        .channels_config
+        .lisa
+        .as_ref()
+        .filter(|lc| lc.enabled)
+        .map(|lc| lc.path.clone())
+        .unwrap_or_else(|| "/app".to_string());
+    let lisa_channel: Option<Arc<LisaChannel>> = config
+        .channels_config
+        .lisa
+        .as_ref()
+        .filter(|lc| lc.enabled)
+        .map(|_| LisaChannel::global());
+
     // ── Session persistence for WS chat ─────────────────────
     let session_backend: Option<Arc<dyn SessionBackend>> = if config.gateway.session_persistence {
         match SqliteSessionBackend::new(&config.workspace_dir) {
@@ -736,6 +753,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     }
     println!("  GET  /api/*     — REST API (bearer token required)");
     println!("  GET  /ws/chat   — WebSocket agent chat");
+    if lisa_channel.is_some() {
+        println!("  GET  /app       — Lisa WebSocket channel (A2UI)");
+    }
     if config.nodes.enabled {
         println!("  GET  /ws/nodes  — WebSocket node discovery");
     }
@@ -810,6 +830,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         nextcloud_talk: nextcloud_talk_channel,
         nextcloud_talk_webhook_secret,
         wati: wati_channel,
+        lisa: lisa_channel,
         observer: broadcast_observer,
         tools_registry,
         cost_tracker,
@@ -888,6 +909,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/api/events", get(sse::handle_sse_events))
         // ── WebSocket agent chat ──
         .route("/ws/chat", get(ws::handle_ws_chat))
+        // ── Lisa WebSocket channel ──
+        .route(&lisa_path, get(handle_lisa_ws))
         // ── A2Web rendered pages ──
         .route("/web/{id}/", get(handle_a2web_page))
         .route("/web/{id}", get(handle_a2web_redirect))
@@ -1836,6 +1859,147 @@ async fn handle_nextcloud_talk_webhook(
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// LISA WEBSOCKET CHANNEL HANDLER (/app)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// GET /app — WebSocket upgrade for the Lisa channel.
+///
+/// Protocol is identical to `/ws/chat`:
+/// - Client→Server: `{"type":"message","content":"..."}` or `{"type":"a2ui_action","payload":{...}}`
+/// - Server→Client: `{"type":"done","full_response":"..."}`, `{"type":"a2ui","messages":[...]}`,
+///   `{"type":"a2web","url":"...","id":"...","title":"..."}`, `{"type":"error","message":"..."}`
+async fn handle_lisa_ws(
+    State(state): State<AppState>,
+    Query(params): Query<ws::WsQuery>,
+    headers: axum::http::HeaderMap,
+    ws: axum::extract::WebSocketUpgrade,
+) -> impl axum::response::IntoResponse {
+    let Some(ref lisa) = state.lisa else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            "Lisa channel not configured",
+        )
+            .into_response();
+    };
+
+    // Auth: same as /ws/chat
+    if state.pairing.require_pairing() {
+        let token = ws::extract_ws_token(&headers, params.token.as_deref()).unwrap_or("");
+        if !state.pairing.is_authenticated(token) {
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Unauthorized — provide Authorization header, \
+                 Sec-WebSocket-Protocol bearer, or ?token= query param",
+            )
+                .into_response();
+        }
+    }
+
+    let lisa = Arc::clone(lisa);
+    let session_id = params
+        .session_id
+        .filter(|id| {
+            // Validate: alphanumeric, hyphens, underscores only; max 64 chars.
+            !id.is_empty()
+                && id.len() <= 64
+                && id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        })
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    ws.on_upgrade(move |socket| handle_lisa_socket(socket, lisa, session_id))
+        .into_response()
+}
+
+async fn handle_lisa_socket(
+    socket: axum::extract::ws::WebSocket,
+    lisa: Arc<LisaChannel>,
+    session_id: String,
+) {
+    use axum::extract::ws::Message;
+    use futures_util::{SinkExt, StreamExt};
+
+    let (mut ws_sender, mut ws_receiver) = socket.split();
+
+    // Create a per-connection outgoing channel.
+    // LisaChannel.send() will push frames here; we forward them to the WS.
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<Message>(256);
+    lisa.register(session_id.clone(), out_tx);
+
+    // Send session_start so the client knows its session ID.
+    let session_start = serde_json::json!({
+        "type": "session_start",
+        "session_id": session_id,
+    });
+    if ws_sender
+        .send(Message::Text(session_start.to_string().into()))
+        .await
+        .is_err()
+    {
+        lisa.deregister(&session_id);
+        return;
+    }
+
+    // Forward outgoing WS frames (produced by LisaChannel.send()) to the client.
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = out_rx.recv().await {
+            if ws_sender.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Receive incoming frames from the client and push to the channel bus.
+    while let Some(Ok(msg)) = ws_receiver.next().await {
+        let text = match msg {
+            Message::Text(t) => t.to_string(),
+            Message::Close(_) => break,
+            _ => continue,
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let msg_type = parsed["type"].as_str().unwrap_or("");
+        let content = match msg_type {
+            "message" => {
+                let c = parsed["content"].as_str().unwrap_or("").to_string();
+                if c.is_empty() {
+                    continue;
+                }
+                c
+            }
+            "a2ui_action" => match parsed.get("payload") {
+                Some(payload) => crate::gateway::a2ui::format_user_action(payload),
+                None => continue,
+            },
+            _ => continue,
+        };
+
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        lisa.push_message(crate::channels::traits::ChannelMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            sender: session_id.clone(),
+            reply_target: session_id.clone(),
+            content,
+            channel: "lisa".to_string(),
+            timestamp: now_secs,
+            thread_ts: None,
+        });
+    }
+
+    // Clean up: deregister the connection and stop the forwarder.
+    lisa.deregister(&session_id);
+    forward_task.abort();
+    let _ = forward_task.await;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ADMIN HANDLERS (for CLI management)
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -2024,7 +2188,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2079,7 +2244,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2458,7 +2624,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2527,7 +2694,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let headers = HeaderMap::new();
@@ -2608,7 +2776,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let response = handle_webhook(
@@ -2661,7 +2830,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2719,7 +2889,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2782,7 +2953,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let response = Box::pin(handle_nextcloud_talk_webhook(
@@ -2841,7 +3013,8 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None, a2web_dir: None,
+            pending_pairings: None,
+            a2web_dir: None, lisa: None,
         };
 
         let mut headers = HeaderMap::new();

@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-WS_URL="${WS_URL:-ws://localhost:42617/ws/chat}"
+WS_URL="${WS_URL:-ws://localhost:42617/app}"
 LOG_FILE="${LOG_FILE:-/tmp/lisa-debug.log}"
 TEST_FILE="${1:-$(dirname "$0")/tests.json}"
 RESULTS_FILE="/tmp/bench-results.json"

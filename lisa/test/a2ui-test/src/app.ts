@@ -13,7 +13,6 @@ let ws: WebSocket | null = null;
 let requestStartTime: number | null = null;
 let thinkingTimer: number | null = null;
 let thinkingEl: HTMLElement | null = null;
-
 // ── Session Management ──
 const SESSIONS_KEY = 'lisa-sessions';
 
@@ -404,8 +403,8 @@ window.addEventListener('load', () => {
   ($('chat-input') as HTMLInputElement).focus();
   const wsInput = $('ws-url') as HTMLInputElement;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // Use gateway port (42617) instead of dev server port, and /ws/chat endpoint
+  // Use gateway port (42617) and the /app Lisa channel endpoint
   const gwHost = location.hostname + ':42617';
-  wsInput.value = `${proto}//${gwHost}/ws/chat`;
+  wsInput.value = `${proto}//${gwHost}/app`;
   (window as any).toggleConnection();
 });
