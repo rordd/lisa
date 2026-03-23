@@ -1506,7 +1506,9 @@ fn sanitize_channel_response(response: &str, tools: &[Box<dyn Tool>]) -> String 
     // Strip isolated tool-call JSON artifacts
     let stripped_json = strip_isolated_tool_json_artifacts(&stripped_xml, &known_tool_names);
     // Strip leading narration lines that announce tool usage
-    strip_tool_narration(&stripped_json)
+    let stripped_narration = strip_tool_narration(&stripped_json);
+    // Strip [Used tools: ...] lines that the LLM sometimes echoes
+    strip_used_tools_lines(&stripped_narration)
 }
 
 /// Parse A2UI cards and a2web navigation payloads from a channel response.
@@ -1576,6 +1578,24 @@ fn extract_a2web_part(text: &str) -> (Option<(String, String, String)>, String) 
 ///
 /// Only strips lines from the very beginning of the message that match common
 /// narration patterns, so genuine content is preserved.
+/// Remove lines matching `[Used tools: ...]` that the LLM occasionally echoes.
+fn strip_used_tools_lines(message: &str) -> String {
+    let cleaned: Vec<&str> = message
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            !(t.starts_with("[Used tools:") && t.ends_with(']'))
+        })
+        .collect();
+    let result = cleaned.join("\n");
+    let trimmed = result.trim();
+    if trimmed.is_empty() && !message.trim().is_empty() {
+        message.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 fn strip_tool_narration(message: &str) -> String {
     let narration_prefixes: &[&str] = &[
         "let me ",
@@ -2420,7 +2440,7 @@ async fn process_channel_message(
             // added during run_tool_call_loop, so the LLM retains awareness
             // of what it did on subsequent turns.
             let tool_summary = extract_tool_context_summary(&history, history_len_before_tools);
-            let history_response = if tool_summary.is_empty() || msg.channel == "telegram" {
+            let history_response = if tool_summary.is_empty() || msg.channel == "telegram" || msg.channel == "lisa" {
                 delivered_response.clone()
             } else {
                 format!("{tool_summary}\n{delivered_response}")
@@ -3970,13 +3990,15 @@ pub async fn start_channels(config: Config) -> Result<()> {
         }
     }
 
-    // ── Register SKILL.toml-defined tools (channel scope: "default") ──
+    // ── Register SKILL.toml-defined tools (all active channels) ──
     // Use load_skills_with_config (not load_skills) so that config options such as
     // allow_scripts are respected when auditing skill directories.
+    // Pass None to include skills for all channels; per-channel filtering
+    // happens at system-prompt build time via channel_name.
     {
         let skills_for_tools = crate::skills::filter_skills_by_channel(
             crate::skills::load_skills_full_with_config(&workspace, &config),
-            Some("default"),
+            None,
         );
         let skill_tools = crate::skills::create_skill_tools_with_override(
             &skills_for_tools,
@@ -4004,7 +4026,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     let skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&workspace, &config),
-        Some("telegram"),
+        None,
     );
 
     // Collect tool descriptions for the prompt

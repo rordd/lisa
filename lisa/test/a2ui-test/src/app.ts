@@ -13,7 +13,6 @@ let ws: WebSocket | null = null;
 let requestStartTime: number | null = null;
 let thinkingTimer: number | null = null;
 let thinkingEl: HTMLElement | null = null;
-
 // ── Session Management ──
 const SESSIONS_KEY = 'lisa-sessions';
 

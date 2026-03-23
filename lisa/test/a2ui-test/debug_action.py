@@ -5,7 +5,7 @@ import json
 import sys
 import websockets
 
-WS_URL = "ws://127.0.0.1:42617/ws/chat"
+WS_URL = "ws://127.0.0.1:42617/app"
 
 async def main():
     async with websockets.connect(WS_URL, ping_interval=None, ping_timeout=None) as ws:

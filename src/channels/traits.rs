@@ -73,6 +73,7 @@ impl SendMessage {
         self
     }
 
+
     /// Set the thread identifier for threaded replies.
     pub fn in_thread(mut self, thread_ts: Option<String>) -> Self {
         self.thread_ts = thread_ts;

@@ -33,7 +33,7 @@ use tokio::sync::mpsc;
 const LISA_BRIDGE_BUFFER: usize = 256;
 
 /// Outgoing WS frame sender handle for a single client connection.
-type WsSender = mpsc::UnboundedSender<Message>;
+type WsSender = mpsc::Sender<Message>;
 
 /// Module-level singleton so gateway and start_channels share the same instance.
 static GLOBAL: OnceLock<Arc<LisaChannel>> = OnceLock::new();
@@ -68,8 +68,9 @@ impl LisaChannel {
     ///
     /// Called by the gateway `/app` WebSocket handler for each user message.
     pub fn push_message(&self, msg: ChannelMessage) {
-        // Use try_send; drop silently when the buffer is full (back-pressure).
-        let _ = self.incoming_tx.try_send(msg);
+        if let Err(e) = self.incoming_tx.try_send(msg) {
+            tracing::warn!("LisaChannel: message dropped (buffer full): {e}");
+        }
     }
 
     /// Register a WS connection.  The `sender` receives all outgoing WS
@@ -77,7 +78,12 @@ impl LisaChannel {
     ///
     /// [`deregister`]: LisaChannel::deregister
     pub fn register(&self, session_id: String, sender: WsSender) {
-        self.connections.lock().insert(session_id, sender);
+        let mut conns = self.connections.lock();
+        if let Some(old) = conns.insert(session_id.clone(), sender) {
+            // Close the previous connection so it doesn't silently hang.
+            tracing::info!(session_id, "LisaChannel: replaced existing connection");
+            drop(old); // dropping UnboundedSender closes the channel
+        }
     }
 
     /// Remove the WS sender for `session_id` (call on disconnect).
@@ -95,6 +101,8 @@ impl Channel for LisaChannel {
     fn supports_a2ui(&self) -> bool {
         true
     }
+
+    // Delta streaming deferred to Issue #77 (provider-level SSE streaming)
 
     async fn listen(&self, tx: mpsc::Sender<ChannelMessage>) -> anyhow::Result<()> {
         // The receiver may only be consumed once; take it out of the Option.
@@ -136,7 +144,7 @@ impl Channel for LisaChannel {
                             "type": "a2ui",
                             "messages": messages,
                         });
-                        let _ = sender.send(Message::Text(frame.to_string().into()));
+                        if sender.try_send(Message::Text(frame.to_string().into())).is_err() { tracing::warn!(session_id, "LisaChannel: outbound buffer full, frame dropped"); }
                     }
                     DataPart::A2web { url, id, title } => {
                         let frame = serde_json::json!({
@@ -145,7 +153,7 @@ impl Channel for LisaChannel {
                             "id": id,
                             "title": title,
                         });
-                        let _ = sender.send(Message::Text(frame.to_string().into()));
+                        if sender.try_send(Message::Text(frame.to_string().into())).is_err() { tracing::warn!(session_id, "LisaChannel: outbound buffer full, frame dropped"); }
                     }
                 }
             }
@@ -157,7 +165,7 @@ impl Channel for LisaChannel {
                 "type": "done",
                 "full_response": message.content,
             });
-            let _ = sender.send(Message::Text(frame.to_string().into()));
+            if sender.try_send(Message::Text(frame.to_string().into())).is_err() { tracing::warn!(session_id, "LisaChannel: outbound buffer full, frame dropped"); }
         }
 
         Ok(())
@@ -205,7 +213,7 @@ mod tests {
     #[tokio::test]
     async fn send_routes_text_to_registered_connection() {
         let ch = LisaChannel::new();
-        let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
+        let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
 
         ch.register("sess_xyz".into(), out_tx);
 
@@ -226,7 +234,7 @@ mod tests {
     #[tokio::test]
     async fn send_delivers_a2ui_parts_before_text() {
         let ch = LisaChannel::new();
-        let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
+        let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
 
         ch.register("sess_a2ui".into(), out_tx);
 
@@ -264,7 +272,7 @@ mod tests {
     #[tokio::test]
     async fn deregister_removes_connection() {
         let ch = LisaChannel::new();
-        let (out_tx, _out_rx) = mpsc::unbounded_channel::<Message>();
+        let (out_tx, _out_rx) = mpsc::channel::<Message>(256);
         ch.register("sess_drop".into(), out_tx);
         ch.deregister("sess_drop");
         // Sending after deregister is a no-op

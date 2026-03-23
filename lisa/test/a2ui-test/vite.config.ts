@@ -10,7 +10,7 @@ export default defineConfig({
       '/ws': {
         target: 'ws://127.0.0.1:42617',
         ws: true,
-        rewrite: (path) => '/ws/chat',
+        rewrite: (path) => '/app',
       },
     },
   },

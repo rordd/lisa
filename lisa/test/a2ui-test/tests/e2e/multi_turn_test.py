@@ -26,7 +26,7 @@ except ImportError:
 
 import uuid
 
-WS_BASE = "ws://127.0.0.1:42617/ws/chat"
+WS_BASE = "ws://127.0.0.1:42617/app"
 MAX_TURNS = 5
 TIMEOUT = 120  # seconds per turn
 

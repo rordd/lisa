@@ -1897,6 +1897,12 @@ async fn handle_lisa_ws(
     let lisa = Arc::clone(lisa);
     let session_id = params
         .session_id
+        .filter(|id| {
+            // Validate: alphanumeric, hyphens, underscores only; max 64 chars.
+            !id.is_empty()
+                && id.len() <= 64
+                && id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        })
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     ws.on_upgrade(move |socket| handle_lisa_socket(socket, lisa, session_id))
@@ -1915,7 +1921,7 @@ async fn handle_lisa_socket(
 
     // Create a per-connection outgoing channel.
     // LisaChannel.send() will push frames here; we forward them to the WS.
-    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<Message>(256);
     lisa.register(session_id.clone(), out_tx);
 
     // Send session_start so the client knows its session ID.
@@ -1933,15 +1939,12 @@ async fn handle_lisa_socket(
     }
 
     // Forward outgoing WS frames (produced by LisaChannel.send()) to the client.
-    let session_id_fwd = session_id.clone();
-    let lisa_fwd = Arc::clone(&lisa);
     let forward_task = tokio::spawn(async move {
         while let Some(msg) = out_rx.recv().await {
             if ws_sender.send(msg).await.is_err() {
                 break;
             }
         }
-        lisa_fwd.deregister(&session_id_fwd);
     });
 
     // Receive incoming frames from the client and push to the channel bus.
