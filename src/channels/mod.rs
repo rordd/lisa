@@ -3920,7 +3920,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     let skills = crate::skills::filter_skills_by_channel(
         crate::skills::load_skills_with_config(&workspace, &config),
-        Some("default"),
+        Some("telegram"),
     );
 
     // Collect tool descriptions for the prompt

@@ -1,155 +1,78 @@
 ---
 name: a2ui
-description: "Lisa A2UI card rendering. Use compact card types (InfoCard, ControlCard, ListCard, MediaCard) to visually present home/device/daily information. Proactively render cards when data benefits from visual display."
+description: "A2UI v0.9 card rendering with Lisa home catalog. Visually present home/device/daily information using compact card types (InfoCard, ControlCard, ListCard, MediaCard, SearchCard). Proactively render cards when data benefits from visual display."
 version: "3.0.0"
 channels: ws
 always: true
 ---
 
-# Lisa A2UI — Compact Card Catalog
+# A2UI v0.9 — Card Rendering
 
-Render visual cards using 4 base card types. Use the A2UI v0.9 protocol (`<a2ui-json>` tags) with Lisa's custom catalog.
+You know the **A2UI v0.9 specification** and its basic catalog (`https://a2ui.org/specification/v0_9/basic_catalog.json`). Use that knowledge directly. Do NOT invent custom syntax.
+
+## Response Format
+
+Include A2UI messages inside `<a2ui-json>...</a2ui-json>` tags alongside your text. Each tag = one A2UI message.
 
 CRITICAL: If you mention a card but don't include `<a2ui-json>` tags, the user sees NOTHING.
 
-## Card Types
+## Surface Lifecycle
+
+- `createSurface` once per flow → `updateComponents` / `updateDataModel` on same `surfaceId`
+- Continuous flows (quiz, multi-step): reuse the same `surfaceId` across turns
+- Independent lookups (weather, search): new `surfaceId` each time
+
+## Rules
+
+- URL buttons → `functionCall.openUrl` (server is headless)
+- Quiz/choice buttons → `event` action
+- Button `action` MUST use nested v0.9 format:
+  - Event: `{"action": {"event": {"name": "choice", "context": {"answer": "A"}}}}`
+  - Function: `{"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}}`
+
+---
+
+## Lisa Home Catalog (`lisa.home/v1`)
+
+Use `catalogId: "lisa.home/v1"` for home/TV surfaces. 5 card types:
 
 ### 1. InfoCard
 Display information with icon, metrics, and description.
 Use for: weather, notifications, home status, errors, energy usage.
 
-Structure:
-```
-Card > Column > [Icon + Title (Row), MetricRow (Row of metric items), Description (Text)]
-```
-
-Props:
-- `icon`: Icon name (weatherSunny, weatherCloudy, weatherRain, weatherSnow, thermometer, humidity, wind, home, bell, warning, error, energy, air)
-- `title`: Card title
-- `metrics`: Row of `{label, value}` pairs (use Text components)
-- `description`: Optional body text
-- `variant`: normal | compact | alert
+Structure: `Card > Column > [Icon + Title (Row), MetricRow (Row of metric items), Description (Text)]`
 
 ### 2. ControlCard
 Device control with toggles, sliders, and action buttons.
 Use for: lights, AC, thermostat, washer, air purifier, robot vacuum.
 
-Structure:
-```
-Card > Column > [DeviceIcon + Name + Status (Row), Controls (Column of Slider/Button/Toggle rows)]
-```
-
-Props:
-- `deviceIcon`: Icon name (lightbulb, ac, thermostat, washer, airPurifier, robotVacuum, tv, speaker)
-- `deviceName`: Device display name
-- `status`: on | off | running | error | idle
-- `controls`: Array of control items:
-  - Toggle: `{type: "toggle", label, value: bool}`
-  - Slider: `{type: "slider", label, value, min, max, unit}`
-  - Button: `{type: "button", label, action}`
+Structure: `Card > Column > [DeviceIcon + Name + Status (Row), Controls (Column of Slider/Button/Toggle rows)]`
 
 ### 3. ListCard
 Ordered/unordered list of items with optional actions.
 Use for: calendar events, to-do, shopping list, channel guide, recipe steps, routines.
 
-Structure:
-```
-Card > Column > [Title (Text), List of items]
-```
-
-Props:
-- `title`: List title
-- `items`: Array of list items:
-  - Basic: `{text, subtitle?, icon?}`
-  - Actionable: `{text, subtitle?, icon?, action?}`
-  - Checkable: `{text, checked: bool}`
-  - Timed: `{time, text, subtitle?}` (for calendar/schedule)
-- `style`: plain | numbered | timed | checkable
+Structure: `Card > Column > [Title (Text), List of items]`
 
 ### 4. MediaCard
 Media content with thumbnail and playback info.
 Use for: now playing, content recommendation, channel info.
 
-Structure:
-```
-Card > Column > [Thumbnail (Image), Title + Subtitle (Column), Controls (Row of Buttons)]
-```
-
-Props:
-- `thumbnail`: Image URL
-- `title`: Content title
-- `subtitle`: Channel, artist, description
-- `progress`: Optional playback progress (0-100)
-- `controls`: play | pause | stop | next | prev
+Structure: `Card > Column > [Thumbnail (Image), Title + Subtitle (Column), Controls (Row of Buttons)]`
 
 ### 5. SearchCard
 Search results and content recommendations with thumbnails.
-Use for: TV content search, app recommendations, music search, YouTube results, product suggestions.
+Use for: TV content search, app recommendations, music search, YouTube results.
 
-Structure:
-```
-Card > Column > [Title (Text), Query (Text, caption), Results (List of result items)]
-```
+Structure: `Card > Column > [Title (Text), Query (Text, caption), Results (List of Row items with thumbnail)]`
 
-Each result item:
-```
-Row > [Thumbnail (Image, smallFeature), Column > [Title (Text), Subtitle (Text, caption), Meta (Text, caption)]]
-```
-
-Props:
-- `title`: Search/recommendation title
-- `query`: Optional search query display
-- `results`: Array of result items:
-  - `{thumbnail, title, subtitle?, meta?, action?}`
-  - thumbnail: Image URL or placeholder icon
-  - meta: duration, rating, price, channel, year
-  - action: functionCall.openUrl or event for selection
-
-## A2UI v0.9 Mapping
-
-Map card types to A2UI v0.9 components:
-
-| Card Prop | A2UI Component |
-|-----------|---------------|
-| Icon/DeviceIcon | `Icon` (name=...) |
-| Title/Text | `Text` (variant=h3/body/caption) |
-| Metrics | `Row` > multiple `Text` |
-| Toggle | `CheckBox` (label, value) |
-| Slider | `Slider` (value, min, max, label) |
-| Button | `Button` > `Text` + action |
-| List items | `List` > `Row` children or template |
-| Thumbnail | `Image` (url, variant=mediumFeature) |
-| Progress | `Slider` (value, max=100, disabled) |
-| Layout | `Card` > `Column` / `Row` |
-
-## Icons
+### Icons
 
 Home/Device: home, lightbulb, ac, thermostat, washer, airPurifier, robotVacuum, tv, speaker, energy, plug
 Weather: weatherSunny, weatherCloudy, weatherRain, weatherSnow, thermometer, humidity, wind
 Status: check, warning, error, bell, info
 Media: play, pause, stop, skipNext, skipPrev, volumeUp, volumeDown
 General: calendarToday, list, shoppingCart, restaurant, person, settings
-
-## Action Format
-
-Button `action` MUST use the nested v0.9 format. NEVER use flat `{"type":"event","name":...,"payload":...}`:
-- Event: `{"action": {"event": {"name": "choice", "context": {"answer": "A"}}}}`
-- Function: `{"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}}`
-
-## Response Format
-
-Always use `<a2ui-json>...</a2ui-json>` tags. Start with `createSurface`, then `updateComponents`.
-
-```
-catalogId: "lisa.home/v1"
-```
-
-## A2UI vs a2web
-
-- **A2UI cards** (`<a2ui-json>`) — structured displays using the 4 card types above
-- **a2web** (`a2web_render` tool) — complex/interactive: charts, games, custom HTML/JS
-
-If it fits a card type → A2UI. If not → a2web.
 
 ## Examples
 

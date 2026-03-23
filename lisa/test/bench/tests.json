@@ -1,0 +1,6 @@
+[
+  {"skill": "stock", "query": "삼성전자 주가"},
+  {"skill": "places", "query": "강남역 근처 맛집"},
+  {"skill": "directions-kr", "query": "강남역에서 서울역 어떻게 가?"},
+  {"skill": "directions", "query": "Times Square에서 Central Park 어떻게 가?"}
+]

@@ -539,6 +539,27 @@ install_skills() {
                 fi
             fi
         fi
+    else
+        # Local: copy skills directory (symlinks break glob_search)
+        local profile_skills
+        profile_skills="$(cd "$PROFILE_DIR/skills" && pwd)"
+
+        if [[ -L "$WS/skills" ]]; then
+            rm "$WS/skills"
+        elif [[ -d "$WS/skills" ]]; then
+            mv "$WS/skills" "$WS/skills.bak.$(date +%s)"
+            echo "  Backed up existing skills/ directory"
+        fi
+
+        mkdir -p "$WS/skills"
+        for skill_dir in "$profile_skills"/*/; do
+            local skill_name
+            skill_name="$(basename "$skill_dir")"
+            cp -R "$skill_dir" "$WS/skills/$skill_name"
+        done
+        local skill_count
+        skill_count=$(find "$WS/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+        echo "  skills/ ← $profile_skills ($skill_count skills, copied)"
     fi
     echo ""
 }

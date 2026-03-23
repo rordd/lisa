@@ -56,6 +56,7 @@ export interface A2UISurface {
   components: Map<string, A2UIComponent>;
   dataModel: Record<string, unknown>;
   rootId: string;
+  sendDataModel: boolean;
 }
 
 // ── Surface state builder ──
@@ -65,6 +66,7 @@ export function buildSurface(messages: any[]): A2UISurface | null {
   const components = new Map<string, A2UIComponent>();
   let dataModel: Record<string, unknown> = {};
   let rootId = 'root';
+  let sendDataModel = false;
 
   for (const msg of messages) {
     // Support both v0.9 key names: createSurface / beginRendering
@@ -72,6 +74,7 @@ export function buildSurface(messages: any[]): A2UISurface | null {
     if (surface) {
       surfaceId = surface.surfaceId || '@default';
       if (surface.root) rootId = surface.root;
+      if (surface.sendDataModel) sendDataModel = true;
     }
     // Support both v0.9 key names: updateComponents / surfaceUpdate
     const update = msg.updateComponents || msg.surfaceUpdate;
@@ -124,7 +127,7 @@ export function buildSurface(messages: any[]): A2UISurface | null {
   }
 
   if (components.size === 0) return null;
-  return { surfaceId, components, dataModel, rootId };
+  return { surfaceId, components, dataModel, rootId, sendDataModel };
 }
 
 // ── Resolve text values ──

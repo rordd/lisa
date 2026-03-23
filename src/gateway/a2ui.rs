@@ -17,7 +17,7 @@ use serde_json::Value;
 /// returns the original text and an empty vec.
 pub fn parse_response(raw: &str) -> (String, Vec<Value>) {
     // Try Google official <a2ui-json> tags first (v0.9 primary format)
-    if raw.contains(A2UI_TAG_OPEN) && raw.contains(A2UI_TAG_CLOSE) {
+    if raw.contains(A2UI_TAG_OPEN) {
         return parse_a2ui_tags(raw);
     }
     // Try v0.9 delimiter
@@ -55,39 +55,14 @@ pub fn summarize_for_history(a2ui_messages: &[Value]) -> String {
     parts.join("\n")
 }
 
-/// Format a client userAction payload as a message for the LLM history.
+/// Format a client A2UI action payload for the LLM.
 ///
-/// Follows A2UI v0.9 action format.
+/// Passes the original payload as-is (v0.9 standard).
+/// The client includes dataModel when sendDataModel is enabled.
 pub fn format_user_action(payload: &Value) -> String {
-    format_user_action_with_context(payload, &[])
-}
-
-/// Format a client userAction payload with A2UI context.
-///
-/// The client is expected to resolve data binding paths (e.g., `{"path": "/options/B"}`)
-/// against the dataModel before sending, so context values are already resolved.
-pub fn format_user_action_with_context(payload: &Value, _last_a2ui: &[Value]) -> String {
-    let surface_id = payload["surfaceId"].as_str().unwrap_or("unknown");
-    let action_name = payload["name"].as_str().unwrap_or("unknown");
-    let component_id = payload["sourceComponentId"].as_str().unwrap_or("unknown");
-    let context = payload
-        .get("context")
-        .cloned()
-        .unwrap_or(serde_json::json!({}));
-
-    let user_action = serde_json::json!({
-        "action": {
-            "name": action_name,
-            "surfaceId": surface_id,
-            "sourceComponentId": component_id,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "context": context
-        }
-    });
-
     format!(
         "[A2UI action]\n{}",
-        serde_json::to_string_pretty(&user_action).unwrap_or_default()
+        serde_json::to_string_pretty(payload).unwrap_or_default()
     )
 }
 
@@ -189,8 +164,37 @@ fn parse_a2ui_tags(raw: &str) -> (String, Vec<Value>) {
             }
             remaining = &after_open[close_pos + A2UI_TAG_CLOSE.len()..];
         } else {
-            // No closing tag found; treat rest as text
-            text_parts.push(remaining.to_string());
+            // No closing tag found — try to extract JSON anyway (LLM may omit closing tag)
+            let json_content = after_open.trim();
+            let mut extracted = false;
+            if let Some((messages, _)) = try_parse_json_array(json_content) {
+                for msg in messages {
+                    if is_a2ui_message(&msg) {
+                        a2ui_messages.push(msg);
+                        extracted = true;
+                    }
+                }
+            } else if let Ok(val) = serde_json::from_str::<Value>(json_content) {
+                if is_a2ui_message(&val) {
+                    a2ui_messages.push(val);
+                    extracted = true;
+                }
+            }
+            if !extracted {
+                // Try trimming trailing garbage after JSON (e.g. "</parameter>", extra text)
+                if let Some(end) = json_content.rfind('}') {
+                    let trimmed = &json_content[..=end];
+                    if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+                        if is_a2ui_message(&val) {
+                            a2ui_messages.push(val);
+                            extracted = true;
+                        }
+                    }
+                }
+            }
+            if !extracted {
+                text_parts.push(remaining.to_string());
+            }
             remaining = "";
             break;
         }
@@ -535,7 +539,7 @@ mod tests {
     // ── format_user_action ──────────────────────────────────
 
     #[test]
-    fn format_user_action_uses_v09_format() {
+    fn format_user_action_passes_payload_as_is() {
         let payload = serde_json::json!({
             "surfaceId": "quiz",
             "name": "submit",
@@ -546,24 +550,27 @@ mod tests {
         assert!(result.starts_with("[A2UI action]"));
         let json_part = result.strip_prefix("[A2UI action]\n").unwrap();
         let parsed: Value = serde_json::from_str(json_part).unwrap();
-        assert_eq!(parsed["action"]["name"], "submit");
-        assert_eq!(parsed["action"]["surfaceId"], "quiz");
-        assert_eq!(parsed["action"]["context"]["answer"], "a");
+        assert_eq!(parsed["surfaceId"], "quiz");
+        assert_eq!(parsed["name"], "submit");
+        assert_eq!(parsed["context"]["answer"], "a");
     }
 
     #[test]
-    fn format_user_action_with_context_passes_resolved_values() {
+    fn format_user_action_includes_data_model() {
         let payload = serde_json::json!({
-            "surfaceId": "quiz",
-            "name": "quiz_answer",
-            "sourceComponentId": "optB",
-            "context": {"choice": "Neptune"}
+            "surfaceId": "todo",
+            "name": "submit",
+            "sourceComponentId": "btn_save",
+            "context": {},
+            "dataModel": {
+                "items": [
+                    {"text": "빨래", "checked": true},
+                    {"text": "장보기", "checked": false}
+                ]
+            }
         });
-        let result = format_user_action_with_context(&payload, &[]);
-        assert!(
-            result.contains("Neptune"),
-            "Client-resolved value should pass through"
-        );
-        assert!(result.contains("quiz_answer"));
+        let result = format_user_action(&payload);
+        assert!(result.contains("dataModel"));
+        assert!(result.contains("빨래"));
     }
 }

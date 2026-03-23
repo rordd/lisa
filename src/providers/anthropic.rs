@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 pub struct AnthropicProvider {
     credential: Option<String>,
     base_url: String,
+    thinking_mode: Option<String>,  // "adaptive", "enabled", "disabled", or None (default=off)
+    thinking_budget: Option<u32>,   // for type="enabled" only
+    effort: Option<String>,         // "low", "medium", "high", "max"
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +57,23 @@ struct NativeChatRequest<'a> {
     tools: Option<Vec<NativeToolSpec<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ThinkingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_config: Option<OutputConfig>,
+}
+
+#[derive(Debug, Serialize)]
+struct ThinkingConfig {
+    #[serde(rename = "type")]
+    thinking_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    budget_tokens: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+struct OutputConfig {
+    effort: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -181,18 +201,36 @@ impl AnthropicProvider {
             .map(|u| u.trim_end_matches('/'))
             .unwrap_or("https://api.anthropic.com")
             .to_string();
+
+        // Read thinking config from env:
+        //   ANTHROPIC_THINKING_MODE = adaptive | enabled | disabled
+        //   ANTHROPIC_THINKING_BUDGET = 10000  (for enabled mode)
+        //   ANTHROPIC_EFFORT = low | medium | high | max
+        let thinking_mode = std::env::var("ANTHROPIC_THINKING_MODE").ok()
+            .filter(|s| !s.is_empty());
+        let thinking_budget = std::env::var("ANTHROPIC_THINKING_BUDGET").ok()
+            .and_then(|s| s.parse::<u32>().ok());
+        let effort = std::env::var("ANTHROPIC_EFFORT").ok()
+            .filter(|s| !s.is_empty());
+
         Self {
             credential: credential
                 .map(str::trim)
                 .filter(|k| !k.is_empty())
                 .map(ToString::to_string),
             base_url,
+            thinking_mode,
+            thinking_budget,
+            effort,
         }
     }
 
     fn is_setup_token(token: &str) -> bool {
         token.starts_with("sk-ant-oat01-")
     }
+
+    /// Claude Code CLI version to impersonate for setup-token auth.
+    const CLAUDE_CODE_VERSION: &'static str = "2.1.62";
 
     fn apply_auth(
         &self,
@@ -202,7 +240,15 @@ impl AnthropicProvider {
         if Self::is_setup_token(credential) {
             request
                 .header("Authorization", format!("Bearer {credential}"))
-                .header("anthropic-beta", "oauth-2025-04-20")
+                .header(
+                    "anthropic-beta",
+                    "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
+                )
+                .header(
+                    "user-agent",
+                    format!("claude-cli/{}", Self::CLAUDE_CODE_VERSION),
+                )
+                .header("x-app", "cli")
         } else {
             request.header("x-api-key", credential)
         }
@@ -308,7 +354,14 @@ impl AnthropicProvider {
         })
     }
 
-    fn convert_messages(messages: &[ChatMessage]) -> (Option<SystemPrompt>, Vec<NativeMessage>) {
+    /// Claude Code identity prefix required for setup-token auth.
+    const CLAUDE_CODE_IDENTITY: &'static str =
+        "You are Claude Code, Anthropic's official CLI for Claude.";
+
+    fn convert_messages(
+        messages: &[ChatMessage],
+        is_setup_token: bool,
+    ) -> (Option<SystemPrompt>, Vec<NativeMessage>) {
         let mut system_text = None;
         let mut native_messages = Vec::new();
 
@@ -449,18 +502,42 @@ impl AnthropicProvider {
             }
         }
 
-        // Convert system text to SystemPrompt with cache control if large
-        let system_prompt = system_text.map(|text| {
-            if Self::should_cache_system(&text) {
-                SystemPrompt::Blocks(vec![SystemBlock {
+        // Convert system text to SystemPrompt with cache control if large.
+        // For setup-token auth, prepend Claude Code identity block (required
+        // by Anthropic to access premium models via OAuth setup tokens).
+        let system_prompt = if is_setup_token {
+            let mut blocks = vec![SystemBlock {
+                block_type: "text".to_string(),
+                text: Self::CLAUDE_CODE_IDENTITY.to_string(),
+                cache_control: None,
+            }];
+            if let Some(text) = system_text {
+                blocks.push(SystemBlock {
                     block_type: "text".to_string(),
                     text,
-                    cache_control: Some(CacheControl::ephemeral()),
-                }])
-            } else {
-                SystemPrompt::String(text)
+                    cache_control: if Self::should_cache_system(
+                        &blocks.iter().map(|b| b.text.as_str()).collect::<String>(),
+                    ) {
+                        Some(CacheControl::ephemeral())
+                    } else {
+                        None
+                    },
+                });
             }
-        });
+            Some(SystemPrompt::Blocks(blocks))
+        } else {
+            system_text.map(|text| {
+                if Self::should_cache_system(&text) {
+                    SystemPrompt::Blocks(vec![SystemBlock {
+                        block_type: "text".to_string(),
+                        text,
+                        cache_control: Some(CacheControl::ephemeral()),
+                    }])
+                } else {
+                    SystemPrompt::String(text)
+                }
+            })
+        };
 
         (system_prompt, native_messages)
     }
@@ -476,6 +553,7 @@ impl AnthropicProvider {
 
     fn parse_native_response(response: NativeChatResponse) -> ProviderChatResponse {
         let mut text_parts = Vec::new();
+        let mut reasoning_parts = Vec::new();
         let mut tool_calls = Vec::new();
 
         let usage = response.usage.map(|u| TokenUsage {
@@ -507,6 +585,12 @@ impl AnthropicProvider {
                         arguments: arguments.to_string(),
                     });
                 }
+                "thinking" => {
+                    if let Some(thinking_text) = block.text {
+                        tracing::debug!("Thinking block: {} chars", thinking_text.len());
+                        reasoning_parts.push(thinking_text);
+                    }
+                }
                 _ => {}
             }
         }
@@ -519,7 +603,11 @@ impl AnthropicProvider {
             },
             tool_calls,
             usage,
-            reasoning_content: None,
+            reasoning_content: if reasoning_parts.is_empty() {
+                None
+            } else {
+                Some(reasoning_parts.join("\n"))
+            },
         }
     }
 
@@ -543,10 +631,22 @@ impl Provider for AnthropicProvider {
             )
         })?;
 
+        let is_setup = Self::is_setup_token(credential);
+        let system = if is_setup {
+            // Prepend Claude Code identity for setup-token auth
+            let identity = Self::CLAUDE_CODE_IDENTITY;
+            Some(match system_prompt {
+                Some(sp) => format!("{identity}\n\n{sp}"),
+                None => identity.to_string(),
+            })
+        } else {
+            system_prompt.map(ToString::to_string)
+        };
+
         let request = ChatRequest {
             model: model.to_string(),
             max_tokens: 4096,
-            system: system_prompt.map(ToString::to_string),
+            system,
             messages: vec![Message {
                 role: "user".to_string(),
                 content: message.to_string(),
@@ -585,26 +685,60 @@ impl Provider for AnthropicProvider {
             )
         })?;
 
-        let (system_prompt, mut messages) = Self::convert_messages(request.messages);
+        let is_setup = Self::is_setup_token(credential);
+        let (system_prompt, mut messages) =
+            Self::convert_messages(request.messages, is_setup);
 
         // Auto-cache last message if conversation is long
         if Self::should_cache_conversation(request.messages) {
             Self::apply_cache_to_last_message(&mut messages);
         }
 
+        let thinking = self.thinking_mode.as_deref().and_then(|mode| match mode {
+            "adaptive" | "enabled" => {
+                let budget = self.thinking_budget.unwrap_or(10000);
+                Some(ThinkingConfig {
+                    thinking_type: mode.to_string(),
+                    budget_tokens: Some(budget),
+                })
+            }
+            "disabled" => None, // default behavior, no need to send
+            other => {
+                tracing::warn!("Unknown ANTHROPIC_THINKING_MODE '{}', ignoring", other);
+                None
+            }
+        });
+        let output_config = self.effort.as_deref().and_then(|e| match e {
+            "low" | "medium" | "high" | "max" => Some(OutputConfig { effort: e.to_string() }),
+            other => {
+                tracing::warn!("Unknown ANTHROPIC_EFFORT '{}', ignoring", other);
+                None
+            }
+        });
+
+        // Thinking requires temperature=1 and max_tokens > budget_tokens
+        let (temp, max_tok) = if let Some(ref t) = thinking {
+            let budget = t.budget_tokens.unwrap_or(10000);
+            (1.0, std::cmp::max(16384, budget + 1024))
+        } else {
+            (temperature, 4096)
+        };
+
         let converted_tools = Self::convert_tools(request.tools);
         let native_request = NativeChatRequest {
             model: model.to_string(),
-            max_tokens: 4096,
+            max_tokens: max_tok,
             system: system_prompt,
             messages,
-            temperature,
+            temperature: temp,
             tool_choice: if request.tool_choice == Some("required") && converted_tools.is_some() {
                 Some(serde_json::json!({"type": "any"}))
             } else {
                 None
             },
             tools: converted_tools,
+            thinking,
+            output_config,
         };
 
         let req = self
@@ -798,7 +932,21 @@ mod tests {
                 .headers()
                 .get("anthropic-beta")
                 .and_then(|v| v.to_str().ok()),
-            Some("oauth-2025-04-20")
+            Some("claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok()),
+            Some(&format!("claude-cli/{}", AnthropicProvider::CLAUDE_CODE_VERSION))
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-app")
+                .and_then(|v| v.to_str().ok()),
+            Some("cli")
         );
         assert!(request.headers().get("x-api-key").is_none());
     }

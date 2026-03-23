@@ -458,6 +458,22 @@ impl Agent {
         if other_messages.len() > max {
             let drop_count = other_messages.len() - max;
             other_messages.drain(0..drop_count);
+
+            // Ensure history starts with a user message after trim
+            // (orphaned tool_results or assistant messages cause API 400)
+            let skip = other_messages
+                .iter()
+                .take_while(|m| match m {
+                    ConversationMessage::Chat(chat) => chat.role != "user",
+                    _ => true,
+                })
+                .count();
+            if skip > 0 {
+                other_messages.drain(0..skip);
+                if other_messages.is_empty() {
+                    tracing::warn!("trim_history: all non-system messages drained as orphans");
+                }
+            }
         }
 
         self.history = system_messages;
@@ -599,7 +615,9 @@ impl Agent {
 
         let effective_model = self.classify_model(user_message);
 
-        for _ in 0..self.config.max_tool_iterations {
+        let turn_loop_start = std::time::Instant::now();
+        let mut turn_total_tool_calls: usize = 0;
+        for turn_iteration in 0..self.config.max_tool_iterations {
             let messages = self.tool_dispatcher.to_provider_messages(&self.history);
 
             // Response cache: check before LLM call (only for deterministic, text-only prompts)
@@ -671,6 +689,13 @@ impl Agent {
                     text
                 };
 
+                tracing::debug!(
+                    total_tool_calls = turn_total_tool_calls,
+                    iterations = turn_iteration + 1,
+                    total_ms = turn_loop_start.elapsed().as_millis(),
+                    "📊 agent turn complete"
+                );
+
                 // Store in response cache (text-only, no tool calls)
                 if let (Some(ref cache), Some(ref key)) = (&self.response_cache, &cache_key) {
                     let token_count = response
@@ -706,12 +731,37 @@ impl Agent {
                 reasoning_content: response.reasoning_content.clone(),
             });
 
+            turn_total_tool_calls += calls.len();
+            tracing::debug!(
+                iteration = turn_iteration + 1,
+                tool_count = calls.len(),
+                tools = ?calls.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+                elapsed_ms = turn_loop_start.elapsed().as_millis(),
+                "⚡ agent turn iteration"
+            );
+
             let results = self.execute_tools(&calls).await;
+
+            for (call, result) in calls.iter().zip(results.iter()) {
+                tracing::debug!(
+                    tool = %call.name,
+                    success = result.success,
+                    output_len = result.output.len(),
+                    "  ← tool result"
+                );
+            }
+
             let formatted = self.tool_dispatcher.format_results(&results);
             self.history.push(formatted);
             self.trim_history();
         }
 
+        tracing::debug!(
+            total_tool_calls = turn_total_tool_calls,
+            iterations = self.config.max_tool_iterations,
+            total_ms = turn_loop_start.elapsed().as_millis(),
+            "📊 agent turn exceeded max iterations"
+        );
         anyhow::bail!(
             "Agent exceeded maximum tool iterations ({})",
             self.config.max_tool_iterations
