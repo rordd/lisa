@@ -52,8 +52,6 @@ auto_save = true
 [skills]
 allow_scripts = true
 
-[security.url_access]
-enforce_domain_allowlist = false
 
 [agent]
 max_tool_iterations = 20
