@@ -81,7 +81,6 @@ pub trait SessionBackend: Send + Sync {
     fn delete_session(&self, _session_key: &str) -> std::io::Result<bool> {
         Ok(false)
     }
-
 }
 
 #[cfg(test)]
