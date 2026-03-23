@@ -33,7 +33,7 @@ impl Tool for ReadSkillTool {
     }
 
     fn description(&self) -> &str {
-        "Read the full instructions of a skill by name. Use this to load skill details on demand in compact mode."
+        "Read the full instructions of a skill by name. When a user request matches any available skill's description, you MUST call this tool to load the skill before responding. Do NOT answer from your own knowledge if a relevant skill exists. Use this to load skill details on demand in compact mode."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
