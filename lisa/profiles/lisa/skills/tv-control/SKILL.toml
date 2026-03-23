@@ -1,61 +1,44 @@
 [skill]
 name = "tv-control"
-description = "Control this webOS TV. Supported actions: launch/open apps, get foreground app, change channels, and control volume."
-version = "1.0.0"
+description = "Control this webOS TV: change channels, adjust volume, and manage apps."
+version = "3.0.0"
+always = true
+
+[[prompts]]
+content = """
+For every tv-control request, always call the appropriate tool first. Do not respond with text alone — execute the tool, then reply based on the result.
+Tool results are JSON. Check "returnValue": true means success, false means error (see "errorText").
+When launching apps, always translate Korean app names to English (e.g. 넷플릭스→netflix, 유튜브→youtube, 디즈니플러스→disney, 티빙→tving, 쿠팡플레이→coupang, 웨이브→wavve, 홈→home, 설정→settings, 라이브→livetv).
+When the user says 'TV 틀어', 'TV 켜', 'TV 실행', or similar requests to turn on/start TV, always launch 'livetv' (Live TV app).
+If the launch fails with 'no app found', retry with the English name or a shorter keyword before telling the user the app is not found.
+"""
 
 [[tools]]
-name = "tv_launch_app"
-description = "Launch an app on the TV by app ID."
+name = "channel_control"
+description = "Change the TV channel. Automatically launches live TV (com.webos.app.livetv) if it is not already in the foreground. Actions: 'up' (next channel), 'down' (previous channel), 'goto' (jump to a specific channel number)."
 kind = "shell"
-command = "luna-send -n 1 luna://com.webos.applicationManager/launch '{\"id\":\"{app_id}\"}'"
+command = "sh skills/tv-control/scripts/channel-control.sh {action} {channel_number}"
 
 [tools.args]
-app_id = "The ID of the app to launch (e.g., 'com.webos.app.livetv', 'youtube.leanback.v4')"
+action = "Channel action: 'up', 'down', or 'goto'"
+channel_number = "Target channel number (required only for 'goto', e.g. 9, 12, 190; leave empty for 'up'/'down')"
 
 [[tools]]
-name = "tv_get_foreground"
-description = "Get the app ID of the currently running foreground app."
+name = "volume_control"
+description = "Control the TV volume. Actions: 'up' (increase by 1 step), 'down' (decrease by 1 step), 'set' (set to a specific level 0-100)."
 kind = "shell"
-command = "luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}'"
-
-[[tools]]
-name = "tv_channel_up"
-description = "Switch to the next channel (only works when Live TV is in foreground)."
-kind = "shell"
-command = "luna-send -n 1 -f luna://com.lge.inputgenerator/pushKeyEvent '{\"eventtype\":\"key\",\"keycodenum\":402}'"
-
-[[tools]]
-name = "tv_channel_down"
-description = "Switch to the previous channel (only works when Live TV is in foreground)."
-kind = "shell"
-command = "luna-send -n 1 -f luna://com.lge.inputgenerator/pushKeyEvent '{\"eventtype\":\"key\",\"keycodenum\":403}'"
-
-[[tools]]
-name = "tv_go_to_channel"
-description = "Switch to a specific channel number (only works when Live TV is in foreground)."
-kind = "shell"
-command = "bash skills/tv-control/scripts/go-to-channel.sh {channel_number}"
+command = "sh skills/tv-control/scripts/volume-control.sh {action} {level}"
 
 [tools.args]
-channel_number = "Channel number to switch to (e.g., '9', '12', '190')"
+action = "Volume action: 'up', 'down', or 'set'"
+level = "Volume level (integer 0-100, required only for 'set'; leave empty for 'up'/'down')"
 
 [[tools]]
-name = "tv_volume_up"
-description = "Increase the TV volume by 1 step."
+name = "app_control"
+description = "Manage webOS apps. Actions: 'launch' (find and launch an app by keyword — automatically searches and resolves the best launch method), 'foreground' (get current foreground app info)."
 kind = "shell"
-command = "luna-send -n 1 luna://com.webos.service.audio/master/volumeUp '{}'"
-
-[[tools]]
-name = "tv_volume_down"
-description = "Decrease the TV volume by 1 step."
-kind = "shell"
-command = "luna-send -n 1 luna://com.webos.service.audio/master/volumeDown '{}'"
-
-[[tools]]
-name = "tv_set_volume"
-description = "Set the TV volume to a specific level (0-100)."
-kind = "shell"
-command = "luna-send -n 1 luna://com.webos.service.audio/master/setVolume '{\"volume\":{volume}}'"
+command = "sh skills/tv-control/scripts/app-control.sh {action} {target}"
 
 [tools.args]
-volume = "Volume level to set (0-100)"
+action = "App action: 'launch' or 'foreground'."
+target = "For 'launch': app keyword to find and launch (e.g. 'netflix', 'youtube', 'home'). Leave empty for 'foreground'."

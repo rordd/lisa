@@ -40,3 +40,11 @@ firmware/*/target
 lcov.info
 venv/
 web/dist/*
+
+# Wrangler cache
+.wrangler/
+
+# Lisa local artifacts
+lisa/bin/
+lisa/gogcli/
+lisa/profiles/lisa/USER.md

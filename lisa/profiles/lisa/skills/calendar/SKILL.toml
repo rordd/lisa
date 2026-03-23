@@ -2,6 +2,7 @@
 name = "calendar"
 description = "Google Calendar event management via gog CLI. Use for schedule queries, meeting creation, and event updates."
 version = "2.0.0"
+always = true
 
 [[tools]]
 name = "calendar_events"
@@ -25,3 +26,13 @@ calendar_id = "Calendar ID (default: primary)"
 summary = "Event title/summary"
 from = "Start datetime in ISO 8601 format"
 to = "End datetime in ISO 8601 format"
+
+[[tools]]
+name = "calendar_delete"
+description = "Delete a Google Calendar event. Always confirm with the user before deleting. Use calendar_events first to find the event ID."
+kind = "shell"
+command = "gog calendar delete {calendar_id} {event_id} --force"
+
+[tools.args]
+calendar_id = "Calendar ID (default: primary)"
+event_id = "Event ID to delete (obtained from calendar_events output)"

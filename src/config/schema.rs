@@ -1190,6 +1190,11 @@ pub struct SkillsConfig {
     /// ClawhHub personal access token for authenticated skill downloads.
     #[serde(default)]
     pub clawhub_token: Option<String>,
+    /// Global `tool_choice_required` setting for all skill tools.
+    /// When `true`, the LLM is forced to call a tool on the first turn.
+    /// When `false` or unset (`None`), default behavior (no forced tool use).
+    #[serde(default)]
+    pub tool_choice_required: Option<bool>,
 }
 
 /// WASM tool runtime configuration (`[wasm]` section).
@@ -7578,6 +7583,19 @@ impl Config {
                     tracing::warn!(
                         "Ignoring invalid ZEROCLAW_SKILLS_PROMPT_MODE (valid: full|compact)"
                     );
+                }
+            }
+        }
+
+        // Skills tool_choice_required override: ZEROCLAW_TOOL_CHOICE_REQUIRED
+        if let Ok(flag) = std::env::var("ZEROCLAW_TOOL_CHOICE_REQUIRED") {
+            if !flag.trim().is_empty() {
+                match flag.trim().to_ascii_lowercase().as_str() {
+                    "1" | "true" | "yes" | "on" => self.skills.tool_choice_required = Some(true),
+                    "0" | "false" | "no" | "off" => self.skills.tool_choice_required = Some(false),
+                    _ => tracing::warn!(
+                        "Ignoring invalid ZEROCLAW_TOOL_CHOICE_REQUIRED (valid: 1|0|true|false|yes|no|on|off)"
+                    ),
                 }
             }
         }

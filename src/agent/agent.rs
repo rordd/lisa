@@ -670,6 +670,7 @@ impl Agent {
                         } else {
                             None
                         },
+                        tool_choice: None,
                     },
                     &effective_model,
                     self.temperature,

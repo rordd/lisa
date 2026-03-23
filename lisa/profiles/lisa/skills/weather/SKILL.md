@@ -62,6 +62,7 @@ curl -s "wttr.in/Seoul+Gangseo-gu?format=%c+%t+(feels+like+%f),+wind+%w,+humidit
 ```
 
 ## Rules
+
 - Always try Open-Meteo first
 - If Open-Meteo returns error or empty, fall back to wttr.in
 - Include: temperature, feels like, wind, humidity, precipitation chance

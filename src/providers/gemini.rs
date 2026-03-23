@@ -95,6 +95,8 @@ struct GenerateContentRequest {
     generation_config: GenerationConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
+    #[serde(rename = "toolConfig", skip_serializing_if = "Option::is_none")]
+    tool_config: Option<serde_json::Value>,
 }
 
 /// Request envelope for the internal cloudcode-pa API.
@@ -1043,7 +1045,7 @@ impl GeminiProvider {
         temperature: f64,
     ) -> anyhow::Result<(String, Option<TokenUsage>)> {
         let (text, _tool_calls, usage) = self
-            .send_generate_content_inner(contents, system_instruction, None, model, temperature)
+            .send_generate_content_inner(contents, system_instruction, None, None, model, temperature)
             .await?;
         Ok((
             text.unwrap_or_default(),
@@ -1056,6 +1058,7 @@ impl GeminiProvider {
         contents: Vec<Content>,
         system_instruction: Option<Content>,
         tools: Option<Vec<serde_json::Value>>,
+        tool_config: Option<serde_json::Value>,
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<(
@@ -1113,6 +1116,7 @@ impl GeminiProvider {
                 max_output_tokens: 8192,
             },
             tools,
+            tool_config,
         };
 
         let url = Self::build_generate_content_url(model, auth);
@@ -1508,11 +1512,18 @@ impl Provider for GeminiProvider {
             }
         });
 
+        let gemini_tool_config = if request.tool_choice == Some("required") && gemini_tools.is_some() {
+            Some(serde_json::json!({"functionCallingConfig": {"mode": "ANY"}}))
+        } else {
+            None
+        };
+
         let (text, tool_calls, usage) = self
             .send_generate_content_inner(
                 contents,
                 system_instruction,
                 gemini_tools,
+                gemini_tool_config,
                 model,
                 temperature,
             )
@@ -1805,6 +1816,7 @@ mod tests {
                 max_output_tokens: 8192,
             },
             tools: None,
+            tool_config: None,
         };
 
         let request = provider
@@ -1847,6 +1859,7 @@ mod tests {
                 max_output_tokens: 8192,
             },
             tools: None,
+            tool_config: None,
         };
 
         let request = provider
@@ -1892,6 +1905,7 @@ mod tests {
                 max_output_tokens: 8192,
             },
             tools: None,
+            tool_config: None,
         };
 
         let request = provider
@@ -1930,6 +1944,7 @@ mod tests {
                 max_output_tokens: 8192,
             },
             tools: None,
+            tool_config: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();

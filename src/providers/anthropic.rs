@@ -56,6 +56,8 @@ struct NativeChatRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<NativeToolSpec<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<ThinkingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     output_config: Option<OutputConfig>,
@@ -722,13 +724,19 @@ impl Provider for AnthropicProvider {
             (temperature, 4096)
         };
 
+        let converted_tools = Self::convert_tools(request.tools);
         let native_request = NativeChatRequest {
             model: model.to_string(),
             max_tokens: max_tok,
             system: system_prompt,
             messages,
             temperature: temp,
-            tools: Self::convert_tools(request.tools),
+            tool_choice: if request.tool_choice == Some("required") && converted_tools.is_some() {
+                Some(serde_json::json!({"type": "any"}))
+            } else {
+                None
+            },
+            tools: converted_tools,
             thinking,
             output_config,
         };
@@ -804,6 +812,7 @@ impl Provider for AnthropicProvider {
             } else {
                 Some(&tool_specs)
             },
+            tool_choice: None,
         };
         self.chat(request, model, temperature).await
     }
@@ -1417,6 +1426,7 @@ mod tests {
             }],
             temperature: 0.7,
             tools: None,
+            tool_choice: None,
         };
 
         let json = serde_json::to_string(&req).unwrap();
