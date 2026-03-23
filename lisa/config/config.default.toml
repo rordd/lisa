@@ -28,9 +28,9 @@ require_pairing = false
 [autonomy]
 level = "full"
 workspace_only = false
-allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date", "gog", "memo", "remindctl", "jq", "python3", "bash", "curl", "luna-send"]
+allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date", "gog", "memo", "remindctl", "jq", "python3", "bash", "sh", "cd", "curl", "luna-send"]
 auto_approve = ["file_read", "memory_recall", "web_fetch", "web_search", "web_search_tool", "skills", "shell"]
-shell_env_passthrough = ["GOG_ACCOUNT", "GOG_KEYRING_PASSWORD", "GOG_KEYRING_BACKEND", "NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET", "KAKAO_REST_API_KEY", "GOOGLE_MAPS_API_KEY"]
+shell_env_passthrough = ["GOG_ACCOUNT", "GOG_KEYRING_PASSWORD", "GOG_KEYRING_BACKEND", "KAKAO_REST_API_KEY", "GOOGLE_MAPS_API_KEY", "NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET"]
 forbidden_paths = []
 max_actions_per_hour = 100
 max_cost_per_day_cents = 1000
@@ -54,6 +54,10 @@ allow_scripts = true
 
 [security.url_access]
 enforce_domain_allowlist = false
+
+[agent]
+max_tool_iterations = 20
+parallel_tools = true
 
 [security.sandbox]
 backend = "none"
