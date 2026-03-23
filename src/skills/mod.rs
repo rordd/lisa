@@ -1015,7 +1015,12 @@ pub fn create_skill_tools_with_override(
 
     for skill in skills {
         for tool_def in &skill.tools {
-            match SkillToolHandler::new(skill.name.clone(), tool_def.clone(), security.clone(), force) {
+            match SkillToolHandler::new(
+                skill.name.clone(),
+                tool_def.clone(),
+                security.clone(),
+                force,
+            ) {
                 Ok(handler) => {
                     tracing::debug!(
                         skill = %skill.name,
@@ -3051,9 +3056,8 @@ description = "Bare minimum"
         let prompt = skills_to_prompt(&skills, Path::new("/tmp"));
         assert!(prompt.contains("<name>xml&lt;skill&gt;</name>"));
         assert!(prompt.contains("<description>A &amp; B</description>"));
-        assert!(prompt.contains(
-            "<instruction><![CDATA[Use <tool> & check \"quotes\".]]></instruction>"
-        ));
+        assert!(prompt
+            .contains("<instruction><![CDATA[Use <tool> & check \"quotes\".]]></instruction>"));
     }
 
     #[test]
@@ -3285,7 +3289,10 @@ content = "Be polite"
 
         let skills = load_skills(&workspace_dir);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].prompts, vec!["Always greet the user", "Be polite"]);
+        assert_eq!(
+            skills[0].prompts,
+            vec!["Always greet the user", "Be polite"]
+        );
     }
 
     // ── is_registry_source ────────────────────────────────────────────────────
