@@ -385,12 +385,7 @@ async fn auto_compact_history(
     );
 
     let summary_raw = provider
-        .chat_with_system(
-            Some(summarizer_system),
-            &summarizer_user,
-            model,
-            temperature,
-        )
+        .chat_with_system(Some(summarizer_system), &summarizer_user, model, temperature)
         .await
         .unwrap_or_else(|_| {
             // Fallback to deterministic local truncation when summarization fails.
@@ -3235,11 +3230,7 @@ pub async fn run(
     {
         let skills_for_tools =
             crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skill_tools = crate::skills::create_skill_tools_with_override(
-            &skills_for_tools,
-            security.clone(),
-            config.skills.tool_choice_required,
-        );
+        let skill_tools = crate::skills::create_skill_tools_with_override(&skills_for_tools, security.clone(), config.skills.tool_choice_required);
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);
@@ -3890,11 +3881,7 @@ pub async fn process_message(
     {
         let skills_for_tools =
             crate::skills::load_skills_with_config(&config.workspace_dir, &config);
-        let skill_tools = crate::skills::create_skill_tools_with_override(
-            &skills_for_tools,
-            security.clone(),
-            config.skills.tool_choice_required,
-        );
+        let skill_tools = crate::skills::create_skill_tools_with_override(&skills_for_tools, security.clone(), config.skills.tool_choice_required);
         if !skill_tools.is_empty() {
             tracing::info!(count = skill_tools.len(), "Skill tools registered");
             tools_registry.extend(skill_tools);

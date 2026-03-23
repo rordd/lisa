@@ -1045,16 +1045,12 @@ impl GeminiProvider {
         temperature: f64,
     ) -> anyhow::Result<(String, Option<TokenUsage>)> {
         let (text, _tool_calls, usage) = self
-            .send_generate_content_inner(
-                contents,
-                system_instruction,
-                None,
-                None,
-                model,
-                temperature,
-            )
+            .send_generate_content_inner(contents, system_instruction, None, None, model, temperature)
             .await?;
-        Ok((text.unwrap_or_default(), usage))
+        Ok((
+            text.unwrap_or_default(),
+            usage,
+        ))
     }
 
     async fn send_generate_content_inner(
@@ -1065,7 +1061,11 @@ impl GeminiProvider {
         tool_config: Option<serde_json::Value>,
         model: &str,
         temperature: f64,
-    ) -> anyhow::Result<(Option<String>, Vec<ToolCall>, Option<TokenUsage>)> {
+    ) -> anyhow::Result<(
+        Option<String>,
+        Vec<ToolCall>,
+        Option<TokenUsage>,
+    )> {
         let auth = self.auth.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
                 "Gemini API key not found. Options:\n\
@@ -1261,7 +1261,9 @@ impl GeminiProvider {
             cached_input_tokens: None,
         });
 
-        let candidate = result.candidates.and_then(|c| c.into_iter().next());
+        let candidate = result
+            .candidates
+            .and_then(|c| c.into_iter().next());
 
         // Extract function calls and text from response parts
         let mut tool_calls = Vec::new();
@@ -1423,9 +1425,7 @@ impl Provider for GeminiProvider {
                             .iter()
                             .map(|tc| {
                                 let args: serde_json::Value = serde_json::from_str(&tc.arguments)
-                                    .unwrap_or(serde_json::Value::Object(
-                                        serde_json::Map::default(),
-                                    ));
+                                    .unwrap_or(serde_json::Value::Object(serde_json::Map::default()));
                                 Part::FunctionCall {
                                     function_call: FunctionCallData {
                                         name: tc.name.clone(),
@@ -1512,12 +1512,11 @@ impl Provider for GeminiProvider {
             }
         });
 
-        let gemini_tool_config =
-            if request.tool_choice == Some("required") && gemini_tools.is_some() {
-                Some(serde_json::json!({"functionCallingConfig": {"mode": "ANY"}}))
-            } else {
-                None
-            };
+        let gemini_tool_config = if request.tool_choice == Some("required") && gemini_tools.is_some() {
+            Some(serde_json::json!({"functionCallingConfig": {"mode": "ANY"}}))
+        } else {
+            None
+        };
 
         let (text, tool_calls, usage) = self
             .send_generate_content_inner(

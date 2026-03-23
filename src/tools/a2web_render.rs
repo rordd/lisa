@@ -191,13 +191,8 @@ mod tests {
 
     /// Extract JSON from `<a2web-result>...</a2web-result>` in tool output.
     fn parse_output(output: &str) -> serde_json::Value {
-        let start = output
-            .find("<a2web-result>")
-            .expect("missing a2web-result tag")
-            + "<a2web-result>".len();
-        let end = output[start..]
-            .find("</a2web-result>")
-            .expect("missing closing tag");
+        let start = output.find("<a2web-result>").expect("missing a2web-result tag") + "<a2web-result>".len();
+        let end = output[start..].find("</a2web-result>").expect("missing closing tag");
         serde_json::from_str(&output[start..start + end]).expect("invalid JSON in a2web-result")
     }
 

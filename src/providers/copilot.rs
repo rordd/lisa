@@ -330,9 +330,7 @@ impl CopilotProvider {
             model: model.to_string(),
             messages,
             temperature,
-            tool_choice: native_tools
-                .as_ref()
-                .map(|_| tool_choice.unwrap_or("auto").to_string()),
+            tool_choice: native_tools.as_ref().map(|_| tool_choice.unwrap_or("auto").to_string()),
             tools: native_tools,
         };
 
@@ -638,13 +636,7 @@ impl Provider for CopilotProvider {
         temperature: f64,
     ) -> anyhow::Result<String> {
         let response = self
-            .send_chat_request(
-                Self::convert_messages(messages),
-                None,
-                model,
-                temperature,
-                None,
-            )
+            .send_chat_request(Self::convert_messages(messages), None, model, temperature, None)
             .await?;
         Ok(response.text.unwrap_or_default())
     }

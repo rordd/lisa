@@ -500,8 +500,7 @@ mod tests {
         };
 
         let security = Arc::new(SecurityPolicy::default());
-        let handler =
-            SkillToolHandler::new("test-skill".to_string(), tool_def, security, false).unwrap();
+        let handler = SkillToolHandler::new("test-skill".to_string(), tool_def, security, false).unwrap();
         let schema = handler.generate_schema();
 
         assert_eq!(schema["type"], "object");

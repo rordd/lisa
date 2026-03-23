@@ -16,6 +16,8 @@ pub mod sse;
 pub mod static_files;
 pub mod ws;
 
+use axum::middleware::Next;
+use axum::response::Response;
 use crate::channels::{
     session_backend::SessionBackend, session_sqlite::SqliteSessionBackend, Channel, LinqChannel,
     NextcloudTalkChannel, SendMessage, WatiChannel, WhatsAppChannel,
@@ -31,8 +33,6 @@ use crate::tools;
 use crate::tools::traits::ToolSpec;
 use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
-use axum::middleware::Next;
-use axum::response::Response;
 use axum::{
     body::Bytes,
     extract::{ConnectInfo, Query, State},
@@ -92,7 +92,7 @@ async fn security_headers_middleware(req: axum::extract::Request, next: Next) ->
                  style-src 'self' 'unsafe-inline' https:; \
                  font-src 'self' https: data:; \
                  connect-src 'self' https:; \
-                 frame-ancestors *",
+                 frame-ancestors *"
             ),
         );
     } else {
@@ -2023,8 +2023,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2079,8 +2078,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2459,8 +2457,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2529,8 +2526,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let headers = HeaderMap::new();
@@ -2611,8 +2607,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let response = handle_webhook(
@@ -2665,8 +2660,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2724,8 +2718,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2788,8 +2781,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let response = Box::pin(handle_nextcloud_talk_webhook(
@@ -2848,8 +2840,7 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             session_backend: None,
             device_registry: None,
-            pending_pairings: None,
-            a2web_dir: None,
+            pending_pairings: None, a2web_dir: None,
         };
 
         let mut headers = HeaderMap::new();

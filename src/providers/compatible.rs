@@ -1625,9 +1625,7 @@ impl Provider for OpenAiCompatibleProvider {
             temperature,
             stream: Some(false),
             reasoning_effort: self.effective_reasoning_effort(model),
-            tool_choice: tools
-                .as_ref()
-                .map(|_| request.tool_choice.unwrap_or("auto").to_string()),
+            tool_choice: tools.as_ref().map(|_| request.tool_choice.unwrap_or("auto").to_string()),
             tools,
         };
 

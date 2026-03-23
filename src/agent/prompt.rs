@@ -387,8 +387,7 @@ mod tests {
         let output = SkillsSection.build(&ctx).unwrap();
         assert!(output.contains("<available_skills>"));
         assert!(output.contains("<name>deploy</name>"));
-        assert!(output
-            .contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
+        assert!(output.contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
         assert!(output.contains("<name>release_checklist</name>"));
         assert!(output.contains("<kind>shell</kind>"));
     }
@@ -429,8 +428,7 @@ mod tests {
         assert!(output.contains("<available_skills>"));
         assert!(output.contains("<name>deploy</name>"));
         assert!(output.contains("<location>skills/deploy/SKILL.md</location>"));
-        assert!(!output
-            .contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
+        assert!(!output.contains("<instruction><![CDATA[Run smoke tests before deploy.]]></instruction>"));
         assert!(!output.contains("<tools>"));
     }
 
