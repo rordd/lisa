@@ -16,10 +16,12 @@ pub struct ReadSkillTool {
 }
 
 impl ReadSkillTool {
-    /// Build from loaded skills list. Only skills with a known `location` are readable.
+    /// Build from loaded skills list. Only SKILL.md skills (no native tools) are readable.
+    /// TOML skills already have their tools registered directly and don't need read_skill.
     pub fn from_skills(skills: &[Skill]) -> Self {
         let skill_locations = skills
             .iter()
+            .filter(|s| s.tools.is_empty())
             .filter_map(|s| s.location.as_ref().map(|loc| (s.name.clone(), loc.clone())))
             .collect();
         Self { skill_locations }
