@@ -296,6 +296,19 @@ fn trim_history(history: &mut Vec<ChatMessage>, max_history: usize) {
     let start = if has_system { 1 } else { 0 };
     let to_remove = non_system_count - max_history;
     history.drain(start..start + to_remove);
+
+    // Ensure history starts with a user message after trim
+    let first_non_system = if has_system { 1 } else { 0 };
+    let skip = history[first_non_system..]
+        .iter()
+        .take_while(|m| m.role != "user")
+        .count();
+    if skip > 0 {
+        history.drain(first_non_system..first_non_system + skip);
+        if history.len() <= first_non_system {
+            tracing::warn!("trim_history: all non-system messages drained as orphans");
+        }
+    }
 }
 
 fn build_compaction_transcript(messages: &[ChatMessage]) -> String {
@@ -2374,6 +2387,8 @@ pub(crate) async fn run_tool_call_loop(
     let turn_id = Uuid::new_v4().to_string();
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
 
+    let loop_start = std::time::Instant::now();
+    let mut total_tool_calls: usize = 0;
     for iteration in 0..max_iterations {
         if cancellation_token
             .as_ref()
@@ -2683,6 +2698,12 @@ pub(crate) async fn run_tool_call_loop(
                 }
             }
             history.push(ChatMessage::assistant(response_text.clone()));
+            tracing::debug!(
+                total_tool_calls,
+                iterations = iteration + 1,
+                total_ms = loop_start.elapsed().as_millis(),
+                "📊 agent loop complete"
+            );
             return Ok(display_text);
         }
 
@@ -2934,6 +2955,16 @@ pub(crate) async fn run_tool_call_loop(
             });
         }
 
+        total_tool_calls += executable_calls.len();
+        let parallel = allow_parallel_execution && executable_calls.len() > 1;
+        tracing::debug!(
+            iteration = iteration + 1,
+            tool_count = executable_calls.len(),
+            parallel,
+            tools = ?executable_calls.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            elapsed_ms = loop_start.elapsed().as_millis(),
+            "⚡ iteration tool calls"
+        );
         for call in &executable_calls {
             tracing::info!(tool = %call.name, args = %scrub_credentials(&call.arguments.to_string()), ">>> Tool call executing");
         }
@@ -3074,6 +3105,12 @@ pub(crate) async fn run_tool_call_loop(
         serde_json::json!({
             "max_iterations": max_iterations,
         }),
+    );
+    tracing::debug!(
+        total_tool_calls,
+        iterations = max_iterations,
+        total_ms = loop_start.elapsed().as_millis(),
+        "📊 agent loop exceeded max iterations"
     );
     anyhow::bail!("Agent exceeded maximum tool iterations ({max_iterations})")
 }

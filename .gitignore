@@ -1,51 +1,45 @@
-/target
-/target-*/
-firmware/*/target
-web/dist/*
+
 !web/dist/.gitkeep
+# Coverage artifacts
+# ESP32 build cache (esp-idf-sys managed)
+# Environment files (may contain secrets)
+# IDE's stuff
+# Local state backups
+# Python virtual environments
+# Secret keys and credentials
+# Skill eval workspaces (test outputs, transcripts, grading)
+# Wrangler cache
+**/node_modules/
 *.db
 *.db-journal
+*.key
+*.local-state-backup/
+*.pem
+*.pyc
 .DS_Store
 ._*
-.wt-pr37/
-__pycache__/
-*.pyc
-docker-compose.override.yml
-
-# Environment files (may contain secrets)
-.env
-
-# Python virtual environments
-
-.venv/
-venv/
-
-# ESP32 build cache (esp-idf-sys managed)
-
-.embuild/
-.env.local
-.env.*.local
-
-# Secret keys and credentials
-.secret_key
-*.key
-*.pem
-credentials.json
-.worktrees/
-.zeroclaw/*
-
-# Skill eval workspaces (test outputs, transcripts, grading)
 .claude/skills/*-workspace/
-
-# Local state backups
-.local-state-backups/
-*.local-state-backup/
-
-# Coverage artifacts
-lcov.info
-
-# IDE's stuff
+.embuild/
+.env
+.env.*.local
+.env.local
 .idea
+.local-state-backups/
+.secret_key
+.venv/
+.worktrees/
+.wrangler/**/node_modules/
+.wt-pr37/
+.zeroclaw/*
+/target
+/target-*/
+__pycache__/
+credentials.json
+docker-compose.override.yml
+firmware/*/target
+lcov.info
+venv/
+web/dist/*
 
 # Wrangler cache
 .wrangler/

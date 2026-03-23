@@ -80,11 +80,20 @@ async fn security_headers_middleware(req: axum::extract::Request, next: Next) ->
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    // Allow iframe embedding for a2web pages so clients can render them inline
+    // Allow iframe embedding for a2web pages so clients can render them inline.
+    // Permit external scripts (CDN chart libs), images, styles, and fonts.
     if is_a2web {
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("default-src 'self' 'unsafe-inline'"),
+            HeaderValue::from_static(
+                "default-src 'self' 'unsafe-inline' 'unsafe-eval'; \
+                 script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; \
+                 img-src 'self' https: data:; \
+                 style-src 'self' 'unsafe-inline' https:; \
+                 font-src 'self' https: data:; \
+                 connect-src 'self' https:; \
+                 frame-ancestors *"
+            ),
         );
     } else {
         headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));

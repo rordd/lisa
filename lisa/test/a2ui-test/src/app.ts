@@ -13,7 +13,82 @@ let ws: WebSocket | null = null;
 let requestStartTime: number | null = null;
 let thinkingTimer: number | null = null;
 let thinkingEl: HTMLElement | null = null;
+
+// ── Session Management ──
+const SESSIONS_KEY = 'lisa-sessions';
+
+function getSessions(): string[] {
+  const raw = localStorage.getItem(SESSIONS_KEY);
+  return raw ? JSON.parse(raw) : ['lisa-test'];
+}
+
+function saveSessions(sessions: string[]) {
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+}
+
+function renderSessionList() {
+  const sel = document.getElementById('session-select') as HTMLSelectElement;
+  const sessions = getSessions();
+  const cur = sel.value || sessions[0];
+  sel.innerHTML = sessions.map(s =>
+    `<option value="${s}"${s === cur ? ' selected' : ''}>${s}</option>`
+  ).join('');
+}
+
+function getSessionId(): string {
+  const sel = document.getElementById('session-select') as HTMLSelectElement;
+  return sel?.value || 'lisa-test';
+}
+
+(window as any).newSession = function () {
+  const name = prompt('세션 이름:');
+  if (!name || !name.trim()) return;
+  const sessions = getSessions();
+  if (!sessions.includes(name.trim())) {
+    sessions.push(name.trim());
+    saveSessions(sessions);
+  }
+  renderSessionList();
+  (document.getElementById('session-select') as HTMLSelectElement).value = name.trim();
+};
+
+(window as any).deleteSession = function () {
+  const id = getSessionId();
+  if (id === 'lisa-test') { alert('기본 세션은 삭제할 수 없습니다'); return; }
+  if (!confirm(`"${id}" 세션을 삭제하시겠습니까?`)) return;
+  const sessions = getSessions().filter(s => s !== id);
+  saveSessions(sessions);
+  renderSessionList();
+};
+
+(window as any).toggleMenu = function () {
+  const menu = document.getElementById('session-menu')!;
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+};
+
+(window as any).switchSession = function () {
+  document.getElementById('session-menu')!.style.display = 'none';
+  const label = document.getElementById('current-session-label');
+  if (label) label.textContent = getSessionId();
+  // Reconnect with new session
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close();
+  }
+  setTimeout(() => (window as any).toggleConnection(), 300);
+};
+
+// Close menu on outside click
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('session-menu');
+  const btn = document.getElementById('menu-btn');
+  if (menu && btn && !menu.contains(e.target as Node) && !btn.contains(e.target as Node)) {
+    menu.style.display = 'none';
+  }
+});
 let currentA2UIMessages: unknown[] = [];
+
+
+
 
 // ── DOM helpers ──
 const $ = (id: string) => document.getElementById(id)!;
@@ -91,22 +166,56 @@ function renderA2UISurface(elapsedSec: number | null) {
     const el = document.createElement('a2ui-surface-v09') as any;
     el.surface = surface;
     el.addEventListener('a2ui-action', (e: CustomEvent) => {
-      handleA2UIAction(e.detail, surface.surfaceId);
+      handleA2UIAction(e.detail, surface);
     });
     container.appendChild(el);
   }
 
-  // Raw JSON inspector
+  // Raw JSON inspector with copy button
+  const surfaceId = surface?.surfaceId;
+  if (surfaceId) {
+    container.dataset.surfaceId = surfaceId;
+  }
   if (currentA2UIMessages.length > 0) {
+    const inspectorWrap = document.createElement('div');
+    inspectorWrap.className = 'inspector-wrap';
+    const jsonText = JSON.stringify(currentA2UIMessages, null, 2);
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.textContent = '📋 Copy';
+    copyBtn.addEventListener('click', () => {
+      const doCopy = () => {
+        if (navigator.clipboard?.writeText) {
+          return navigator.clipboard.writeText(jsonText);
+        }
+        const ta = document.createElement('textarea');
+        ta.value = jsonText;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok ? Promise.resolve() : Promise.reject();
+      };
+      doCopy().then(() => {
+        copyBtn.textContent = '✅ Copied!';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500);
+      }).catch(() => {
+        copyBtn.textContent = '❌ Failed';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500);
+      });
+    });
+    inspectorWrap.appendChild(copyBtn);
     const details = document.createElement('details');
     details.className = 'inspector';
     const summary = document.createElement('summary');
     summary.textContent = `Raw A2UI JSON (${currentA2UIMessages.length} messages)`;
     const pre = document.createElement('pre');
-    pre.textContent = JSON.stringify(currentA2UIMessages, null, 2);
+    pre.textContent = jsonText;
     details.appendChild(summary);
     details.appendChild(pre);
-    container.appendChild(details);
+    inspectorWrap.appendChild(details);
+    container.appendChild(inspectorWrap);
   }
 
   // Elapsed badge
@@ -171,19 +280,21 @@ function renderA2WebFrame(data: { url?: string; title?: string; id?: string }) {
   requestStartTime = null;
 }
 
-function handleA2UIAction(detail: any, surfaceId: string) {
+function handleA2UIAction(detail: any, surface: any) {
   console.log('A2UI action:', detail);
   if (ws && ws.readyState === WebSocket.OPEN) {
     currentA2UIMessages = [];  // reset for next response
-    ws.send(JSON.stringify({
-      type: 'a2ui_action',
-      payload: {
-        surfaceId,
-        name: detail?.name || 'unknown',
-        sourceComponentId: detail?.sourceComponentId || 'unknown',
-        context: detail?.context || {},
-      },
-    }));
+    const payload: any = {
+      surfaceId: surface.surfaceId,
+      name: detail?.name || 'unknown',
+      sourceComponentId: detail?.sourceComponentId || 'unknown',
+      context: detail?.context || {},
+    };
+    // v0.9 standard: include dataModel when sendDataModel is enabled
+    if (surface.sendDataModel && surface.dataModel) {
+      payload.dataModel = surface.dataModel;
+    }
+    ws.send(JSON.stringify({ type: 'a2ui_action', payload }));
     showThinking();
   }
 }
@@ -201,6 +312,15 @@ function handleWSMessage(data: any) {
     case 'a2ui':
       if (data.messages) {
         console.log('[A2UI] received', data.messages.length, 'messages');
+        // Handle deleteSurface — remove matching card from DOM
+        for (const msg of data.messages as any[]) {
+          if (msg.deleteSurface?.surfaceId) {
+            const sid = msg.deleteSurface.surfaceId;
+            const el = document.querySelector(`[data-surface-id="${sid}"]`);
+            if (el) el.remove();
+            console.log('[A2UI] deleteSurface:', sid);
+          }
+        }
         currentA2UIMessages = data.messages;
       }
       break;
@@ -245,8 +365,14 @@ function handleWSMessage(data: any) {
     ws.close();
     return;
   }
-  const url = ($('ws-url') as HTMLInputElement).value.trim();
+  let url = ($('ws-url') as HTMLInputElement).value.trim();
   if (!url) return;
+
+  // Append session_id for persistent sessions
+  const sep = url.includes('?') ? '&' : '?';
+  if (!url.includes('session_id=')) {
+    url += `${sep}session_id=${encodeURIComponent(getSessionId())}`;
+  }
 
   addMessage('system', `Connecting to ${url}...`);
   ws = new WebSocket(url);
@@ -274,6 +400,7 @@ function handleWSMessage(data: any) {
 
 // ── Init ──
 window.addEventListener('load', () => {
+  renderSessionList();
   ($('chat-input') as HTMLInputElement).focus();
   const wsInput = $('ws-url') as HTMLInputElement;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
