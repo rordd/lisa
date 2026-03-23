@@ -428,13 +428,12 @@ async fn handle_browser_session(
     info!("Browser voice client disconnected");
 }
 
-/// Direct WebSocket relay between browser and OpenAI Realtime API.
-///
-/// This is the simpler relay approach (like the PoC). For full VoiceSession
-/// integration with Memory persistence, see the TODO above.
 /// Minimum character count for a voice transcript turn pair to be persisted to memory.
 /// Matches the chat pipeline's threshold to filter noise (short utterances like "음", "어").
 const VOICE_AUTOSAVE_MIN_CHARS: usize = 10;
+
+/// Timeout for WebSocket close handshake to prevent hanging on shutdown.
+const WS_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Whitelist of event types allowed from the browser to the OpenAI Realtime API.
 /// All other events (especially `session.update`, `conversation.item.create`) are blocked
@@ -458,6 +457,393 @@ fn is_browser_event_allowed(text: &str) -> bool {
     }
 }
 
+/// Build the `session.update` JSON payload for the Realtime API.
+///
+/// Includes modalities, voice settings, VAD config, and optionally registers
+/// tools for function calling when an Agent is available.
+fn build_session_config(
+    realtime_config: &crate::providers::realtime_types::RealtimeConfig,
+    tools: &[serde_json::Value],
+    has_agent: bool,
+) -> serde_json::Value {
+    let mut session_config = json!({
+        "modalities": ["text", "audio"],
+        "voice": realtime_config.voice,
+        "instructions": realtime_config.system_prompt,
+        "input_audio_format": realtime_config.audio_format,
+        "output_audio_format": realtime_config.audio_format,
+        "input_audio_transcription": {
+            "model": realtime_config.transcription_model,
+            "language": realtime_config.language
+        },
+        "turn_detection": {
+            "type": realtime_config.vad_type,
+            "threshold": realtime_config.vad_threshold,
+            "prefix_padding_ms": realtime_config.vad_prefix_padding_ms,
+            "silence_duration_ms": realtime_config.silence_duration_ms
+        }
+    });
+
+    if !tools.is_empty() && has_agent {
+        session_config["tools"] = json!(tools);
+        info!(
+            "Voice mode: {} tool(s) registered for function calling",
+            tools.len()
+        );
+    }
+
+    json!({
+        "type": "session.update",
+        "session": session_config
+    })
+}
+
+/// Inject Agent's chat history into the Realtime API session for context continuity.
+///
+/// Clones filtered messages and releases the Agent lock before async channel sends
+/// to avoid holding the mutex across await points.
+async fn inject_agent_history(
+    agent_mutex: &Arc<tokio::sync::Mutex<crate::agent::Agent>>,
+    max_history_items: usize,
+    to_openai_tx: &tokio::sync::mpsc::Sender<String>,
+) {
+    let recent_chats: Vec<crate::providers::ChatMessage> = {
+        let agent = agent_mutex.lock().await;
+        let history = agent.history();
+        history
+            .iter()
+            .filter_map(|msg| {
+                if let crate::providers::ConversationMessage::Chat(chat) = msg {
+                    if chat.role == "user" || chat.role == "assistant" {
+                        return Some(chat.clone());
+                    }
+                }
+                None
+            })
+            .rev()
+            .take(max_history_items)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    }; // Agent lock released here
+
+    let mut injected = 0;
+    for chat in &recent_chats {
+        let content_type = if chat.role == "user" {
+            "input_text"
+        } else {
+            "text"
+        };
+        let item = json!({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": chat.role,
+                "content": [{ "type": content_type, "text": chat.content }]
+            }
+        });
+        if to_openai_tx.send(item.to_string()).await.is_err() {
+            break;
+        }
+        injected += 1;
+    }
+    if injected > 0 {
+        info!(
+            "Injected {} Agent history items into voice session",
+            injected
+        );
+    }
+}
+
+/// Relay messages from browser WebSocket to OpenAI Realtime API.
+///
+/// Only whitelisted event types are forwarded; binary audio data is
+/// base64-encoded into `input_audio_buffer.append` events.
+async fn handle_browser_to_openai(
+    browser_rx: &mut futures_util::stream::SplitStream<WebSocket>,
+    to_openai_tx: &tokio::sync::mpsc::Sender<String>,
+) {
+    while let Some(Ok(msg)) = browser_rx.next().await {
+        match msg {
+            WsMsg::Text(text) => {
+                if is_browser_event_allowed(&text) {
+                    if to_openai_tx.send(text.to_string()).await.is_err() {
+                        break;
+                    }
+                } else {
+                    tracing::debug!("[Voice] Blocked non-whitelisted browser event");
+                }
+            }
+            WsMsg::Binary(data) => {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+                let msg = json!({
+                    "type": "input_audio_buffer.append",
+                    "audio": b64
+                });
+                if to_openai_tx.send(msg.to_string()).await.is_err() {
+                    break;
+                }
+            }
+            WsMsg::Close(_) => break,
+            _ => {}
+        }
+    }
+}
+
+/// Handle a function call event from the Realtime API.
+///
+/// Spawns tool execution in the background so the relay loop is not blocked.
+/// Sends the tool result back as `function_call_output` and triggers `response.create`
+/// to resume the model's response.
+fn handle_function_call(
+    event: &serde_json::Value,
+    agent_mutex: &Arc<tokio::sync::Mutex<crate::agent::Agent>>,
+    to_openai_tx: &tokio::sync::mpsc::Sender<String>,
+) {
+    let call_id = event
+        .get("call_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let fn_name = event
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let fn_args_str = event
+        .get("arguments")
+        .and_then(|v| v.as_str())
+        .unwrap_or("{}")
+        .to_string();
+
+    if call_id.is_empty() || fn_name.is_empty() {
+        warn!(
+            "Voice function call event missing call_id or name: call_id={:?}, name={:?}",
+            call_id, fn_name
+        );
+        return;
+    }
+
+    let tx = to_openai_tx.clone();
+    let agent_clone = agent_mutex.clone();
+    tokio::spawn(async move {
+        let result = execute_voice_tool(&agent_clone, &fn_name, &fn_args_str).await;
+
+        let output_item = json!({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": result
+            }
+        });
+        if tx.send(output_item.to_string()).await.is_err() {
+            error!("Failed to send tool result to Realtime API — voice session may hang waiting for function_call_output");
+            return;
+        }
+
+        let response_create = json!({ "type": "response.create" });
+        if tx.send(response_create.to_string()).await.is_err() {
+            error!("Failed to send response.create after tool execution — voice session may not resume");
+        }
+
+        info!("Voice tool '{}' executed, result sent back", fn_name);
+    });
+}
+
+/// Shared state for the OpenAI→Browser relay, holding transcript pairing buffers
+/// and references needed for Agent sync and memory persistence.
+struct RelayTranscriptState {
+    agent: Option<Arc<tokio::sync::Mutex<crate::agent::Agent>>>,
+    memory: Arc<dyn crate::memory::Memory>,
+    session_id: String,
+    /// Pending user utterance: (turn_number, text). Paired with the next assistant response.
+    pending_user_text: Arc<tokio::sync::Mutex<Option<(u32, String)>>>,
+    /// Monotonic turn counter (starts at 1 to avoid 0-collision on saturating_sub fallback).
+    turn_counter: Arc<std::sync::atomic::AtomicU32>,
+}
+
+/// Relay messages from OpenAI Realtime API to browser WebSocket.
+///
+/// Handles transcript synchronization to Agent history, memory persistence
+/// of completed user+assistant turn pairs, and function call interception.
+async fn handle_openai_to_browser(
+    openai_rx: &mut futures_util::stream::SplitStream<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    >,
+    browser_tx: &mut futures_util::stream::SplitSink<WebSocket, WsMsg>,
+    to_openai_tx: &tokio::sync::mpsc::Sender<String>,
+    state: &RelayTranscriptState,
+) {
+    while let Some(Ok(msg)) = openai_rx.next().await {
+        match msg {
+            TungMsg::Text(text) => {
+                if let Ok(event) = serde_json::from_str::<serde_json::Value>(&text) {
+                    let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+                    // Sync voice transcripts to Agent.history + persist completed pairs to Memory
+                    match event_type {
+                        "conversation.item.input_audio_transcription.completed" => {
+                            process_user_transcript(&event, state).await;
+                        }
+                        "response.audio_transcript.done" => {
+                            process_assistant_transcript(&event, state).await;
+                        }
+                        _ => {}
+                    }
+
+                    // Handle function calls from the Realtime API
+                    if event_type == "response.function_call_arguments.done" {
+                        if let Some(ref agent_mutex) = state.agent {
+                            handle_function_call(&event, agent_mutex, to_openai_tx);
+                        }
+                    }
+                }
+
+                // Forward to browser
+                if browser_tx
+                    .send(WsMsg::Text(text.to_string().into()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            TungMsg::Close(_) => break,
+            _ => {}
+        }
+    }
+}
+
+/// Process a completed user input audio transcription event.
+///
+/// Syncs the transcript to Agent history and buffers it for paired memory persistence.
+async fn process_user_transcript(event: &serde_json::Value, state: &RelayTranscriptState) {
+    let Some(transcript) = event.get("transcript").and_then(|t| t.as_str()) else {
+        return;
+    };
+    let trimmed = transcript.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    let turn_num = state
+        .turn_counter
+        .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+
+    if let Some(ref agent_mutex) = state.agent {
+        let mut agent = agent_mutex.lock().await;
+        let turn = crate::providers::realtime_types::TranscriptTurn {
+            turn_number: turn_num,
+            user_text: trimmed.to_string(),
+            assistant_text: String::new(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        };
+        agent.merge_voice_transcripts(&[turn]);
+    }
+
+    *state.pending_user_text.lock().await = Some((turn_num, trimmed.to_string()));
+}
+
+/// Process a completed assistant audio transcript event.
+///
+/// Syncs to Agent history and persists the user+assistant turn pair to memory
+/// if it meets the minimum character threshold.
+async fn process_assistant_transcript(event: &serde_json::Value, state: &RelayTranscriptState) {
+    let Some(transcript) = event.get("transcript").and_then(|t| t.as_str()) else {
+        return;
+    };
+    let trimmed = transcript.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    // Take the paired user turn; fall back to current counter
+    let pending = state.pending_user_text.lock().await.take();
+    let (turn_num, user_part) = match pending {
+        Some((num, text)) => (num, text),
+        None => {
+            let num = state
+                .turn_counter
+                .load(std::sync::atomic::Ordering::Acquire)
+                .saturating_sub(1);
+            (num, String::new())
+        }
+    };
+
+    // Sync to Agent history
+    if let Some(ref agent_mutex) = state.agent {
+        let mut agent = agent_mutex.lock().await;
+        let turn = crate::providers::realtime_types::TranscriptTurn {
+            turn_number: turn_num,
+            user_text: String::new(),
+            assistant_text: trimmed.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        };
+        agent.merge_voice_transcripts(&[turn]);
+    }
+
+    // Persist to memory if the pair meets minimum length
+    let total_chars = user_part.chars().count() + trimmed.chars().count();
+    if total_chars < VOICE_AUTOSAVE_MIN_CHARS {
+        tracing::debug!(
+            "[Voice] Skipped short transcript pair ({} chars < {})",
+            total_chars,
+            VOICE_AUTOSAVE_MIN_CHARS
+        );
+        return;
+    }
+
+    let mem = state.memory.clone();
+    let session_id = &state.session_id;
+
+    if !user_part.is_empty() {
+        let key = format!("voice_turn_{}_{}_user", session_id, turn_num);
+        let user_store = format!("[Voice] {}", user_part);
+        if let Err(e) = mem
+            .store(
+                &key,
+                &user_store,
+                crate::memory::MemoryCategory::Custom("voice".to_string()),
+                Some(session_id),
+            )
+            .await
+        {
+            warn!("Failed to persist voice user transcript: {}", e);
+        }
+    }
+
+    let key = format!("voice_turn_{}_{}_assistant", session_id, turn_num);
+    let assistant_store = format!("[Voice] {}", trimmed);
+    if let Err(e) = mem
+        .store(
+            &key,
+            &assistant_store,
+            crate::memory::MemoryCategory::Custom("voice".to_string()),
+            Some(session_id),
+        )
+        .await
+    {
+        warn!("Failed to persist voice assistant transcript: {}", e);
+    }
+
+    tracing::debug!(
+        "[Voice] Persisted transcript pair to memory ({}+{} chars)",
+        user_part.chars().count(),
+        trimmed.chars().count()
+    );
+}
+
+/// Direct WebSocket relay between browser and OpenAI Realtime API.
+///
+/// Orchestrates the session lifecycle:
+/// 1. Connect to OpenAI Realtime API
+/// 2. Send session configuration and inject chat history
+/// 3. Run bidirectional relay (browser ↔ OpenAI)
+/// 4. Graceful shutdown with close frames on both connections
 async fn relay_session(
     browser_ws: WebSocket,
     config: &crate::config::VoiceConfig,
@@ -468,7 +854,7 @@ async fn relay_session(
     let realtime_config = config.to_realtime_config()?;
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    // Build Realtime API WebSocket URL and auth headers (reuse RealtimeConfig methods)
+    // Build Realtime API WebSocket URL and auth headers
     let url = realtime_config.ws_url();
     let mut request = url.into_client_request()?;
     for (name, value) in realtime_config.auth_headers() {
@@ -503,375 +889,76 @@ async fn relay_session(
                 break;
             }
         }
+        // Return the sink so we can send a close frame during shutdown
+        openai_tx_raw
     });
 
-    // Send session configuration to OpenAI (all fields from RealtimeConfig for consistency)
-    let session_config = json!({
-        "modalities": ["text", "audio"],
-        "voice": realtime_config.voice,
-        "instructions": realtime_config.system_prompt,
-        "input_audio_format": realtime_config.audio_format,
-        "output_audio_format": realtime_config.audio_format,
-        "input_audio_transcription": {
-            "model": realtime_config.transcription_model,
-            "language": realtime_config.language
-        },
-        "turn_detection": {
-            "type": realtime_config.vad_type,
-            "threshold": realtime_config.vad_threshold,
-            "prefix_padding_ms": realtime_config.vad_prefix_padding_ms,
-            "silence_duration_ms": realtime_config.silence_duration_ms
-        }
-    });
-
-    // Register tools with the Realtime API session for function calling.
-    // The server intercepts function_call events, executes tools via Agent's dispatcher,
-    // and sends results back to the Realtime API.
-    let mut session_config = session_config;
-    if !tools.is_empty() && agent.is_some() {
-        session_config["tools"] = json!(tools);
-        info!(
-            "Voice mode: {} tool(s) registered for function calling",
-            tools.len()
-        );
-    }
-
-    let session_update = json!({
-        "type": "session.update",
-        "session": session_config
-    });
-
+    // Send session configuration
+    let session_update = build_session_config(&realtime_config, tools, agent.is_some());
     to_openai_tx
         .send(session_update.to_string())
         .await
         .map_err(|e| anyhow::anyhow!("Failed to send session config: {}", e))?;
 
-    // Inject Agent's chat history into Realtime API session for context continuity.
-    // Clone filtered messages and release the Agent lock before async channel sends
-    // to avoid holding the mutex across await points.
+    // Inject Agent's chat history for context continuity
     if let Some(ref agent_mutex) = agent {
-        let recent_chats: Vec<crate::providers::ChatMessage> = {
-            let agent = agent_mutex.lock().await;
-            let history = agent.history();
-            let max_items = config.max_history_items;
-            history
-                .iter()
-                .filter_map(|msg| {
-                    if let crate::providers::ConversationMessage::Chat(chat) = msg {
-                        if chat.role == "user" || chat.role == "assistant" {
-                            return Some(chat.clone());
-                        }
-                    }
-                    None
-                })
-                .rev()
-                .take(max_items)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect()
-        }; // Agent lock released here
-
-        let mut injected = 0;
-        for chat in &recent_chats {
-            let content_type = if chat.role == "user" {
-                "input_text"
-            } else {
-                "text"
-            };
-            let item = json!({
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": chat.role,
-                    "content": [{ "type": content_type, "text": chat.content }]
-                }
-            });
-            if to_openai_tx.send(item.to_string()).await.is_err() {
-                break;
-            }
-            injected += 1;
-        }
-        if injected > 0 {
-            info!(
-                "Injected {} Agent history items into voice session",
-                injected
-            );
-        }
+        inject_agent_history(agent_mutex, config.max_history_items, &to_openai_tx).await;
     }
 
-    // Relay: Browser → OpenAI (only allow safe event types)
-    let browser_to_openai = async {
-        while let Some(Ok(msg)) = browser_rx.next().await {
-            match msg {
-                WsMsg::Text(text) => {
-                    // Whitelist: only forward safe event types from browser.
-                    if is_browser_event_allowed(&text) {
-                        if to_openai_tx.send(text.to_string()).await.is_err() {
-                            break;
-                        }
-                    } else {
-                        tracing::debug!("[Voice] Blocked non-whitelisted browser event");
-                    }
-                }
-                WsMsg::Binary(data) => {
-                    let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-                    let msg = json!({
-                        "type": "input_audio_buffer.append",
-                        "audio": b64
-                    });
-                    if to_openai_tx.send(msg.to_string()).await.is_err() {
-                        break;
-                    }
-                }
-                WsMsg::Close(_) => break,
-                _ => {}
-            }
-        }
+    // Set up transcript state for the OpenAI→Browser relay
+    let transcript_state = RelayTranscriptState {
+        agent: agent.clone(),
+        memory: memory.clone(),
+        session_id: session_id.clone(),
+        pending_user_text: Arc::new(tokio::sync::Mutex::new(None)),
+        turn_counter: Arc::new(std::sync::atomic::AtomicU32::new(1)),
     };
 
-    // Relay: OpenAI → Browser (transcript → Agent sync + memory persistence)
-    let agent_for_transcript = agent.clone();
-    let memory_for_transcript = memory.clone();
-    let session_id_for_transcript = session_id.clone();
-
-    // Buffer for collecting user+assistant transcript pairs before persisting.
-    // Stores the pending user utterance and its turn number until the assistant response completes the pair.
-    // Using Mutex ensures the turn number and user text are always atomically paired.
-    let pending_user_text: Arc<tokio::sync::Mutex<Option<(u32, String)>>> =
-        Arc::new(tokio::sync::Mutex::new(None));
-    // Start at 1 so saturating_sub(1) in the fallback path never underflows to 0
-    // and collides with a valid user turn number.
-    let turn_counter: Arc<std::sync::atomic::AtomicU32> =
-        Arc::new(std::sync::atomic::AtomicU32::new(1));
-
-    let openai_to_browser = async {
-        while let Some(Ok(msg)) = openai_rx.next().await {
-            match msg {
-                TungMsg::Text(text) => {
-                    // Parse event for transcript sync and function call interception
-                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(&text) {
-                        let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-                        // Sync voice transcripts to Agent.history + persist completed pairs to Memory
-                        match event_type {
-                            "conversation.item.input_audio_transcription.completed" => {
-                                if let Some(transcript) =
-                                    event.get("transcript").and_then(|t| t.as_str())
-                                {
-                                    let trimmed = transcript.trim();
-                                    if !trimmed.is_empty() {
-                                        let turn_num = turn_counter
-                                            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-                                        // Sync to Agent history
-                                        if let Some(ref agent_mutex) = agent_for_transcript {
-                                            let mut agent = agent_mutex.lock().await;
-                                            let turn =
-                                                crate::providers::realtime_types::TranscriptTurn {
-                                                    turn_number: turn_num,
-                                                    user_text: trimmed.to_string(),
-                                                    assistant_text: String::new(),
-                                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                                };
-                                            agent.merge_voice_transcripts(&[turn]);
-                                        }
-                                        // Buffer user text with its turn number for paired persistence
-                                        *pending_user_text.lock().await =
-                                            Some((turn_num, trimmed.to_string()));
-                                    }
-                                }
-                            }
-                            "response.audio_transcript.done" => {
-                                if let Some(transcript) =
-                                    event.get("transcript").and_then(|t| t.as_str())
-                                {
-                                    let trimmed = transcript.trim();
-                                    if !trimmed.is_empty() {
-                                        // Take the paired user turn; fall back to current counter
-                                        let pending = pending_user_text.lock().await.take();
-                                        let (turn_num, user_part) = match pending {
-                                            Some((num, text)) => (num, text),
-                                            None => {
-                                                let num = turn_counter
-                                                    .load(std::sync::atomic::Ordering::Acquire)
-                                                    .saturating_sub(1);
-                                                (num, String::new())
-                                            }
-                                        };
-                                        // Sync to Agent history
-                                        if let Some(ref agent_mutex) = agent_for_transcript {
-                                            let mut agent = agent_mutex.lock().await;
-                                            let turn =
-                                                crate::providers::realtime_types::TranscriptTurn {
-                                                    turn_number: turn_num,
-                                                    user_text: String::new(),
-                                                    assistant_text: trimmed.to_string(),
-                                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                                };
-                                            agent.merge_voice_transcripts(&[turn]);
-                                        }
-
-                                        // Pair complete: persist to memory if meets minimum length
-                                        let user_part = user_part.as_str();
-                                        let total_chars =
-                                            user_part.chars().count() + trimmed.chars().count();
-
-                                        if total_chars >= VOICE_AUTOSAVE_MIN_CHARS {
-                                            let user_store = format!("[Voice] {}", user_part);
-                                            let assistant_store = format!("[Voice] {}", trimmed);
-                                            let mem = memory_for_transcript.clone();
-                                            // Use turn_num from the paired buffer (matches Agent history)
-                                            // Store user message with session-scoped turn key
-                                            if !user_part.is_empty() {
-                                                let key = format!(
-                                                    "voice_turn_{}_{}_user",
-                                                    session_id_for_transcript, turn_num
-                                                );
-                                                if let Err(e) = mem
-                                                    .store(
-                                                        &key,
-                                                        &user_store,
-                                                        crate::memory::MemoryCategory::Custom(
-                                                            "voice".to_string(),
-                                                        ),
-                                                        Some(&session_id_for_transcript),
-                                                    )
-                                                    .await
-                                                {
-                                                    warn!("Failed to persist voice user transcript: {}", e);
-                                                }
-                                            }
-                                            // Store assistant response with session-scoped turn key
-                                            let key = format!(
-                                                "voice_turn_{}_{}_assistant",
-                                                session_id_for_transcript, turn_num
-                                            );
-                                            if let Err(e) = mem
-                                                .store(
-                                                    &key,
-                                                    &assistant_store,
-                                                    crate::memory::MemoryCategory::Custom(
-                                                        "voice".to_string(),
-                                                    ),
-                                                    Some(&session_id_for_transcript),
-                                                )
-                                                .await
-                                            {
-                                                warn!("Failed to persist voice assistant transcript: {}", e);
-                                            }
-                                            tracing::debug!(
-                                                "[Voice] Persisted transcript pair to memory ({}+{} chars)",
-                                                user_part.chars().count(),
-                                                trimmed.chars().count()
-                                            );
-                                        } else {
-                                            tracing::debug!(
-                                                "[Voice] Skipped short transcript pair ({} chars < {})",
-                                                total_chars, VOICE_AUTOSAVE_MIN_CHARS
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-
-                        // Handle function calls from the Realtime API.
-                        // When the model decides to call a tool, it sends a
-                        // "response.function_call_arguments.done" event with the call_id,
-                        // function name, and JSON arguments. We execute the tool via Agent's
-                        // dispatcher and return the result to continue the conversation.
-                        if event_type == "response.function_call_arguments.done" {
-                            let call_id = event
-                                .get("call_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let fn_name = event
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let fn_args_str = event
-                                .get("arguments")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("{}")
-                                .to_string();
-
-                            if !call_id.is_empty() && !fn_name.is_empty() {
-                                if let Some(ref agent_mutex) = agent_for_transcript {
-                                    let tx = to_openai_tx.clone();
-                                    let agent_clone = agent_mutex.clone();
-                                    // Spawn tool execution in background to not block the relay
-                                    tokio::spawn(async move {
-                                        let result = execute_voice_tool(
-                                            &agent_clone,
-                                            &fn_name,
-                                            &fn_args_str,
-                                        )
-                                        .await;
-
-                                        // Send tool result back to Realtime API
-                                        let output_item = json!({
-                                            "type": "conversation.item.create",
-                                            "item": {
-                                                "type": "function_call_output",
-                                                "call_id": call_id,
-                                                "output": result
-                                            }
-                                        });
-                                        if tx.send(output_item.to_string()).await.is_err() {
-                                            error!("Failed to send tool result to Realtime API — voice session may hang waiting for function_call_output");
-                                            return;
-                                        }
-
-                                        // Trigger the model to continue responding after receiving the tool result
-                                        let response_create = json!({
-                                            "type": "response.create"
-                                        });
-                                        if tx.send(response_create.to_string()).await.is_err() {
-                                            error!("Failed to send response.create after tool execution — voice session may not resume");
-                                        }
-
-                                        info!(
-                                            "Voice tool '{}' executed, result sent back",
-                                            fn_name
-                                        );
-                                    });
-                                }
-                            } else {
-                                warn!(
-                                    "Voice function call event missing call_id or name: call_id={:?}, name={:?}",
-                                    call_id, fn_name
-                                );
-                            }
-                        }
-                    }
-
-                    // Forward to browser
-                    if browser_tx
-                        .send(WsMsg::Text(text.to_string().into()))
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                TungMsg::Close(_) => break,
-                _ => {}
-            }
-        }
-    };
-
+    // Run bidirectional relay
     tokio::select! {
-        () = browser_to_openai => info!("Browser → OpenAI relay ended"),
-        () = openai_to_browser => info!("OpenAI → Browser relay ended"),
+        () = handle_browser_to_openai(&mut browser_rx, &to_openai_tx) => {
+            info!("Browser → OpenAI relay ended");
+        }
+        () = handle_openai_to_browser(&mut openai_rx, &mut browser_tx, &to_openai_tx, &transcript_state) => {
+            info!("OpenAI → Browser relay ended");
+        }
     }
 
-    // Clean up writer task
-    drop(to_openai_tx);
-    let _ = openai_writer.await;
+    // ── Graceful shutdown: send close frames to both connections ──
+    info!("Initiating graceful WebSocket shutdown for session {}", session_id);
 
+    // Send close frame to browser
+    let browser_close = browser_tx.send(WsMsg::Close(Some(axum::extract::ws::CloseFrame {
+        code: axum::extract::ws::close_code::NORMAL,
+        reason: "Session ended".into(),
+    })));
+    if let Err(e) = tokio::time::timeout(WS_CLOSE_TIMEOUT, browser_close).await {
+        warn!("Browser close frame timed out: {}", e);
+    }
+
+    // Send close frame to OpenAI via the writer task's sink
+    // First, drop the sender to signal the writer task to exit and return the sink
+    drop(to_openai_tx);
+    match tokio::time::timeout(WS_CLOSE_TIMEOUT, openai_writer).await {
+        Ok(Ok(mut openai_sink)) => {
+            let close_msg = TungMsg::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Normal,
+                reason: "Session ended".into(),
+            }));
+            if let Err(e) = tokio::time::timeout(
+                WS_CLOSE_TIMEOUT,
+                openai_sink.send(close_msg),
+            )
+            .await
+            {
+                warn!("OpenAI close frame timed out: {}", e);
+            }
+        }
+        Ok(Err(e)) => warn!("OpenAI writer task panicked: {}", e),
+        Err(_) => warn!("OpenAI writer task shutdown timed out"),
+    }
+
+    info!("Voice session {} shut down gracefully", session_id);
     Ok(())
 }
 
