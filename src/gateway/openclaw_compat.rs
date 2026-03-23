@@ -26,8 +26,7 @@
 //! have migrated to the native endpoint.
 
 use super::{
-    client_key_from_request, run_gateway_chat_with_tools, AppState,
-    RATE_LIMIT_WINDOW_SECS,
+    client_key_from_request, run_gateway_chat_with_tools, AppState, RATE_LIMIT_WINDOW_SECS,
 };
 use crate::memory::MemoryCategory;
 use crate::providers;
@@ -95,9 +94,7 @@ pub async fn handle_api_chat(
         && state.webhook_secret_hash.is_none()
         && !peer_addr.ip().is_loopback()
     {
-        tracing::warn!(
-            "/api/chat: rejected unauthenticated non-loopback request"
-        );
+        tracing::warn!("/api/chat: rejected unauthenticated non-loopback request");
         let err = serde_json::json!({
             "error": "Unauthorized — configure pairing or X-Webhook-Secret for non-local access"
         });
@@ -152,7 +149,11 @@ pub async fn handle_api_chat(
         message.to_string()
     } else {
         let recent: Vec<&String> = chat_body.context.iter().rev().take(10).rev().collect();
-        let context_block = recent.iter().map(|s| s.as_str()).collect::<Vec<&str>>().join("\n");
+        let context_block = recent
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>()
+            .join("\n");
         format!(
             "Recent conversation context:\n{}\n\nCurrent message:\n{}",
             context_block, message
@@ -184,7 +185,9 @@ pub async fn handle_api_chat(
         });
 
     // ── Run the full agent loop ──
-    match run_gateway_chat_with_tools(&state, &enriched_message, chat_body.session_id.as_deref()).await {
+    match run_gateway_chat_with_tools(&state, &enriched_message, chat_body.session_id.as_deref())
+        .await
+    {
         Ok(response) => {
             let safe_response = response;
             let duration = started_at.elapsed();
@@ -376,7 +379,9 @@ pub async fn handle_v1_chat_completions_with_tools(
             .unwrap_or("");
         let token = auth.strip_prefix("Bearer ").unwrap_or("");
         if !state.pairing.is_authenticated(token) {
-            tracing::warn!("/v1/chat/completions (compat): rejected — not paired / invalid bearer token");
+            tracing::warn!(
+                "/v1/chat/completions (compat): rejected — not paired / invalid bearer token"
+            );
             let err = serde_json::json!({
                 "error": {
                     "message": "Invalid API key. Pair first via POST /pair, then use Authorization: Bearer <token>",
@@ -462,7 +467,11 @@ pub async fn handle_v1_chat_completions_with_tools(
         .rev()
         .filter(|m| m.role == "user" || m.role == "assistant")
         .map(|m| {
-            let role_label = if m.role == "user" { "User" } else { "Assistant" };
+            let role_label = if m.role == "user" {
+                "User"
+            } else {
+                "Assistant"
+            };
             format!("{}: {}", role_label, m.content)
         })
         .collect();
@@ -476,7 +485,11 @@ pub async fn handle_v1_chat_completions_with_tools(
             .take(MAX_CONTEXT_MESSAGES)
             .rev()
             .collect();
-        let context_block = recent.iter().map(|s| s.as_str()).collect::<Vec<&str>>().join("\n");
+        let context_block = recent
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>()
+            .join("\n");
         format!(
             "Recent conversation context:\n{}\n\nCurrent message:\n{}",
             context_block, message
@@ -598,9 +611,7 @@ pub async fn handle_v1_chat_completions_with_tools(
         }
     };
 
-    let model_name = request
-        .model
-        .unwrap_or_else(|| state.model.clone());
+    let model_name = request.model.unwrap_or_else(|| state.model.clone());
 
     #[allow(clippy::cast_possible_truncation)]
     let prompt_tokens = (enriched_message.len() / 4) as u32;

@@ -811,7 +811,10 @@ impl BedrockProvider {
 
     // ── Tool conversion ─────────────────────────────────────────
 
-    fn convert_tools_to_converse(tools: Option<&[ToolSpec]>, force_tool_use: bool) -> Option<ToolConfig> {
+    fn convert_tools_to_converse(
+        tools: Option<&[ToolSpec]>,
+        force_tool_use: bool,
+    ) -> Option<ToolConfig> {
         let items = tools?;
         if items.is_empty() {
             return None;
@@ -831,7 +834,9 @@ impl BedrockProvider {
         Some(ToolConfig {
             tools: tool_defs,
             tool_choice: if force_tool_use {
-                Some(BedrockToolChoice { any: serde_json::json!({}) })
+                Some(BedrockToolChoice {
+                    any: serde_json::json!({}),
+                })
             } else {
                 None
             },
@@ -1084,7 +1089,8 @@ impl Provider for BedrockProvider {
             }
         }
 
-        let tool_config = Self::convert_tools_to_converse(request.tools, request.tool_choice == Some("required"));
+        let tool_config =
+            Self::convert_tools_to_converse(request.tools, request.tool_choice == Some("required"));
 
         let converse_request = ConverseRequest {
             system,
