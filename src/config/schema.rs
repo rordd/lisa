@@ -3782,6 +3782,10 @@ pub struct RuntimeConfig {
     /// Optional reasoning level for custom providers (e.g. "minimal", "low", "medium", "high").
     #[serde(default, deserialize_with = "deserialize_reasoning_effort_opt")]
     pub reasoning_level: Option<String>,
+    /// Optional service tier for priority processing (e.g. "priority", "default").
+    /// When set, includes `service_tier` in API requests to providers that support it.
+    #[serde(default)]
+    pub service_tier: Option<String>,
 }
 
 /// Docker runtime configuration (`[runtime.docker]` section).
@@ -3858,6 +3862,7 @@ impl Default for RuntimeConfig {
             reasoning_enabled: None,
             reasoning_effort: None,
             reasoning_level: None,
+            service_tier: None,
         }
     }
 }
@@ -7665,6 +7670,14 @@ impl Config {
         // Custom provider reasoning level: ZEROCLAW_CUSTOM_REASONING_EFFORT
         if let Ok(raw) = std::env::var("ZEROCLAW_CUSTOM_REASONING_EFFORT") {
             self.runtime.reasoning_level = Some(normalize_reasoning_effort(&raw));
+        }
+
+        // Service tier override: ZEROCLAW_SERVICE_TIER
+        if let Ok(tier) = std::env::var("ZEROCLAW_SERVICE_TIER") {
+            let trimmed = tier.trim().to_lowercase();
+            if !trimmed.is_empty() {
+                self.runtime.service_tier = Some(trimmed);
+            }
         }
 
         // Custom provider auth header: ZEROCLAW_CUSTOM_AUTH_HEADER

@@ -49,6 +49,8 @@ pub struct OpenAiCompatibleProvider {
     /// Optional reasoning effort level for reasoning models (e.g. "low", "medium", "high").
     /// Unlike `reasoning_effort` (model-specific for GPT-5/Codex), this applies to all requests.
     pub(crate) reasoning_level: Option<String>,
+    /// Optional service tier for priority processing (e.g. "priority").
+    pub(crate) service_tier: Option<String>,
 }
 
 /// How the provider expects the API key to be sent.
@@ -187,6 +189,7 @@ impl OpenAiCompatibleProvider {
             reasoning_effort: None,
             api_path: None,
             reasoning_level: None,
+            service_tier: None,
         }
     }
 
@@ -416,6 +419,8 @@ struct ApiChatRequest {
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -614,6 +619,8 @@ struct NativeChatRequest {
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1287,6 +1294,7 @@ impl Provider for OpenAiCompatibleProvider {
             reasoning_effort: self.effective_reasoning_effort(model),
             tools: None,
             tool_choice: None,
+            service_tier: self.service_tier.clone(),
         };
 
         let url = self.chat_completions_url();
@@ -1410,6 +1418,7 @@ impl Provider for OpenAiCompatibleProvider {
             reasoning_effort: self.effective_reasoning_effort(model),
             tools: None,
             tool_choice: None,
+            service_tier: self.service_tier.clone(),
         };
 
         let url = self.chat_completions_url();
@@ -1529,6 +1538,7 @@ impl Provider for OpenAiCompatibleProvider {
             } else {
                 Some("auto".to_string())
             },
+            service_tier: self.service_tier.clone(),
         };
 
         let url = self.chat_completions_url();
@@ -1627,6 +1637,7 @@ impl Provider for OpenAiCompatibleProvider {
             reasoning_effort: self.effective_reasoning_effort(model),
             tool_choice: tools.as_ref().map(|_| request.tool_choice.unwrap_or("auto").to_string()),
             tools,
+            service_tier: self.service_tier.clone(),
         };
 
         let url = self.chat_completions_url();
@@ -1771,6 +1782,7 @@ impl Provider for OpenAiCompatibleProvider {
             reasoning_effort: self.effective_reasoning_effort(model),
             tools: None,
             tool_choice: None,
+            service_tier: self.service_tier.clone(),
         };
 
         let url = self.chat_completions_url();
@@ -1913,6 +1925,7 @@ mod tests {
             reasoning_effort: None,
             tools: None,
             tool_choice: None,
+            service_tier: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("llama-3.3-70b"));
@@ -2694,6 +2707,7 @@ mod tests {
             reasoning_effort: None,
             tools: Some(tools),
             tool_choice: Some("auto".to_string()),
+            service_tier: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"tools\""));

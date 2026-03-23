@@ -3743,6 +3743,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         api_path: config.api_path.clone(),
         reasoning_level: config.runtime.reasoning_level.clone(),
         custom_provider_auth_header: config.custom_provider_auth_header.clone(),
+        service_tier: config.runtime.service_tier.clone(),
     };
     let provider: Arc<dyn Provider> = Arc::from(
         create_resilient_provider_nonblocking(

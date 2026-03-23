@@ -694,6 +694,8 @@ pub struct ProviderRuntimeOptions {
     pub reasoning_level: Option<String>,
     /// Optional custom auth header name for custom providers (e.g. "api-key" for Azure OpenAI).
     pub custom_provider_auth_header: Option<String>,
+    /// Optional service tier for priority processing (e.g. "priority").
+    pub service_tier: Option<String>,
 }
 
 impl Default for ProviderRuntimeOptions {
@@ -710,6 +712,7 @@ impl Default for ProviderRuntimeOptions {
             api_path: None,
             reasoning_level: None,
             custom_provider_auth_header: None,
+            service_tier: None,
         }
     }
 }
@@ -729,6 +732,7 @@ pub fn provider_runtime_options_from_config(
         api_path: config.api_path.clone(),
         reasoning_level: config.runtime.reasoning_level.clone(),
         custom_provider_auth_header: config.custom_provider_auth_header.clone(),
+        service_tier: config.runtime.service_tier.clone(),
     }
 }
 
@@ -1097,6 +1101,7 @@ fn create_provider_with_url_and_options(
         let extra_headers = options.extra_headers.clone();
         let api_path = options.api_path.clone();
         let reasoning_level = options.reasoning_level.clone();
+        let service_tier = options.service_tier.clone();
         move |p: OpenAiCompatibleProvider| -> Box<dyn Provider> {
             let mut p = p;
             if let Some(t) = timeout {
@@ -1113,6 +1118,9 @@ fn create_provider_with_url_and_options(
             }
             if let Some(ref level) = reasoning_level {
                 p.reasoning_level = Some(level.clone());
+            }
+            if let Some(ref tier) = service_tier {
+                p.service_tier = Some(tier.clone());
             }
             Box::new(p)
         }
