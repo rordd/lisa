@@ -1155,6 +1155,7 @@ data: [DONE]
             api_path: None,
             custom_provider_auth_header: None,
             reasoning_level: None,
+            service_tier: None,
         };
         let provider =
             OpenAiCodexProvider::new(&options, None).expect("provider should initialize");
