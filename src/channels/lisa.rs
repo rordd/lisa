@@ -159,13 +159,14 @@ impl Channel for LisaChannel {
             }
         }
 
-        // Send text response.
-        if !message.content.is_empty() {
-            let frame = serde_json::json!({
-                "type": "done",
-                "full_response": message.content,
-            });
-            if sender.try_send(Message::Text(frame.to_string().into())).is_err() { tracing::warn!(session_id, "LisaChannel: outbound buffer full, frame dropped"); }
+        // Send done frame when there is text or data so the client can finalize rendering.
+        let has_data = message.data.as_ref().is_some_and(|d| !d.is_empty());
+        if !message.content.is_empty() || has_data {
+            let mut done_frame = serde_json::json!({ "type": "done" });
+            if !message.content.is_empty() {
+                done_frame["full_response"] = serde_json::Value::String(message.content.clone());
+            }
+            if sender.try_send(Message::Text(done_frame.to_string().into())).is_err() { tracing::warn!(session_id, "LisaChannel: outbound buffer full, frame dropped"); }
         }
 
         Ok(())
