@@ -1,18 +1,17 @@
 [skill]
 name = "weather"
-description = "Check current weather and forecasts using Open-Meteo API."
-version = "2.0.0"
+description = "Check current weather and 14-day forecast. Supports any location by name."
+version = "3.0.0"
 always = true
 
 [[prompts]]
-content = "For every weather request, always call the weather_check tool first. Do not respond with text alone — execute the tool, then reply based on the result."
+content = "For EVERY weather request, you MUST call the weather_check tool — no exceptions. Never reuse previous results. Never answer from memory. Always fetch fresh data. Default location is 강서구 (Seoul Gangseo-gu). Pass location name in Korean or English."
 
 [[tools]]
 name = "weather_check"
-description = "Fetch current weather from Open-Meteo API. Returns temperature, apparent temperature, weather code, wind speed, humidity, and precipitation."
+description = "Fetch current weather and 14-day forecast. Geocodes location name automatically. Returns temperature, feels-like, wind, humidity, precipitation, and daily forecast."
 kind = "shell"
-command = "curl -s 'https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,precipitation&timezone=Asia/Seoul'"
+command = "bash ~/.zeroclaw/workspace/skills/weather/weather.sh {location}"
 
 [tools.args]
-latitude = "Latitude of the location (default: 37.55 for Seoul Gangseo-gu)"
-longitude = "Longitude of the location (default: 126.85 for Seoul Gangseo-gu)"
+location = "Location name in Korean or English (default: 강서구). Examples: 강서구, 부산, 제주, Tokyo, New York"
