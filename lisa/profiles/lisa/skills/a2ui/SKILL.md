@@ -26,9 +26,10 @@ CRITICAL: If you mention a card but don't include `<a2ui-json>` tags, the user s
 
 - URL buttons → `functionCall.openUrl` (server is headless)
 - Quiz/choice buttons → `event` action
-- Button `action` MUST use nested v0.9 format:
-  - Event: `{"action": {"event": {"name": "choice", "context": {"answer": "A"}}}}`
-  - Function: `{"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}}`
+- Button `action` property uses v0.9 format (NO double nesting):
+  - Event: `"action": {"event": {"name": "choice", "context": {"answer": "A"}}}`
+  - Function: `"action": {"functionCall": {"call": "openUrl", "args": {"url": "https://..."}, "returnType": "void"}}`
+  - WRONG (double nesting): `"action": {"action": {"event": {...}}}` ← NEVER do this
 
 ## Examples
 
