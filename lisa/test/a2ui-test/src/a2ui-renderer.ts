@@ -381,6 +381,9 @@ export class A2UISurfaceElement extends LitElement {
     .list-vertical { display: flex; flex-direction: column; gap: 4px; }
     .list-horizontal { display: flex; flex-direction: row; gap: 8px; flex-wrap: wrap; }
 
+    /* Grid */
+    .grid { display: grid; gap: 8px; }
+
     /* AudioPlayer */
     .audio-wrapper { display: flex; flex-direction: column; gap: 4px; }
     .audio-wrapper .audio-desc { font-size: 12px; color: #5f6368; }
@@ -429,6 +432,8 @@ export class A2UISurfaceElement extends LitElement {
         return this._renderTabs(comp);
       case 'List':
         return this._renderList(comp);
+      case 'Grid':
+        return this._renderGrid(comp);
       case 'Modal':
         return this._renderModal(comp);
       case 'ChoicePicker':
@@ -734,6 +739,17 @@ export class A2UISurfaceElement extends LitElement {
     } finally {
       s.dataModel = savedDataModel;
     }
+  }
+
+  // ── Grid ──
+  private _renderGrid(comp: A2UIComponent) {
+    const columns = (comp.columns as number) || 2;
+    const children = Array.isArray(comp.children) ? comp.children : [];
+    return html`
+      <div class="grid" style="grid-template-columns: repeat(${columns}, 1fr)">
+        ${children.map(id => this._renderComponent(id))}
+      </div>
+    `;
   }
 
   // ── Modal ──
