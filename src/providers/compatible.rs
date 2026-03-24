@@ -619,8 +619,6 @@ struct NativeChatRequest {
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    service_tier: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1639,7 +1637,6 @@ impl Provider for OpenAiCompatibleProvider {
                 .as_ref()
                 .map(|_| request.tool_choice.unwrap_or("auto").to_string()),
             tools,
-            service_tier: self.service_tier.clone(),
         };
 
         let url = self.chat_completions_url();

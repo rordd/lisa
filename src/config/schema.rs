@@ -7711,7 +7711,15 @@ impl Config {
         if let Ok(tier) = std::env::var("ZEROCLAW_SERVICE_TIER") {
             let trimmed = tier.trim().to_lowercase();
             if !trimmed.is_empty() {
-                self.runtime.service_tier = Some(trimmed);
+                const VALID_TIERS: &[&str] = &["priority", "default", "auto", "flex"];
+                if VALID_TIERS.contains(&trimmed.as_str()) {
+                    self.runtime.service_tier = Some(trimmed);
+                } else {
+                    tracing::warn!(
+                        "Unknown service_tier '{trimmed}', expected one of: {}",
+                        VALID_TIERS.join(", ")
+                    );
+                }
             }
         }
 
