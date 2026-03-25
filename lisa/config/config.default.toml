@@ -43,7 +43,7 @@ non_cli_excluded_tools = [
   "check_provider_quota", "switch_provider", "estimate_quota_cost",
   "pushover", "screenshot", "image_info", "model_routing_config",
   "web_search_config", "web_access_config", "channel_ack_config",
-  "task_plan", "schedule", "process", "apply_patch",
+  "task_plan", "process", "apply_patch",
   "pdf_read", "docx_read", "pptx_read", "xlsx_read",
   "bg_run", "bg_status"
 ]
