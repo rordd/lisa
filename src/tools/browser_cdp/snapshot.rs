@@ -263,4 +263,35 @@ mod tests {
         let js = snapshot_script(true, true, None);
         assert!(js.contains("const maxDepth = null;"));
     }
+
+    #[test]
+    fn snapshot_script_contains_all_role_mappings() {
+        let js = snapshot_script(true, true, None);
+        // Verify all HTML→role mappings are present
+        assert!(js.contains("return 'link'")); // <a>
+        assert!(js.contains("return 'button'")); // <button>, input[submit]
+        assert!(js.contains("return 'input'")); // <input>
+        assert!(js.contains("return 'select'")); // <select>
+        assert!(js.contains("return 'textarea'")); // <textarea>
+        assert!(js.contains("return 'checkbox'")); // input[checkbox]
+        assert!(js.contains("return 'radio'")); // input[radio]
+        assert!(js.contains("return 'heading'")); // h1/h2/h3
+    }
+
+    #[test]
+    fn snapshot_script_output_format() {
+        let js = snapshot_script(true, true, None);
+        // Verify OpenClaw-style output: @eN [role] "text"
+        assert!(js.contains("ref + ' [' + role + ']'"));
+        // Verify header contains title, url, elements
+        assert!(js.contains("title: "));
+        assert!(js.contains("url: "));
+        assert!(js.contains("elements: "));
+    }
+
+    #[test]
+    fn snapshot_script_max_nodes_limit() {
+        let js = snapshot_script(true, true, None);
+        assert!(js.contains("lines.length >= 400"));
+    }
 }

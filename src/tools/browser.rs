@@ -2390,6 +2390,27 @@ mod tests {
     }
 
     #[test]
+    fn browser_backend_parser_accepts_cdp_direct() {
+        assert_eq!(
+            BrowserBackendKind::parse("cdp_direct").unwrap(),
+            BrowserBackendKind::CdpDirect
+        );
+        assert_eq!(
+            BrowserBackendKind::parse("cdp").unwrap(),
+            BrowserBackendKind::CdpDirect
+        );
+        assert_eq!(
+            BrowserBackendKind::parse("cdpdirect").unwrap(),
+            BrowserBackendKind::CdpDirect
+        );
+    }
+
+    #[test]
+    fn browser_backend_cdp_direct_as_str() {
+        assert_eq!(BrowserBackendKind::CdpDirect.as_str(), "cdp_direct");
+    }
+
+    #[test]
     fn browser_tool_default_backend_is_agent_browser() {
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec!["example.com".into()], None);
