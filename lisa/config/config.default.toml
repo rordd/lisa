@@ -63,3 +63,6 @@ parallel_tools = true
 
 [security.sandbox]
 backend = "none"
+
+[web_fetch]
+enabled = true
