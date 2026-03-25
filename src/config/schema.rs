@@ -1950,6 +1950,86 @@ impl Default for BrowserComputerUseConfig {
     }
 }
 
+/// CDP-direct browser backend configuration (`[browser.cdp_direct]` section).
+///
+/// Controls the chromiumoxide-based CDP direct backend that connects to
+/// Chrome/Chromium or webOS WAM browsers via Chrome DevTools Protocol.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct BrowserCdpDirectConfig {
+    /// CDP remote debugging port (default: 9222)
+    #[serde(default = "default_cdp_debug_port")]
+    pub debug_port: u16,
+    /// Run Chrome in headless mode (default: false for user visibility)
+    #[serde(default)]
+    pub headless: bool,
+    /// Optional Chrome/Chromium executable path (auto-detected if not set)
+    #[serde(default)]
+    pub chrome_path: Option<String>,
+    /// Persistent Chrome profile directory (default: ~/.zeroclaw/browser-profile/).
+    /// Stores cookies and login sessions across agent restarts.
+    #[serde(default)]
+    pub user_data_dir: Option<String>,
+    /// Browser window size as "WIDTHxHEIGHT" (default: "1280x720")
+    #[serde(default = "default_cdp_window_size")]
+    pub window_size: String,
+    /// WAM inspector port for webOS TV (default: 9998)
+    #[serde(default = "default_wam_inspector_port")]
+    pub wam_inspector_port: u16,
+    /// webOS WAM app ID to launch (default: "com.webos.app.browser")
+    #[serde(default = "default_wam_app_id")]
+    pub wam_app_id: String,
+    /// WAM launch timeout in seconds (default: 10)
+    #[serde(default = "default_wam_launch_timeout_secs")]
+    pub wam_launch_timeout_secs: u64,
+    /// Kill stale Chrome processes on the debug port before launch (default: false)
+    #[serde(default)]
+    pub cleanup_stale: bool,
+    /// Navigation timeout in milliseconds (default: 30000)
+    #[serde(default = "default_cdp_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_cdp_debug_port() -> u16 {
+    9222
+}
+
+fn default_cdp_window_size() -> String {
+    "1280x720".into()
+}
+
+fn default_wam_inspector_port() -> u16 {
+    9998
+}
+
+fn default_wam_app_id() -> String {
+    "com.webos.app.browser".into()
+}
+
+fn default_wam_launch_timeout_secs() -> u64 {
+    10
+}
+
+fn default_cdp_timeout_ms() -> u64 {
+    30_000
+}
+
+impl Default for BrowserCdpDirectConfig {
+    fn default() -> Self {
+        Self {
+            debug_port: default_cdp_debug_port(),
+            headless: false,
+            chrome_path: None,
+            user_data_dir: None,
+            window_size: default_cdp_window_size(),
+            wam_inspector_port: default_wam_inspector_port(),
+            wam_app_id: default_wam_app_id(),
+            wam_launch_timeout_secs: default_wam_launch_timeout_secs(),
+            cleanup_stale: false,
+            timeout_ms: default_cdp_timeout_ms(),
+        }
+    }
+}
+
 /// Browser automation configuration (`[browser]` section).
 ///
 /// Controls the `browser_open` tool and browser automation backends.
@@ -1979,6 +2059,9 @@ pub struct BrowserConfig {
     /// Computer-use sidecar configuration
     #[serde(default)]
     pub computer_use: BrowserComputerUseConfig,
+    /// CDP-direct backend configuration (chromiumoxide)
+    #[serde(default)]
+    pub cdp_direct: BrowserCdpDirectConfig,
 }
 
 fn default_browser_backend() -> String {
@@ -2000,6 +2083,7 @@ impl Default for BrowserConfig {
             native_webdriver_url: default_browser_webdriver_url(),
             native_chrome_path: None,
             computer_use: BrowserComputerUseConfig::default(),
+            cdp_direct: BrowserCdpDirectConfig::default(),
         }
     }
 }
@@ -10016,6 +10100,7 @@ default_temperature = 0.7
                 max_coordinate_x: Some(3840),
                 max_coordinate_y: Some(2160),
             },
+            cdp_direct: BrowserCdpDirectConfig::default(),
         };
         let toml_str = toml::to_string(&b).unwrap();
         let parsed: BrowserConfig = toml::from_str(&toml_str).unwrap();

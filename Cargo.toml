@@ -83,6 +83,9 @@ nanohtml2text = "0.2"
 # Optional Rust-native browser automation backend
 fantoccini = { version = "0.22.1", optional = true, default-features = false, features = ["rustls-tls"] }
 
+# CDP-direct browser backend (chromiumoxide) — connect to Chrome/WAM via CDP WebSocket
+chromiumoxide = { version = "0.9", optional = true, default-features = false }
+
 # Progress bars (update pipeline)
 indicatif = "0.17"
 
@@ -213,7 +216,7 @@ landlock = { version = "0.4", optional = true }
 libc = "0.2"
 
 [features]
-default = ["observability-prometheus", "channel-nostr"]
+default = ["observability-prometheus", "channel-nostr", "browser-cdp"]
 channel-nostr = ["dep:nostr-sdk"]
 hardware = ["nusb", "tokio-serial"]
 channel-matrix = ["dep:matrix-sdk"]
@@ -225,6 +228,8 @@ observability-otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentel
 peripheral-rpi = ["rppal"]
 # Browser backend feature alias used by cfg(feature = "browser-native")
 browser-native = ["dep:fantoccini"]
+# CDP-direct browser backend (chromiumoxide)
+browser-cdp = ["dep:chromiumoxide"]
 # Backward-compatible alias for older invocations
 fantoccini = ["browser-native"]
 # Sandbox feature aliases used by cfg(feature = "sandbox-*")

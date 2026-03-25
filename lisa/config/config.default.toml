@@ -33,7 +33,7 @@ require_pairing = false
 level = "full"
 workspace_only = false
 allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date", "gog", "memo", "remindctl", "jq", "python3", "bash", "sh", "cd", "curl", "luna-send"]
-auto_approve = ["file_read", "memory_recall", "web_fetch", "web_search", "web_search_tool", "skills", "shell"]
+auto_approve = ["file_read", "memory_recall", "web_fetch", "web_search", "web_search_tool", "skills", "shell", "browser", "browser_open"]
 shell_env_passthrough = ["GOG_ACCOUNT", "GOG_KEYRING_PASSWORD", "GOG_KEYRING_BACKEND", "KAKAO_REST_API_KEY", "GOOGLE_MAPS_API_KEY", "NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET"]
 forbidden_paths = []
 max_actions_per_hour = 100
@@ -58,8 +58,17 @@ allow_scripts = true
 
 
 [agent]
-max_tool_iterations = 20
+max_tool_iterations = 100
 parallel_tools = true
+
+[browser]
+enabled = true
+backend = "cdp_direct"
+allowed_domains = ["*"]
+
+[browser.cdp_direct]
+debug_port = 9222
+headless = false
 
 [security.sandbox]
 backend = "none"
