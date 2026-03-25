@@ -4068,6 +4068,9 @@ pub struct ClassificationRule {
     /// Case-sensitive literal matches (for "```", "fn ", etc.).
     #[serde(default)]
     pub patterns: Vec<String>,
+    /// Regex patterns (case-insensitive by default). Matched against the full message.
+    #[serde(default)]
+    pub regex_patterns: Vec<String>,
     /// Only match if message length >= N chars.
     #[serde(default)]
     pub min_length: Option<usize>,

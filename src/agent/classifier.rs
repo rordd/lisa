@@ -1,4 +1,5 @@
 use crate::config::schema::QueryClassificationConfig;
+use regex::Regex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassificationDecision {
@@ -53,8 +54,13 @@ pub fn classify_with_decision(
             .patterns
             .iter()
             .any(|pat: &String| message.contains(pat.as_str()));
+        let regex_hit = rule.regex_patterns.iter().any(|pat| {
+            Regex::new(&format!("(?i){pat}"))
+                .map(|re| re.is_match(message))
+                .unwrap_or(false)
+        });
 
-        if keyword_hit || pattern_hit {
+        if keyword_hit || pattern_hit || regex_hit {
             return Some(ClassificationDecision {
                 hint: rule.hint.clone(),
                 priority: rule.priority,
@@ -186,6 +192,56 @@ mod tests {
             }],
         );
         assert_eq!(classify(&config, "something completely different"), None);
+    }
+
+    #[test]
+    fn regex_pattern_match() {
+        let config = make_config(
+            true,
+            vec![ClassificationRule {
+                hint: "heavy".into(),
+                regex_patterns: vec![r"\d+개.*(만들|생성)".into()],
+                ..Default::default()
+            }],
+        );
+        assert_eq!(
+            classify(&config, "버튼 3개 만들어줘"),
+            Some("heavy".into())
+        );
+        assert_eq!(classify(&config, "날씨 어때"), None);
+    }
+
+    #[test]
+    fn regex_pattern_case_insensitive() {
+        let config = make_config(
+            true,
+            vec![ClassificationRule {
+                hint: "code".into(),
+                regex_patterns: vec![r"python|javascript|rust".into()],
+                ..Default::default()
+            }],
+        );
+        assert_eq!(
+            classify(&config, "Python으로 서버 만들어"),
+            Some("code".into())
+        );
+        assert_eq!(
+            classify(&config, "RUST로 코딩해줘"),
+            Some("code".into())
+        );
+    }
+
+    #[test]
+    fn invalid_regex_does_not_panic() {
+        let config = make_config(
+            true,
+            vec![ClassificationRule {
+                hint: "bad".into(),
+                regex_patterns: vec![r"[invalid".into()],
+                ..Default::default()
+            }],
+        );
+        assert_eq!(classify(&config, "anything"), None);
     }
 
     #[test]
