@@ -1081,6 +1081,7 @@ mod tests {
                     hint: "fast".to_string(),
                     keywords: vec!["quick".to_string()],
                     patterns: vec![],
+                    regex_patterns: vec![],
                     min_length: None,
                     max_length: None,
                     priority: 10,
