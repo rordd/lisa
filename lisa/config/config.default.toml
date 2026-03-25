@@ -66,3 +66,42 @@ backend = "none"
 
 [web_fetch]
 enabled = true
+
+# ── Model Routes (Tier Routing) ──────────────────────────────
+# Route queries to different models based on classification hints.
+# Unmatched queries use the default model (env: ZEROCLAW_MODEL).
+#
+# [[model_routes]]
+# hint = "simple"
+# provider = "custom:https://example.com/openai/v1"
+# model = "gpt-5.4-nano"
+#
+# [[model_routes]]
+# hint = "heavy"
+# provider = "custom:https://example.com/openai/v1"
+# model = "gpt-5.4"
+
+# ── Query Classification ─────────────────────────────────────
+# Classify user messages to select a model route hint.
+# Supports keywords (case-insensitive), patterns (case-sensitive),
+# regex_patterns (case-insensitive), and length constraints.
+#
+# [query_classification]
+# enabled = true
+#
+# [[query_classification.rules]]
+# hint = "simple"
+# regex_patterns = [
+#   "^.{0,20}(weather|날씨|기온).{0,10}$",
+#   "^(hello|hi|안녕|고마워).{0,10}$",
+# ]
+# max_length = 30
+# priority = 50
+#
+# [[query_classification.rules]]
+# hint = "heavy"
+# regex_patterns = [
+#   "browser.*(open|control|automate)",
+#   "(app|server).*(create|build|develop)",
+# ]
+# priority = 80
