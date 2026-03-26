@@ -96,12 +96,8 @@ if [[ -n "$ENV_FILE" ]]; then
     set +a
 fi
 
-# API key check (skip for skills-only)
-if [[ "$SCOPE" != "skills" && "$SCOPE" != "clear" && -z "${ZEROCLAW_API_KEY:-}" && -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
-    echo "ERROR: No API key found (ZEROCLAW_API_KEY or AZURE_OPENAI_API_KEY)"
-    echo "  cp $BASE_DIR/profiles/.env.example .env && edit .env"
-    exit 1
-fi
+# API key check removed — users may use various provider keys
+# (ZEROCLAW_API_KEY, AZURE_OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
 
 # ── Target setup ──
 if [[ -n "$TARGET" ]]; then
