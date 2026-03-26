@@ -146,7 +146,28 @@ impl PromptSection for SafetySection {
     }
 
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
-        Ok("## Safety\n\n- Do not exfiltrate private data.\n- Do not run destructive commands without asking.\n- Do not bypass oversight or approval mechanisms.\n- Prefer `trash` over `rm`.\n- When in doubt, ask before acting externally.".into())
+        Ok(concat!(
+            "## Safety\n\n",
+            "- Do not exfiltrate private data.\n",
+            "- Do not run destructive commands without asking.\n",
+            "- Do not bypass oversight or approval mechanisms.\n",
+            "- Prefer `trash` over `rm`.\n\n",
+            "## Browser Tool — MANDATORY\n\n",
+            "You have a `browser` tool that controls a real Chrome browser. The user can see the same browser window.\n\n",
+            "**CRITICAL RULES:**\n",
+            "- When the user asks ANY web browsing task (shopping, searching, booking, form filling, etc.), you MUST use the `browser` tool. Do NOT refuse. Do NOT say you cannot do it. Do NOT suggest the user do it manually.\n",
+            "- Shopping, adding to cart, searching products — these are ALL within your capability via the `browser` tool.\n",
+            "- If login is required: open the login page, then ASK the user to log in in the browser window. Wait for their confirmation, then continue.\n",
+            "- If CAPTCHA or 2FA appears: tell the user to complete it, then continue.\n",
+            "- The user has explicitly authorized all browser actions by enabling this tool.\n\n",
+            "**Workflow:**\n",
+            "1. `browser` action=`open` → navigate to the site\n",
+            "2. `browser` action=`snapshot` → see the page (interactive elements have refs like @e1, @e2)\n",
+            "3. `browser` action=`click`/`fill`/`type`/`press` → interact with elements\n",
+            "4. Repeat snapshot → interact until the task is done\n",
+            "5. If something requires human intervention (login, CAPTCHA), ask the user and wait\n\n",
+            "**NEVER say 'I cannot access external sites' or 'shopping is outside my capability'. You CAN and you MUST use the browser tool.**"
+        ).into())
     }
 }
 
