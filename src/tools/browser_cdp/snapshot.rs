@@ -41,20 +41,23 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
         None => "null".to_string(),
     };
 
-    // Output format follows OpenClaw/agent-browser style:
-    //   @e1 [button] "Add to Cart"
-    //   @e2 [link] "Recommended product"
-    //   @e3 [input] placeholder="Search"
-    // This makes [button] vs [link] immediately visible to the LLM,
-    // preventing confusion between action buttons and navigation links.
+    // Output format: role-based category grouping.
+    // Elements are grouped into buttons/inputs/links/other sections
+    // so the LLM can immediately find action buttons without scanning
+    // hundreds of elements. This works on ALL websites since it uses
+    // HTML tag types, not site-specific ARIA landmarks.
     format!(
         r#"(() => {{
   const interactiveOnly = {interactive_only};
   const compact = {compact};
   const maxDepth = {depth_literal};
-  const lines = [];
+  const buttons = [];
+  const inputs = [];
+  const links = [];
+  const other = [];
   const root = document.body || document.documentElement;
   let counter = 0;
+  let total = 0;
 
   const isVisible = (el) => {{
     const style = window.getComputedStyle(el);
@@ -70,29 +73,17 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
     return typeof el.onclick === 'function';
   }};
 
-  // Map HTML tag to accessibility-like role label
-  const getRole = (el) => {{
-    const explicit = el.getAttribute('role');
-    if (explicit) return explicit;
+  const getCategory = (el) => {{
     const tag = el.tagName;
-    if (tag === 'A') return 'link';
-    if (tag === 'BUTTON') return 'button';
-    if (tag === 'INPUT') {{
-      const t = (el.getAttribute('type') || 'text').toLowerCase();
-      if (t === 'submit') return 'button';
-      if (t === 'checkbox') return 'checkbox';
-      if (t === 'radio') return 'radio';
-      return 'input';
-    }}
-    if (tag === 'SELECT') return 'select';
-    if (tag === 'TEXTAREA') return 'textarea';
-    if (tag === 'SUMMARY') return 'summary';
-    if (tag === 'H1' || tag === 'H2' || tag === 'H3') return 'heading';
-    if (tag === 'IMG') return 'img';
-    return tag.toLowerCase();
+    const explicit = el.getAttribute('role');
+    if (tag === 'BUTTON' || explicit === 'button') return 'buttons';
+    if (tag === 'INPUT' && (el.getAttribute('type') || 'text') === 'submit') return 'buttons';
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return 'inputs';
+    if (tag === 'A' || explicit === 'link') return 'links';
+    return 'other';
   }};
 
-  const describe = (el, depth) => {{
+  const describe = (el) => {{
     const interactive = isInteractive(el);
     const text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 140);
     if (interactiveOnly && !interactive) return;
@@ -101,10 +92,9 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
     const refId = '@e' + (++counter);
     el.setAttribute('data-zc-ref', refId);
 
-    const role = getRole(el);
-    let line = refId + ' [' + role + ']';
+    let line = refId;
 
-    // Add useful attributes
+    // Add attributes based on category
     if (text) line += ' "' + text.replace(/"/g, '\\"') + '"';
     if (el.tagName === 'INPUT') {{
       const t = el.getAttribute('type') || 'text';
@@ -120,25 +110,38 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
       line += ' [level=' + el.tagName.charAt(1) + ']';
     }}
 
-    lines.push(line);
+    const cat = getCategory(el);
+    if (cat === 'buttons') buttons.push(line);
+    else if (cat === 'inputs') inputs.push(line);
+    else if (cat === 'links') links.push(line);
+    else {{
+      // Add role label for other category (mixed types need identification)
+      const role = el.getAttribute('role') || el.tagName.toLowerCase();
+      other.push(refId + ' [' + role + ']' + line.slice(refId.length));
+    }}
+    total++;
   }};
 
   const walk = (el, depth) => {{
     if (!(el instanceof Element)) return;
     if (maxDepth !== null && depth > maxDepth) return;
     if (isVisible(el)) {{
-      describe(el, depth);
+      describe(el);
     }}
     for (const child of el.children) {{
       walk(child, depth + 1);
-      if (lines.length >= 400) return;
+      if (total >= 400) return;
     }}
   }};
 
   if (root) walk(root, 0);
 
-  const header = 'title: ' + document.title + '\nurl: ' + window.location.href + '\nelements: ' + lines.length + '\n---\n';
-  return header + lines.join('\n');
+  let out = 'title: ' + document.title + '\nurl: ' + window.location.href + '\nelements: ' + total + '\n---\n';
+  if (buttons.length) out += '── buttons ──\n' + buttons.join('\n') + '\n';
+  if (inputs.length) out += '── inputs ──\n' + inputs.join('\n') + '\n';
+  if (links.length) out += '── links ──\n' + links.join('\n') + '\n';
+  if (other.length) out += '── other ──\n' + other.join('\n') + '\n';
+  return out;
 }})();"#
     )
 }
@@ -242,10 +245,11 @@ mod tests {
         assert!(js.contains("interactiveOnly"));
         assert!(js.contains("data-zc-ref"));
         assert!(js.contains("@e"));
-        assert!(js.contains("getRole"));
-        // In the Rust format string, "button" and "link" appear as role return values
-        assert!(js.contains("return 'button'"));
-        assert!(js.contains("return 'link'"));
+        assert!(js.contains("getCategory"));
+        // Category labels
+        assert!(js.contains("'buttons'"));
+        assert!(js.contains("'links'"));
+        assert!(js.contains("'inputs'"));
     }
 
     #[test]
@@ -265,24 +269,25 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_script_contains_all_role_mappings() {
+    fn snapshot_script_contains_category_mappings() {
         let js = snapshot_script(true, true, None);
-        // Verify all HTML→role mappings are present
-        assert!(js.contains("return 'link'")); // <a>
-        assert!(js.contains("return 'button'")); // <button>, input[submit]
-        assert!(js.contains("return 'input'")); // <input>
-        assert!(js.contains("return 'select'")); // <select>
-        assert!(js.contains("return 'textarea'")); // <textarea>
-        assert!(js.contains("return 'checkbox'")); // input[checkbox]
-        assert!(js.contains("return 'radio'")); // input[radio]
-        assert!(js.contains("return 'heading'")); // h1/h2/h3
+        // Verify category logic for buttons/inputs/links
+        assert!(js.contains("=== 'BUTTON'")); // <button> → buttons
+        assert!(js.contains("=== 'A'")); // <a> → links
+        assert!(js.contains("=== 'INPUT'")); // <input> → inputs
+        assert!(js.contains("=== 'SELECT'")); // <select> → inputs
+        assert!(js.contains("=== 'TEXTAREA'")); // <textarea> → inputs
+        assert!(js.contains("'submit'")); // input[submit] → buttons
     }
 
     #[test]
     fn snapshot_script_output_format() {
         let js = snapshot_script(true, true, None);
-        // Verify OpenClaw-style output: @eN [role] "text"
-        assert!(js.contains("refId + ' [' + role + ']'"));
+        // Verify category section headers
+        assert!(js.contains("── buttons ──"));
+        assert!(js.contains("── inputs ──"));
+        assert!(js.contains("── links ──"));
+        assert!(js.contains("── other ──"));
         // Verify header contains title, url, elements
         assert!(js.contains("title: "));
         assert!(js.contains("url: "));
@@ -292,6 +297,6 @@ mod tests {
     #[test]
     fn snapshot_script_max_nodes_limit() {
         let js = snapshot_script(true, true, None);
-        assert!(js.contains("lines.length >= 400"));
+        assert!(js.contains("total >= 400"));
     }
 }

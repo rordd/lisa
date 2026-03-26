@@ -30,7 +30,7 @@ LLM Agent → BrowserTool (browser.rs) → resolve_backend()
 src/tools/browser_cdp/
 ├── mod.rs        — CdpBackendState: connection management, action dispatch
 ├── launcher.rs   — BrowserLauncher trait, ChromeLauncher, WamLauncher
-└── snapshot.rs   — DOM snapshot (OpenClaw-style [role] labels for LLM)
+└── snapshot.rs   — DOM snapshot (role-based category grouping for LLM)
 ```
 
 ## Key Design Decisions
@@ -46,28 +46,34 @@ page.evaluate("window.location.href = 'https://...'")
 ### Single-tab Workflow
 
 Links with `target="_blank"` are rewritten to `target="_self"` before clicking.
+`window.open()` is overridden to navigate in the current tab instead of opening new tabs.
 All navigation happens in the same tab, avoiding complex multi-tab management
 that chromiumoxide doesn't handle well.
 
-### OpenClaw-style Snapshot Format
+### Role-based Category Snapshot Format
+
+Elements are grouped by category so the LLM can immediately find action
+buttons without scanning hundreds of elements:
 
 ```
 title: 해찬들 맛있는 재래식 된장 | 쿠팡
 url: https://www.coupang.com/vp/products/8359528092
 elements: 52
 ---
-@e1 [link] "판매자 가입" href="/vendor-signup"
-@e2 [input] placeholder="검색" [type=text]
+── buttons ──
+@e4 "장바구니 담기"
+@e5 "바로구매"
+── inputs ──
+@e2 [type=text] placeholder="검색"
+── links ──
+@e1 "판매자 가입" href="/vendor-signup"
+@e7 "곰곰 순두부 400g"
+── other ──
 @e3 [heading] "해찬들 맛있는 재래식 된장, 3kg" [level=1]
-@e4 [button] "장바구니 담기"
-@e5 [button] "바로구매"
-@e6 [heading] "함께 구매하면 좋은 상품" [level=2]
-@e7 [link] "곰곰 순두부 400g"
 ```
 
-`[button]` vs `[link]` role labels let the LLM immediately distinguish
-action buttons from navigation links. This prevents the LLM from clicking
-recommended product links instead of the cart button.
+Category grouping works on ALL websites (uses HTML tag types, not site-specific landmarks).
+The LLM looks in `buttons` for actions, `inputs` for fields, `links` for navigation.
 
 ## Connection Flow
 
@@ -82,8 +88,10 @@ recommended product links instead of the cart button.
        ↓
 2. Browser::connect(ws_url) → (Browser, Handler)
 3. tokio::spawn(handler) → background CDP event processing
-4. navigator.webdriver override (anti-bot)
-5. Store browser + handler_task
+4. Select active page (retry once if chromiumoxide hasn't discovered targets yet)
+5. Navigate chrome:// → about:blank (anti-bot: avoid chrome:// origin headers)
+6. Apply overrides: navigator.webdriver + window.open
+7. Store browser + handler_task + page
 ```
 
 ## Anti-Bot Measures
@@ -92,6 +100,9 @@ recommended product links instead of the cart button.
 - **Minimal Chrome flags** — no `--disable-gpu`, `--disable-sync`, etc.
 - **No custom User-Agent** — use Chrome's built-in UA (no version mismatch)
 - **`navigator.webdriver` override** — set to `undefined` after each navigation
+- **`window.open` override** — redirects new tab opens to current tab navigation
+- **Page caching** — `active_page()` returns cached page, avoids CDP `Target.getTargets` calls during browsing
+- **`chrome://` → `about:blank`** — navigating from `chrome://newtab` triggers bot detection; initial page is moved to `about:blank` first
 - **Wayland/X11 auto-detection** — Chrome opens as visible window for user interaction
 - **Persistent profile** — cookies/login survive across restarts
 
@@ -113,7 +124,7 @@ We handle this with:
 3. Record URL before click
 4. Click element
 5. Detect if URL changed (navigation occurred)
-6. If navigation: wait for readyState + DOM stabilization
+6. If navigation: re-apply overrides (webdriver + window.open) + wait for readyState + DOM stabilization
 7. Auto-snapshot for LLM
 
 ## Dual Platform Support

@@ -32,6 +32,7 @@ pub struct CdpBackendState {
     browser: Option<Browser>,
     handler_task: Option<JoinHandle<()>>,
     launcher: Option<Box<dyn BrowserLauncher>>,
+    page: Option<Page>,
     config: BrowserCdpDirectConfig,
 }
 
@@ -41,6 +42,7 @@ impl CdpBackendState {
             browser: None,
             handler_task: None,
             launcher: None,
+            page: None,
             config,
         }
     }
@@ -53,6 +55,7 @@ impl CdpBackendState {
                 warn!("CDP handler task finished unexpectedly — reconnecting");
                 self.browser = None;
                 self.handler_task = None;
+                self.page = None;
             }
         }
 
@@ -128,47 +131,76 @@ impl CdpBackendState {
             }
         });
 
-        // Override navigator.webdriver to prevent bot detection.
-        // Many sites (Coupang, etc.) check this property and serve
-        // different content to automated browsers.
+        // Select the active page once at connect time (before any site loads).
+        // This avoids calling browser.pages() during browsing, which triggers
+        // CDP Target.getTargets and can be detected as automation.
+        let mut page_opt: Option<Page> = None;
+
+        // Try to use Chrome's existing page
         if let Ok(pages) = browser.pages().await {
-            for page in &pages {
-                let _ = page
-                    .evaluate(
-                        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
-                    )
-                    .await;
+            page_opt = pages.into_iter().next();
+        }
+
+        // If chromiumoxide hasn't discovered pages yet, wait and retry once
+        if page_opt.is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            if let Ok(pages) = browser.pages().await {
+                page_opt = pages.into_iter().next();
             }
+        }
+
+        // Last resort: create a new page
+        if page_opt.is_none() {
+            page_opt = Some(
+                browser
+                    .new_page("about:blank")
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to create page: {e}"))?,
+            );
+        }
+
+        // Navigate to about:blank if the page is on a chrome:// URL.
+        // Navigating from chrome://newtab to external sites sends different
+        // headers that trigger bot detection on sites like Coupang.
+        if let Some(ref page) = page_opt {
+            let current_url: String = page
+                .evaluate("window.location.href")
+                .await
+                .map(|v| v.into_value().unwrap_or_default())
+                .unwrap_or_default();
+            if current_url.starts_with("chrome://") || current_url.is_empty() {
+                let _ = page.evaluate("window.location.href = 'about:blank'").await;
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
+
+            // Override navigator.webdriver
+            let _ = page
+                .evaluate(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
+                )
+                .await;
+            // Override window.open to navigate in current tab instead of opening new tab.
+            // This enforces single-tab workflow and prevents sites from opening popups.
+            let _ = page
+                .evaluate(
+                    "window.open = function(url) { if (url) window.location.href = url; return window; }",
+                )
+                .await;
         }
 
         self.browser = Some(browser);
         self.handler_task = Some(handler_task);
+        self.page = page_opt;
         Ok(())
     }
 
-    /// Get the active page (first page from browser).
-    async fn active_page(&self) -> Result<Page> {
-        let browser = self
-            .browser
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No browser connection"))?;
-
-        let pages = browser
-            .pages()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get pages: {e}"))?;
-
-        if pages.is_empty() {
-            // Create a new page if none exist
-            let page = browser
-                .new_page("about:blank")
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to create new page: {e}"))?;
-            return Ok(page);
-        }
-
-        // Return the last page (most recently opened)
-        Ok(pages.into_iter().last().unwrap())
+    /// Get the active page — returns the page selected at connect time.
+    /// Does NOT call browser.pages() to avoid CDP Target.getTargets calls
+    /// that can be detected as automation by anti-bot systems.
+    fn active_page(&self) -> Result<Page> {
+        self.page
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("No active page"))
     }
 
     /// Execute a browser action.
@@ -198,7 +230,7 @@ impl CdpBackendState {
     #[allow(clippy::too_many_lines)]
     async fn execute_action_inner(&mut self, action: BrowserAction) -> Result<ToolResult> {
         let timeout_ms = self.config.timeout_ms;
-        let page = self.active_page().await?;
+        let page = self.active_page()?;
 
         match action {
             BrowserAction::Open { url } => {
@@ -210,10 +242,15 @@ impl CdpBackendState {
                     .await
                     .map_err(|e| anyhow::anyhow!("Navigation failed: {e}"))?;
 
-                // Re-apply webdriver override after navigation
+                // Re-apply overrides after navigation (page context resets)
                 let _ = page
                     .evaluate(
                         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
+                    )
+                    .await;
+                let _ = page
+                    .evaluate(
+                        "window.open = function(url) { if (url) window.location.href = url; return window; }",
                     )
                     .await;
 
@@ -405,10 +442,15 @@ impl CdpBackendState {
                     // Navigation happened — wait for page load + DOM stabilize
                     debug!(from = %url_before, to = %url_after, "Click triggered navigation");
 
-                    // Re-apply webdriver override on the new page
+                    // Re-apply overrides on the new page (context resets after navigation)
                     let _ = page
                         .evaluate(
                             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
+                        )
+                        .await;
+                    let _ = page
+                        .evaluate(
+                            "window.open = function(url) { if (url) window.location.href = url; return window; }",
                         )
                         .await;
 

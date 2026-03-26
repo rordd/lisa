@@ -957,12 +957,25 @@ impl Tool for BrowserTool {
 
     fn description(&self) -> &str {
         concat!(
-            "Open and interact with web pages in a real browser. The user can see the same browser window. ",
-            "Use 'open' to navigate to URLs, 'snapshot' to see page content with clickable refs (@e1, @e2), ",
-            "then 'click', 'fill', 'type', 'press' to interact. If login or authentication is needed, ",
-            "ask the user to complete it in the browser window, then continue. ",
-            "Supports: open, snapshot, click, fill, type, get_text, get_title, get_url, screenshot, ",
-            "wait, press, hover, scroll, is_visible, close, find."
+            "Open and interact with web pages in a real browser. The user can see the same browser window.\n",
+            "\n",
+            "WORKFLOW:\n",
+            "1. open → navigate to URL\n",
+            "2. Read snapshot sections to find elements:\n",
+            "   - 'buttons' → action buttons (add to cart, buy, submit, confirm)\n",
+            "   - 'inputs' → text fields, search boxes, dropdowns\n",
+            "   - 'links' → navigation links (product listings, categories)\n",
+            "   - 'other' → misc interactive elements (tabs, etc.)\n",
+            "3. click/fill/type → interact using @eN refs from snapshot\n",
+            "4. If login needed → ask user to log in via browser window, then continue\n",
+            "\n",
+            "RULES:\n",
+            "- After adding to cart on a detail page → use 'open' to go back to search results for next item\n",
+            "- Do NOT click recommended/related product links — they are irrelevant to the task\n",
+            "- Use 'find' with by='text' to locate buttons by label when ref is unclear\n",
+            "\n",
+            "ACTIONS: open, snapshot, click, fill, type, get_text, get_title, get_url, ",
+            "screenshot, wait, press, hover, scroll, is_visible, close, find."
         )
     }
 
@@ -1977,8 +1990,9 @@ fn parse_browser_action(action_str: &str, args: &Value) -> anyhow::Result<Browse
                 .ok_or_else(|| anyhow::anyhow!("Missing 'value' for find"))?;
             let action = args
                 .get("find_action")
+                .or_else(|| args.get("action_type"))
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'find_action' for find"))?;
+                .unwrap_or("click");
             Ok(BrowserAction::Find {
                 by: by.into(),
                 value: value.into(),
