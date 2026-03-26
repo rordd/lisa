@@ -191,6 +191,11 @@ BINARY_PATH=""
 if [[ "$DO_BUILD" == true ]]; then
     echo "[Build]"
     cd "$REPO_DIR"
+    # Deploy builds use codegen-units=1 + LTO for smallest binary size.
+    # These are NOT set in Cargo.toml so `cargo build --release` stays fast (multi-CPU).
+    export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+    export CARGO_PROFILE_RELEASE_LTO=fat
+
     if [[ -n "$TARGET" ]]; then
         echo "  Cross-compiling for ARM64 (musl/static)..."
         if command -v cross &>/dev/null && (command -v docker &>/dev/null || command -v podman &>/dev/null); then
@@ -203,9 +208,23 @@ if [[ "$DO_BUILD" == true ]]; then
         fi
         BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw"
     else
-        echo "  Building from source..."
-        cargo build --release
-        BINARY_PATH="$REPO_DIR/target/release/zeroclaw"
+        # Local build: detect host arch and build with musl static target
+        HOST_ARCH=$(uname -m)
+        case "$HOST_ARCH" in
+            x86_64)  MUSL_TARGET="x86_64-unknown-linux-musl" ;;
+            aarch64) MUSL_TARGET="aarch64-unknown-linux-musl" ;;
+            *)       MUSL_TARGET="" ;;
+        esac
+
+        if [[ -n "$MUSL_TARGET" ]] && rustup target list --installed 2>/dev/null | grep -q "$MUSL_TARGET"; then
+            echo "  Building static binary ($MUSL_TARGET)..."
+            cargo build --release --target "$MUSL_TARGET"
+            BINARY_PATH="$REPO_DIR/target/$MUSL_TARGET/release/zeroclaw"
+        else
+            echo "  Building from source..."
+            cargo build --release
+            BINARY_PATH="$REPO_DIR/target/release/zeroclaw"
+        fi
     fi
     echo "  Build complete"
     echo ""
@@ -235,8 +254,12 @@ install_binary() {
         BINARY_PATH="$BASE_DIR/zeroclaw"  # bundle
     elif [[ -n "$TARGET" && -f "$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw" ]]; then
         BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw"  # cross-build for ARM64 (musl/static)
+    elif [[ -f "$REPO_DIR/target/x86_64-unknown-linux-musl/release/zeroclaw" ]]; then
+        BINARY_PATH="$REPO_DIR/target/x86_64-unknown-linux-musl/release/zeroclaw"  # local musl build (x86_64)
+    elif [[ -f "$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw" && -z "$TARGET" ]]; then
+        BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw"  # local musl build (aarch64)
     elif [[ -f "$REPO_DIR/target/release/zeroclaw" ]]; then
-        BINARY_PATH="$REPO_DIR/target/release/zeroclaw"  # local build
+        BINARY_PATH="$REPO_DIR/target/release/zeroclaw"  # local GNU build (fallback)
     elif command -v zeroclaw &>/dev/null; then
         BINARY_PATH="$(command -v zeroclaw)"
     else
