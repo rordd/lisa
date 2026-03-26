@@ -64,13 +64,61 @@ Lisa/ZeroClaw ──HTTP POST──► 사이드카 서버 (localhost:8787)
 | 입력 방식 | 마우스 + 키보드 | 사이드카 위임 | **포인터 + 리모컨 키** |
 | 해상도 | 1024×768 (기본) | 설정 가능 | **1920×1080 (4K 가능)** |
 
-## 1.4 Lisa의 차별점
+## 1.4 Claude Computer Use와의 비교
+
+Claude Computer Use는 Anthropic이 만든 스크린샷 기반 데스크톱 제어 API. Lisa L3의 직접적인 참고 대상.
+
+### 구조 차이
 
 ```
-Claude Computer Use:  데스크톱 VM 안에서 브라우저 자동화
-ZeroClaw:             사이드카 패턴으로 외부 위임, 자체 구현 없음
-Lisa:                 PC에서 개발 → TV로 이식. 에이전트 루프 내장.
+[Claude Computer Use]
+호출자(개발자) ──API──► Claude API (beta)
+    │                    └── tool_use: { action: "left_click", coordinate: [245, 380] }
+    ▼
+호출자가 직접 실행 + 루프 구현 (while stop_reason == "tool_use")
+
+[Lisa L3]
+사용자 ──텔레그램──► Lisa
+                      └── 내장 에이전트 루프 (capture → LLM → action → repeat)
+```
+
+### 상세 비교
+
+| | **Claude Computer Use** | **Lisa L3** |
+|---|---|---|
+| **루프 주체** | **호출자가 구현** (API 클라이언트) | **Lisa가 내장** |
+| **Tool 정의** | Anthropic 고유 (`computer_20251124`) | 표준 MCP tool (`tv_snapshot`, `tv_input`) |
+| **모델 종속** | **Claude 전용** (beta header 필요) | **모델 무관** (Claude, Gemini, 로컬 등) |
+| **Tool 형태** | 특수 타입 (API가 스크린샷 자동 요청) | 일반 function tool |
+| **보조 tool** | bash, text_editor (내장) | L1(appMCP), L2(CDP) — **3계층 폴백** |
+| **대상 환경** | VM/컨테이너 (데스크톱) | **PC + TV (webOS)** |
+| **스크린샷 전달** | tool_result에 base64 | tool_result에 base64 (동일) |
+| **zoom (영역 확대)** | ✅ (v20251124) | ROI 크롭으로 유사 구현 |
+| **프롬프트 인젝션** | 내장 classifier (자동) | 시스템 프롬프트 방어 (수동) |
+
+### Lisa의 구조적 장점
+
+1. **모델 독립** — Claude CU는 Claude 전용. Lisa는 단순 확인은 Gemini Flash($0.005), 복잡한 건 Sonnet으로 자동 전환
+2. **3계층 폴백** — Claude CU는 항상 스크린샷. Lisa는 L1(API)→L2(DOM)→L3(스크린샷). 대부분 L1/L2에서 해결되니 L3는 최후 수단
+3. **루프 내장** — Claude CU는 호출자가 while 루프 짜야 함. Lisa는 "넷플릭스에서 오징어게임 틀어" 한마디면 끝
+4. **TV 네이티브** — Claude CU는 VM 안 데스크톱 가정. Lisa는 매직 리모컨, 가상 키보드, luna-send API 직접 지원
+
+### Claude CU에서 빌려올 설계
+
+1. **좌표 스케일링** — 1024×768로 리사이즈해서 전송. 토큰 절약 + Anthropic이 이 해상도로 학습
+2. **zoom 패턴** — 작은 요소 → 영역 확대 → 정확도 향상. Lisa의 ROI 크롭과 동일 개념
+3. **프롬프트 인젝션 방어** — 화면 텍스트가 LLM 지시를 오버라이드하는 공격. classifier 또는 격리 프롬프트 필요
+4. **에이전트 루프 구조** — [레퍼런스 구현](https://github.com/anthropics/anthropic-quickstarts/tree/main/computer-use-demo) 참고
+
+## 1.5 Lisa의 차별점
+
+```
+Claude Computer Use:  Claude 전용. 호출자가 루프 구현. VM 데스크톱 대상.
+OpenClaw:             L3 없음. 브라우저 안에서만 동작 (Playwright).
+ZeroClaw:             사이드카 패턴으로 외부 위임, 에이전트 루프 없음.
+Lisa:                 모델 무관. 루프 내장. PC→TV 이식.
                       L1(appMCP) + L2(CDP) 실패 시 L3 자동 진입.
+                      셋 중 유일하게 Vision 에이전트 루프를 내장 구현.
 ```
 
 ---
@@ -408,7 +456,7 @@ TV는 마우스가 아니라 **매직 리모컨 포인터**다:
 
 ---
 
-_v2.0 — 2026-03-27_
+_v3.0 — 2026-03-27_
 _3부 구성: 비교 / 동작 상세 / 문제점 및 방향_
 _Claude Computer Use + ZeroClaw upstream 분석 기반_
 _ScreenController trait로 PC→TV 이식 최소 변경 설계_
