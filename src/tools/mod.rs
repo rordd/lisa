@@ -476,13 +476,26 @@ pub fn all_tools_with_runtime(
     // screen_control enabled → screen_snapshot + screen_input 등록, screenshot 제외
     // screen_control disabled → 기존 screenshot 등록
     if root_config.screen_control.enabled {
-        use screen_control::{
-            mac::MacScreenController,
-            tool::{ScreenInputTool, ScreenSnapshotTool},
-        };
-        let controller = std::sync::Arc::new(MacScreenController::new(
-            root_config.screen_control.resize_width,
-        ));
+        use screen_control::tool::{ScreenInputTool, ScreenSnapshotTool};
+
+        let controller: std::sync::Arc<dyn screen_control::ScreenController> =
+            match root_config.screen_control.backend.as_str() {
+                "mac" => {
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        tracing::error!("screen_control backend='mac' is only available on macOS");
+                        panic!("screen_control backend='mac' requires macOS");
+                    }
+                    #[cfg(target_os = "macos")]
+                    std::sync::Arc::new(screen_control::mac::MacScreenController::new(
+                        root_config.screen_control.resize_width,
+                    ))
+                }
+                other => {
+                    tracing::error!("screen_control backend='{other}' is not implemented yet");
+                    panic!("screen_control backend='{other}' is not implemented");
+                }
+            };
         tool_arcs.push(Arc::new(ScreenSnapshotTool::new(
             controller.clone(),
             root_config.screen_control.resize_width,

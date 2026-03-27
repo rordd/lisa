@@ -220,7 +220,8 @@ impl Tool for ScreenInputTool {
                 Ok(format!("dragged ({from_x},{from_y}) → ({to_x},{to_y})"))
             }
             "wait" => {
-                let ms = args.get("ms").and_then(Value::as_u64).unwrap_or(500);
+                const MAX_WAIT_MS: u64 = 10_000;
+                let ms = args.get("ms").and_then(Value::as_u64).unwrap_or(500).min(MAX_WAIT_MS);
                 tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
                 Ok(format!("waited {ms}ms"))
             }

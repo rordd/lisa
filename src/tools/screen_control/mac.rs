@@ -85,9 +85,18 @@ impl MacScreenController {
 impl ScreenController for MacScreenController {
     async fn capture(&self, resize_width: Option<u32>) -> Result<CaptureResult> {
         let target_width = resize_width.unwrap_or(self.default_resize_width);
-        let pid = std::process::id();
-        let png = format!("/tmp/lisa_snap_{pid}.png");
-        let jpg = format!("/tmp/lisa_snap_{pid}.jpg");
+        let png_tmp = tempfile::Builder::new()
+            .prefix("lisa_snap_")
+            .suffix(".png")
+            .tempfile()
+            .context("failed to create temp png")?;
+        let jpg_tmp = tempfile::Builder::new()
+            .prefix("lisa_snap_")
+            .suffix(".jpg")
+            .tempfile()
+            .context("failed to create temp jpg")?;
+        let png = png_tmp.path().to_string_lossy().to_string();
+        let jpg = jpg_tmp.path().to_string_lossy().to_string();
 
         // 1. 캡처 (-x: 소리 없음)
         self.run("screencapture", &["-x", &png]).await?;
@@ -125,9 +134,9 @@ impl ScreenController for MacScreenController {
         let file_size = bytes.len() as u64;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
-        // 7. 정리
-        let _ = tokio::fs::remove_file(&png).await;
-        let _ = tokio::fs::remove_file(&jpg).await;
+        // 7. 정리 — tempfile이 drop 시 자동 삭제, 명시적으로도 해둠
+        drop(png_tmp);
+        drop(jpg_tmp);
 
         let scale_x = if resized_w > 0 {
             orig_w as f64 / resized_w as f64
@@ -212,18 +221,22 @@ impl ScreenController for MacScreenController {
             "pageup" => 116,
             "pagedown" => 121,
             _ => {
-                // 단일 문자는 keystroke로 fallback
-                self.run(
-                    "osascript",
-                    &[
-                        "-e",
-                        &format!(
-                            "tell application \"System Events\" to keystroke \"{key}\""
-                        ),
-                    ],
-                )
-                .await?;
-                return Ok(());
+                // 단일 ASCII 영숫자/기호만 허용 — injection 방지
+                let ch = key.chars().next();
+                if key.len() == 1 && ch.map_or(false, |c| c.is_ascii_graphic()) {
+                    self.run(
+                        "osascript",
+                        &[
+                            "-e",
+                            &format!(
+                                "tell application \"System Events\" to keystroke \"{key}\""
+                            ),
+                        ],
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                anyhow::bail!("unsupported key: {key}");
             }
         };
         self.key_code(code).await

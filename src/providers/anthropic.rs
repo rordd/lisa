@@ -713,34 +713,44 @@ impl Provider for AnthropicProvider {
         })?;
 
         let is_setup = Self::is_setup_token(credential);
-        let system = if is_setup {
-            // Prepend Claude Code identity for setup-token auth
+
+        // setup-token auth: system must be a blocks array (plain string causes 400)
+        // Regular API key: plain string is fine
+        let system_value: Option<serde_json::Value> = if is_setup {
             let identity = Self::CLAUDE_CODE_IDENTITY;
-            Some(match system_prompt {
-                Some(sp) => format!("{identity}\n\n{sp}"),
-                None => identity.to_string(),
-            })
+            let mut blocks = vec![serde_json::json!({
+                "type": "text",
+                "text": identity
+            })];
+            if let Some(sp) = system_prompt {
+                if !sp.trim().is_empty() {
+                    blocks.push(serde_json::json!({
+                        "type": "text",
+                        "text": sp
+                    }));
+                }
+            }
+            Some(serde_json::Value::Array(blocks))
         } else {
-            system_prompt.map(ToString::to_string)
+            system_prompt.map(|s| serde_json::Value::String(s.to_string()))
         };
 
-        let request = ChatRequest {
-            model: model.to_string(),
-            max_tokens: 4096,
-            system,
-            messages: vec![Message {
-                role: "user".to_string(),
-                content: message.to_string(),
-            }],
-            temperature,
-        };
+        let mut body = serde_json::json!({
+            "model": model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": message}],
+            "temperature": temperature,
+        });
+        if let Some(sys) = system_value {
+            body["system"] = sys;
+        }
 
         let mut request = self
             .http_client()
             .post(format!("{}/v1/messages", self.base_url))
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
-            .json(&request);
+            .json(&body);
 
         request = self.apply_auth(request, credential);
 
