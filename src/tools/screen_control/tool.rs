@@ -160,8 +160,8 @@ impl Tool for ScreenInputTool {
                              "type", "key", "scroll", "drag", "wait"],
                     "description": "수행할 액션"
                 },
-                "x": { "type": "integer", "description": "X 좌표 (click/double_click/right_click/move/drag 시)" },
-                "y": { "type": "integer", "description": "Y 좌표 (click/double_click/right_click/move/drag 시)" },
+                "x": { "type": "integer", "description": "X 좌표 (click/double_click/right_click/move/scroll 시, 이미지 좌표)" },
+                "y": { "type": "integer", "description": "Y 좌표 (click/double_click/right_click/move/scroll 시, 이미지 좌표)" },
                 "text": { "type": "string", "description": "입력 텍스트 (type 시) 또는 키 이름 (key 시)" },
                 "direction": {
                     "type": "string",
@@ -251,7 +251,19 @@ impl Tool for ScreenInputTool {
                 let amount = args
                     .get("amount")
                     .and_then(Value::as_u64)
-                    .unwrap_or(3) as u32;
+                    .unwrap_or(5) as u32;
+                // x,y 지정 시 해당 위치로 먼저 이동 (미지정 시 화면 중앙)
+                if let (Some(ix), Some(iy)) = (
+                    args.get("x").and_then(Value::as_i64),
+                    args.get("y").and_then(Value::as_i64),
+                ) {
+                    let (sx, sy) = self.to_screen_coords(ix as i32, iy as i32).await;
+                    self.controller.move_cursor(sx, sy).await?;
+                } else {
+                    // 화면 중앙으로 이동
+                    let (w, h) = self.controller.resolution();
+                    self.controller.move_cursor(w as i32 / 2, h as i32 / 2).await?;
+                }
                 self.controller.scroll(dir, amount).await?;
                 Ok(format!("scrolled {dir} {amount}"))
             }
