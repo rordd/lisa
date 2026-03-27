@@ -90,6 +90,25 @@ struct ImageSource {
     data: String,
 }
 
+/// Content block allowed inside a tool_result (text or image only).
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum ToolResultBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image { source: ImageSource },
+}
+
+/// `content` field of a tool_result block: plain string or array of blocks.
+/// The array form is required when the result contains images.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum ToolResultContent {
+    Text(String),
+    Blocks(Vec<ToolResultBlock>),
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "type")]
 enum NativeContentOut {
@@ -112,7 +131,7 @@ enum NativeContentOut {
     #[serde(rename = "tool_result")]
     ToolResult {
         tool_use_id: String,
-        content: String,
+        content: ToolResultContent,
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
@@ -347,14 +366,73 @@ impl AnthropicProvider {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("")
             .to_string();
+        let content = Self::parse_tool_result_content(&result);
         Some(NativeMessage {
             role: "user".to_string(),
             content: vec![NativeContentOut::ToolResult {
                 tool_use_id,
-                content: result,
+                content,
                 cache_control: None,
             }],
         })
+    }
+
+    /// Split a tool result string into a `ToolResultContent`.
+    ///
+    /// Lines that start with `data:image/` are extracted as `Image` blocks;
+    /// the remaining text (if any) becomes a `Text` block.  When no image
+    /// lines are present the original string is returned as-is via the plain
+    /// `Text` variant so that the serialised payload is unchanged.
+    fn parse_tool_result_content(result: &str) -> ToolResultContent {
+        if !result.lines().any(|l| l.trim_start().starts_with("data:image/")) {
+            return ToolResultContent::Text(result.to_string());
+        }
+
+        let mut blocks: Vec<ToolResultBlock> = Vec::new();
+        let mut text_lines: Vec<&str> = Vec::new();
+
+        for line in result.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("data:image/") {
+                // Flush accumulated text before this image.
+                if !text_lines.is_empty() {
+                    let text = text_lines.join("\n");
+                    if !text.trim().is_empty() {
+                        blocks.push(ToolResultBlock::Text { text });
+                    }
+                    text_lines.clear();
+                }
+                // Parse the data URI.
+                if let Some(comma) = trimmed.find(',') {
+                    let header = &trimmed[5..comma]; // strip "data:"
+                    let mime = header.split(';').next().unwrap_or("image/jpeg").to_string();
+                    let data = trimmed[comma + 1..].trim().to_string();
+                    blocks.push(ToolResultBlock::Image {
+                        source: ImageSource {
+                            source_type: "base64".to_string(),
+                            media_type: mime,
+                            data,
+                        },
+                    });
+                }
+            } else {
+                text_lines.push(line);
+            }
+        }
+
+        // Flush any trailing text.
+        if !text_lines.is_empty() {
+            let text = text_lines.join("\n");
+            if !text.trim().is_empty() {
+                blocks.push(ToolResultBlock::Text { text });
+            }
+        }
+
+        if blocks.is_empty() {
+            ToolResultContent::Text(result.to_string())
+        } else {
+            ToolResultContent::Blocks(blocks)
+        }
     }
 
     /// Claude Code identity prefix required for setup-token auth.
@@ -1151,7 +1229,7 @@ mod tests {
     fn native_content_tool_result_with_cache_control() {
         let content = NativeContentOut::ToolResult {
             tool_use_id: "tool_123".to_string(),
-            content: "Result data".to_string(),
+            content: ToolResultContent::Text("Result data".to_string()),
             cache_control: Some(CacheControl::ephemeral()),
         };
         let json = serde_json::to_string(&content).unwrap();
@@ -1292,7 +1370,7 @@ mod tests {
             role: "user".to_string(),
             content: vec![NativeContentOut::ToolResult {
                 tool_use_id: "tool_123".to_string(),
-                content: "Result".to_string(),
+                content: ToolResultContent::Text("Result".to_string()),
                 cache_control: None,
             }],
         }];
@@ -1858,5 +1936,77 @@ mod tests {
                 window[0].role
             );
         }
+    }
+
+    // --- parse_tool_result_content / vision tests ---
+
+    #[test]
+    fn tool_result_content_plain_text_unchanged() {
+        let result = AnthropicProvider::parse_tool_result_content("hello world");
+        let json = serde_json::to_string(&result).unwrap();
+        // Plain string serialisation — no array wrapper.
+        assert_eq!(json, r#""hello world""#);
+    }
+
+    #[test]
+    fn tool_result_content_with_image_produces_blocks() {
+        let input = "before\ndata:image/png;base64,abc123\nafter";
+        let result = AnthropicProvider::parse_tool_result_content(input);
+        let json = serde_json::to_value(&result).unwrap();
+        let arr = json.as_array().expect("expected array");
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[0]["text"], "before");
+        assert_eq!(arr[1]["type"], "image");
+        assert_eq!(arr[1]["source"]["media_type"], "image/png");
+        assert_eq!(arr[1]["source"]["data"], "abc123");
+        assert_eq!(arr[2]["type"], "text");
+        assert_eq!(arr[2]["text"], "after");
+    }
+
+    #[test]
+    fn tool_result_content_image_only() {
+        let input = "data:image/jpeg;base64,/9j/xyz";
+        let result = AnthropicProvider::parse_tool_result_content(input);
+        let json = serde_json::to_value(&result).unwrap();
+        let arr = json.as_array().expect("expected array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "image");
+        assert_eq!(arr[0]["source"]["media_type"], "image/jpeg");
+        assert_eq!(arr[0]["source"]["data"], "/9j/xyz");
+    }
+
+    #[test]
+    fn parse_tool_result_message_with_image_builds_vision_blocks() {
+        let payload = serde_json::json!({
+            "tool_call_id": "id-1",
+            "content": "data:image/png;base64,iVBORw0KGgo"
+        })
+        .to_string();
+
+        let msg = AnthropicProvider::parse_tool_result_message(&payload).unwrap();
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content.len(), 1);
+        let json = serde_json::to_value(&msg.content[0]).unwrap();
+        assert_eq!(json["type"], "tool_result");
+        assert_eq!(json["tool_use_id"], "id-1");
+        let blocks = json["content"].as_array().expect("expected blocks array");
+        assert_eq!(blocks[0]["type"], "image");
+        assert_eq!(blocks[0]["source"]["data"], "iVBORw0KGgo");
+    }
+
+    #[test]
+    fn parse_tool_result_message_plain_uses_string_content() {
+        let payload = serde_json::json!({
+            "tool_call_id": "id-2",
+            "content": "just text"
+        })
+        .to_string();
+
+        let msg = AnthropicProvider::parse_tool_result_message(&payload).unwrap();
+        let json = serde_json::to_value(&msg.content[0]).unwrap();
+        // Plain text — content must be a JSON string, not an array.
+        assert!(json["content"].is_string(), "content should be a plain string");
+        assert_eq!(json["content"], "just text");
     }
 }
