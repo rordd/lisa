@@ -203,7 +203,6 @@ if [[ "$DO_BUILD" == true ]]; then
         else
             CC_aarch64_unknown_linux_musl=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc \
             AR_aarch64_unknown_linux_musl=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-ar \
-            CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc \
                 cargo build --release --target aarch64-unknown-linux-musl
         fi
         BINARY_PATH="$REPO_DIR/target/aarch64-unknown-linux-musl/release/zeroclaw"
