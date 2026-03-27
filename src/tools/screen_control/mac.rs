@@ -177,6 +177,7 @@ impl ScreenController for MacScreenController {
     }
 
     async fn type_text(&self, text: &str) -> Result<()> {
+        // ⚠️ 사이드이펙트: 시스템 클립보드를 덮어씀
         // 클립보드에 넣고 Cmd+V — IME 없이 한글 포함 모든 텍스트 입력 가능
         let mut child = tokio::process::Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
@@ -272,7 +273,25 @@ impl ScreenController for MacScreenController {
     }
 
     fn resolution(&self) -> (u32, u32) {
-        // TODO: system_profiler SPDisplaysDataType 파싱 또는 NSScreen API
-        (2560, 1600)
+        // capture() 결과의 orig_width/orig_height가 실제 해상도이므로
+        // 이 함수는 힌트용 — capture 전 대략적 해상도 제공
+        // system_profiler 파싱은 느리고 복잡하므로 screencapture로 직접 측정
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            if let Ok(result) = rt.block_on(async {
+                let tmp = tempfile::Builder::new()
+                    .prefix("lisa_res_")
+                    .suffix(".png")
+                    .tempfile()?;
+                let path = tmp.path().to_string_lossy().to_string();
+                tokio::process::Command::new("screencapture")
+                    .args(&["-x", &path])
+                    .output()
+                    .await?;
+                self.sips_dimensions(&path).await
+            }) {
+                return result;
+            }
+        }
+        (2560, 1600) // fallback
     }
 }

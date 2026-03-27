@@ -106,7 +106,8 @@ impl Tool for ScreenInputTool {
 
     fn description(&self) -> &str {
         "화면에 입력을 보낸다 (클릭, 텍스트 입력, 키 입력, 스크롤, 드래그). \
-        좌표는 screen_snapshot의 scale_x/scale_y를 곱한 실제 화면 좌표를 사용할 것."
+        좌표는 screen_snapshot의 scale_x/scale_y를 곱한 실제 화면 좌표를 사용할 것. \
+        주의: type 액션은 시스템 클립보드를 덮어쓴다."
     }
 
     fn parameters_schema(&self) -> Value {

@@ -2489,17 +2489,22 @@ pub struct ScreenControlConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// 플랫폼 백엔드: "mac" | "linux" (기본 "mac")
-    #[serde(default = "default_screen_control_backend")]
-    pub backend: String,
+    /// 플랫폼 백엔드
+    #[serde(default)]
+    pub backend: ScreenControlBackend,
 
     /// 캡처 이미지 리사이즈 폭 (기본 1024, 0이면 원본)
     #[serde(default = "default_screen_control_resize_width")]
     pub resize_width: u32,
 }
 
-fn default_screen_control_backend() -> String {
-    "mac".to_string()
+/// 지원 플랫폼 백엔드
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScreenControlBackend {
+    #[default]
+    Mac,
+    Linux,
 }
 
 fn default_screen_control_resize_width() -> u32 {
@@ -2510,7 +2515,7 @@ impl Default for ScreenControlConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            backend: default_screen_control_backend(),
+            backend: ScreenControlBackend::default(),
             resize_width: default_screen_control_resize_width(),
         }
     }

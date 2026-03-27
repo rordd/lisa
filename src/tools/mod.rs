@@ -479,8 +479,8 @@ pub fn all_tools_with_runtime(
         use screen_control::tool::{ScreenInputTool, ScreenSnapshotTool};
 
         let controller: std::sync::Arc<dyn screen_control::ScreenController> =
-            match root_config.screen_control.backend.as_str() {
-                "mac" => {
+            match root_config.screen_control.backend {
+                crate::config::ScreenControlBackend::Mac => {
                     #[cfg(not(target_os = "macos"))]
                     {
                         tracing::error!("screen_control backend='mac' is only available on macOS");
@@ -491,9 +491,9 @@ pub fn all_tools_with_runtime(
                         root_config.screen_control.resize_width,
                     ))
                 }
-                other => {
-                    tracing::error!("screen_control backend='{other}' is not implemented yet");
-                    panic!("screen_control backend='{other}' is not implemented");
+                crate::config::ScreenControlBackend::Linux => {
+                    tracing::error!("screen_control backend='linux' is not implemented yet");
+                    panic!("screen_control backend='linux' is not implemented");
                 }
             };
         tool_arcs.push(Arc::new(ScreenSnapshotTool::new(
