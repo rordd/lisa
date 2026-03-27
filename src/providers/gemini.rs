@@ -1003,6 +1003,35 @@ impl GeminiProvider {
         })
     }
 
+    /// Extract `data:image/…` lines from a tool result string.
+    ///
+    /// Returns `(text_without_images, image_parts)`.  When no image lines are
+    /// present the original string is returned unchanged and the vec is empty.
+    fn extract_tool_result_images(content: &str) -> (String, Vec<Part>) {
+        if !content
+            .lines()
+            .any(|l| l.trim_start().starts_with("data:image/"))
+        {
+            return (content.to_string(), vec![]);
+        }
+
+        let mut text_lines: Vec<&str> = Vec::new();
+        let mut image_parts: Vec<Part> = Vec::new();
+
+        for line in content.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("data:image/") {
+                if let Some(inline_data) = Self::parse_inline_image_marker(trimmed) {
+                    image_parts.push(Part::InlineData { inline_data });
+                }
+            } else {
+                text_lines.push(line);
+            }
+        }
+
+        (text_lines.join("\n"), image_parts)
+    }
+
     fn build_user_parts(content: &str) -> Vec<Part> {
         let (cleaned_text, image_refs) = multimodal::parse_image_markers(content);
         if image_refs.is_empty() {
@@ -1459,15 +1488,20 @@ impl Provider for GeminiProvider {
                             .get("content")
                             .and_then(|v| v.as_str())
                             .unwrap_or(&msg.content);
-                        let response_val = serde_json::json!({ "result": content });
+                        // Extract any base64 images embedded in the tool result.
+                        let (text_content, image_parts) =
+                            Self::extract_tool_result_images(content);
+                        let response_val = serde_json::json!({ "result": text_content });
+                        let mut parts = vec![Part::FunctionResponse {
+                            function_response: FunctionResponseData {
+                                name: name.to_string(),
+                                response: response_val,
+                            },
+                        }];
+                        parts.extend(image_parts);
                         contents.push(Content {
                             role: Some("user".to_string()),
-                            parts: vec![Part::FunctionResponse {
-                                function_response: FunctionResponseData {
-                                    name: name.to_string(),
-                                    response: response_val,
-                                },
-                            }],
+                            parts,
                         });
                     } else {
                         // Fallback: wrap raw content as function response
@@ -2482,5 +2516,53 @@ mod tests {
         let result = provider.warmup().await;
         // Should succeed without making HTTP requests
         assert!(result.is_ok());
+    }
+
+    // --- extract_tool_result_images tests ---
+
+    #[test]
+    fn extract_tool_result_images_plain_text_unchanged() {
+        let (text, parts) = GeminiProvider::extract_tool_result_images("hello world");
+        assert_eq!(text, "hello world");
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn extract_tool_result_images_image_only() {
+        let input = "data:image/png;base64,abc123";
+        let (text, parts) = GeminiProvider::extract_tool_result_images(input);
+        assert_eq!(text, "");
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            Part::InlineData { inline_data } => {
+                assert_eq!(inline_data.mime_type, "image/png");
+                assert_eq!(inline_data.data, "abc123");
+            }
+            _ => panic!("expected InlineData part"),
+        }
+    }
+
+    #[test]
+    fn extract_tool_result_images_mixed_content() {
+        let input = "before\ndata:image/jpeg;base64,/9j/xyz\nafter";
+        let (text, parts) = GeminiProvider::extract_tool_result_images(input);
+        assert_eq!(text, "before\nafter");
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            Part::InlineData { inline_data } => {
+                assert_eq!(inline_data.mime_type, "image/jpeg");
+                assert_eq!(inline_data.data, "/9j/xyz");
+            }
+            _ => panic!("expected InlineData part"),
+        }
+    }
+
+    #[test]
+    fn extract_tool_result_images_multiple_images() {
+        let input =
+            "data:image/png;base64,img1\nsome text\ndata:image/webp;base64,img2";
+        let (text, parts) = GeminiProvider::extract_tool_result_images(input);
+        assert_eq!(text, "some text");
+        assert_eq!(parts.len(), 2);
     }
 }
