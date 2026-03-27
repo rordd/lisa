@@ -67,16 +67,17 @@ impl MacScreenController {
 
     /// osascript key code 전송
     async fn key_code(&self, code: u16) -> Result<()> {
-        self.run(
-            "osascript",
-            &[
-                "-e",
-                &format!(
-                    "tell application \"System Events\" to key code {code}"
-                ),
-            ],
-        )
-        .await?;
+        // CGEvent key via swift — accessibility 권한 불필요
+        let swift_code = format!(
+            r#"import CoreGraphics
+let src = CGEventSource(stateID: .hidSystemState)
+if let down = CGEvent(keyboardEventSource: src, virtualKey: {code}, keyDown: true),
+   let up = CGEvent(keyboardEventSource: src, virtualKey: {code}, keyDown: false) {{
+    down.post(tap: .cghidEventTap)
+    up.post(tap: .cghidEventTap)
+}}"#
+        );
+        self.run("swift", &["-e", &swift_code]).await?;
         Ok(())
     }
 }
@@ -225,16 +226,22 @@ impl ScreenController for MacScreenController {
                 // 단일 ASCII 영숫자/기호만 허용 — injection 방지
                 let ch = key.chars().next();
                 if key.len() == 1 && ch.map_or(false, |c| c.is_ascii_graphic()) {
-                    self.run(
-                        "osascript",
-                        &[
-                            "-e",
-                            &format!(
-                                "tell application \"System Events\" to keystroke \"{key}\""
-                            ),
-                        ],
-                    )
-                    .await?;
+                    let c = ch.unwrap();
+                    // swift CGEvent keystroke — accessibility 권한 불필요
+                    let swift_code = format!(
+                        r#"import CoreGraphics
+let src = CGEventSource(stateID: .hidSystemState)
+if let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
+   let up = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false) {{
+    let ch: UniChar = {u32}
+    down.keyboardSetUnicodeString(stringLength: 1, unicodeString: [ch])
+    up.keyboardSetUnicodeString(stringLength: 1, unicodeString: [ch])
+    down.post(tap: .cghidEventTap)
+    up.post(tap: .cghidEventTap)
+}}"#,
+                        u32 = c as u32
+                    );
+                    self.run("swift", &["-e", &swift_code]).await?;
                     return Ok(());
                 }
                 anyhow::bail!("unsupported key: {key}");
@@ -244,14 +251,21 @@ impl ScreenController for MacScreenController {
     }
 
     async fn scroll(&self, direction: &str, amount: u32) -> Result<()> {
-        let prefix = match direction.to_ascii_lowercase().as_str() {
-            "up" => "su",
-            "down" => "sd",
-            "left" => "sl",
-            "right" => "sr",
+        // CGEvent scroll via swift CLI — accessibility 권한 불필요
+        let (wheel1, wheel2) = match direction.to_ascii_lowercase().as_str() {
+            "down" => (-(amount as i32), 0),
+            "up" => (amount as i32, 0),
+            "left" => (0, amount as i32),
+            "right" => (0, -(amount as i32)),
             _ => anyhow::bail!("unknown scroll direction: {direction}"),
         };
-        self.run("cliclick", &[&format!("{prefix}:{amount}")]).await?;
+        let swift_code = format!(
+            r#"import CoreGraphics
+if let e = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: {wheel1}, wheel2: {wheel2}, wheel3: 0) {{
+    e.post(tap: .cghidEventTap)
+}}"#
+        );
+        self.run("swift", &["-e", &swift_code]).await?;
         Ok(())
     }
 
