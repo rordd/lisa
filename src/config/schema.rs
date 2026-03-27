@@ -351,6 +351,12 @@ pub struct Config {
     /// LinkedIn integration configuration (`[linkedin]`).
     #[serde(default)]
     pub linkedin: LinkedInConfig,
+
+    /// Screen control configuration (`[screen_control]`).
+    /// enabled=true 시 screen_snapshot + screen_input 툴 등록.
+    /// screenshot 툴과 exclusive — 둘 중 하나만 활성화.
+    #[serde(default)]
+    pub screen_control: ScreenControlConfig,
 }
 
 /// Multi-client workspace isolation configuration.
@@ -2474,6 +2480,40 @@ impl Default for LinkedInConfig {
 
 fn default_linkedin_api_version() -> String {
     "202602".to_string()
+}
+
+/// Screen control configuration (`[screen_control]`)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ScreenControlConfig {
+    /// true이면 screen_snapshot + screen_input 툴 등록 (screenshot 툴 비활성화)
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// 플랫폼 백엔드: "mac" | "linux" (기본 "mac")
+    #[serde(default = "default_screen_control_backend")]
+    pub backend: String,
+
+    /// 캡처 이미지 리사이즈 폭 (기본 1024, 0이면 원본)
+    #[serde(default = "default_screen_control_resize_width")]
+    pub resize_width: u32,
+}
+
+fn default_screen_control_backend() -> String {
+    "mac".to_string()
+}
+
+fn default_screen_control_resize_width() -> u32 {
+    1024
+}
+
+impl Default for ScreenControlConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            backend: default_screen_control_backend(),
+            resize_width: default_screen_control_resize_width(),
+        }
+    }
 }
 
 /// Content strategy configuration for LinkedIn auto-posting (`[linkedin.content]`).
@@ -6120,6 +6160,7 @@ impl Default for Config {
             node_transport: NodeTransportConfig::default(),
             knowledge: KnowledgeConfig::default(),
             linkedin: LinkedInConfig::default(),
+            screen_control: ScreenControlConfig::default(),
         }
     }
 }
@@ -8745,6 +8786,7 @@ default_temperature = 0.7
             node_transport: NodeTransportConfig::default(),
             knowledge: KnowledgeConfig::default(),
             linkedin: LinkedInConfig::default(),
+            screen_control: ScreenControlConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -9081,6 +9123,7 @@ tool_dispatcher = "xml"
             node_transport: NodeTransportConfig::default(),
             knowledge: KnowledgeConfig::default(),
             linkedin: LinkedInConfig::default(),
+            screen_control: ScreenControlConfig::default(),
         };
 
         config.save().await.unwrap();

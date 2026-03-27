@@ -196,6 +196,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         node_transport: crate::config::NodeTransportConfig::default(),
         knowledge: crate::config::KnowledgeConfig::default(),
         linkedin: crate::config::LinkedInConfig::default(),
+        screen_control: crate::config::ScreenControlConfig::default(),
     };
 
     println!(
@@ -573,6 +574,7 @@ async fn run_quick_setup_with_home(
         node_transport: crate::config::NodeTransportConfig::default(),
         knowledge: crate::config::KnowledgeConfig::default(),
         linkedin: crate::config::LinkedInConfig::default(),
+        screen_control: crate::config::ScreenControlConfig::default(),
     };
 
     config.save().await?;

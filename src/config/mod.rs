@@ -21,11 +21,12 @@ pub use schema::{
     ObservabilityConfig, OpenAiSttConfig, OpenAiTtsConfig, OpenVpnTunnelConfig, OtpConfig,
     OtpMethod, PeripheralBoardConfig, PeripheralsConfig, ProjectIntelConfig, ProxyConfig,
     ProxyScope, QdrantConfig, QueryClassificationConfig, ReliabilityConfig, ResourceLimitsConfig,
-    RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig,
-    SecurityOpsConfig, SkillsConfig, SkillsPromptInjectionMode, SlackConfig, StorageConfig,
-    StorageProviderConfig, StorageProviderSection, StreamMode, SwarmConfig, SwarmStrategy,
-    TelegramConfig, ToolFilterGroup, ToolFilterGroupMode, TranscriptionConfig, TtsConfig,
-    TunnelConfig, WasmConfig, WebFetchConfig, WebSearchConfig, WebhookConfig, WorkspaceConfig,
+    RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig, ScreenControlConfig,
+    SecretsConfig, SecurityConfig, SecurityOpsConfig, SkillsConfig, SkillsPromptInjectionMode,
+    SlackConfig, StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
+    SwarmConfig, SwarmStrategy, TelegramConfig, ToolFilterGroup, ToolFilterGroupMode,
+    TranscriptionConfig, TtsConfig, TunnelConfig, WasmConfig, WebFetchConfig, WebSearchConfig,
+    WebhookConfig, WorkspaceConfig,
 };
 
 pub fn name_and_presence<T: traits::ChannelConfig>(channel: Option<&T>) -> (&'static str, bool) {

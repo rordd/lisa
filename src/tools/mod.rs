@@ -71,6 +71,7 @@ pub mod respond;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
+pub mod screen_control;
 pub mod security_ops;
 pub mod shell;
 pub mod swarm;
@@ -472,8 +473,24 @@ pub fn all_tools_with_runtime(
     // PDF extraction (feature-gated at compile time via rag-pdf)
     tool_arcs.push(Arc::new(PdfReadTool::new(security.clone())));
 
-    // Vision tools are always available
-    tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
+    // screen_control enabled → screen_snapshot + screen_input 등록, screenshot 제외
+    // screen_control disabled → 기존 screenshot 등록
+    if root_config.screen_control.enabled {
+        use screen_control::{
+            mac::MacScreenController,
+            tool::{ScreenInputTool, ScreenSnapshotTool},
+        };
+        let controller = std::sync::Arc::new(MacScreenController::new(
+            root_config.screen_control.resize_width,
+        ));
+        tool_arcs.push(Arc::new(ScreenSnapshotTool::new(
+            controller.clone(),
+            root_config.screen_control.resize_width,
+        )));
+        tool_arcs.push(Arc::new(ScreenInputTool::new(controller)));
+    } else {
+        tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
+    }
     tool_arcs.push(Arc::new(ImageInfoTool::new(security.clone())));
 
     // LinkedIn integration (config-gated)
