@@ -60,20 +60,43 @@ title: 해찬들 맛있는 재래식 된장 | 쿠팡
 url: https://www.coupang.com/vp/products/8359528092
 elements: 52
 ---
+── text ──
+@e3 [h1] "해찬들 맛있는 재래식 된장, 3kg"
+@e15 [h2] "상품 정보"
+@e30 [h2] "추천 상품"
 ── buttons ──
 @e4 "장바구니 담기"
-@e5 "바로구매"
+@e5 "바로구매" [disabled]
 ── inputs ──
 @e2 [type=text] placeholder="검색"
+@e11 [type=number] value="1" [readonly]
 ── links ──
-@e1 "판매자 가입" href="/vendor-signup"
-@e7 "곰곰 순두부 400g"
+@e1 "판매자 가입"
+@e7 "곰곰 순두부 400g" [추천 상품]
 ── other ──
-@e3 [heading] "해찬들 맛있는 재래식 된장, 3kg" [level=1]
+@e20 [alert] "로그인이 필요합니다"
+@e25 [tab] "상품정보"
 ```
 
-Category grouping works on ALL websites (uses HTML tag types, not site-specific landmarks).
-The LLM looks in `buttons` for actions, `inputs` for fields, `links` for navigation.
+**Categories:**
+- `text` — headings (h1-h6) for page structure. Always included even in interactive-only mode.
+- `buttons` — action buttons (`<button>`, `input[submit]`, `role="button"`).
+- `inputs` — form fields (`<input>`, `<select>`, `<textarea>`).
+- `links` — navigation links (`<a>`, `role="link"`). Includes `[section]` context from nearest heading.
+- `other` — alerts (`role="alert"`/`role="status"`), tabs, misc interactive elements.
+
+**Element state:** `[disabled]`, `[checked]`, `[readonly]`, `[selected]` — prevents LLM from clicking inactive elements.
+
+**Link context:** Each link shows its nearest heading text in `[brackets]`, so the LLM can distinguish
+"추천 상품" links from "검색 결과" links without site-specific logic.
+
+**Interactive detection:** Elements are considered interactive if they match:
+1. Standard tags: `a`, `button`, `input`, `select`, `textarea`, `summary`
+2. ARIA: `[role]`, `[tabindex]`
+3. JS handler: `el.onclick`
+4. CSS: `cursor: pointer` — catches role-less `<div>` click targets (~85% coverage)
+
+Category grouping works on ALL websites (uses HTML tag types and standard attributes).
 
 ## Connection Flow
 

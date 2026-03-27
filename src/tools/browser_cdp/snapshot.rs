@@ -51,6 +51,7 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
   const interactiveOnly = {interactive_only};
   const compact = {compact};
   const maxDepth = {depth_literal};
+  const textNodes = [];
   const buttons = [];
   const inputs = [];
   const links = [];
@@ -58,6 +59,7 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
   const root = document.body || document.documentElement;
   let counter = 0;
   let total = 0;
+  let lastHeading = '';
 
   const isVisible = (el) => {{
     const style = window.getComputedStyle(el);
@@ -70,7 +72,16 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
 
   const isInteractive = (el) => {{
     if (el.matches('a,button,input,select,textarea,summary,[role],*[tabindex]')) return true;
-    return typeof el.onclick === 'function';
+    if (typeof el.onclick === 'function') return true;
+    if (window.getComputedStyle(el).cursor === 'pointer') return true;
+    return false;
+  }};
+
+  const isHeading = (el) => /^H[1-6]$/.test(el.tagName);
+
+  const isAlertOrStatus = (el) => {{
+    const role = el.getAttribute('role');
+    return role === 'alert' || role === 'status';
   }};
 
   const getCategory = (el) => {{
@@ -83,18 +94,55 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
     return 'other';
   }};
 
+  const getState = (el) => {{
+    const states = [];
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') states.push('disabled');
+    if (el.checked || el.getAttribute('aria-checked') === 'true') states.push('checked');
+    if (el.readOnly || el.getAttribute('aria-readonly') === 'true') states.push('readonly');
+    if (el.getAttribute('aria-selected') === 'true') states.push('selected');
+    return states;
+  }};
+
   const describe = (el) => {{
     const interactive = isInteractive(el);
+    const heading = isHeading(el);
+    const alertStatus = isAlertOrStatus(el);
     const text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 140);
-    if (interactiveOnly && !interactive) return;
-    if (compact && !interactive && !text) return;
+
+    // Track current heading for link context
+    if (heading && text) {{
+      lastHeading = text.slice(0, 40);
+    }}
+
+    // Include headings and alerts even in interactive-only mode
+    if (interactiveOnly && !interactive && !heading && !alertStatus) return;
+    if (compact && !interactive && !heading && !alertStatus && !text) return;
 
     const refId = '@e' + (++counter);
     el.setAttribute('data-zc-ref', refId);
 
     let line = refId;
 
-    // Add attributes based on category
+    // Heading: add level tag
+    if (heading) {{
+      line += ' [h' + el.tagName.charAt(1) + ']';
+      if (text) line += ' "' + text.replace(/"/g, '\\"') + '"';
+      textNodes.push(line);
+      total++;
+      return;
+    }}
+
+    // Alert/status: add role
+    if (alertStatus) {{
+      const role = el.getAttribute('role');
+      line += ' [' + role + ']';
+      if (text) line += ' "' + text.replace(/"/g, '\\"') + '"';
+      other.push(line);
+      total++;
+      return;
+    }}
+
+    // Regular element
     if (text) line += ' "' + text.replace(/"/g, '\\"') + '"';
     if (el.tagName === 'INPUT') {{
       const t = el.getAttribute('type') || 'text';
@@ -106,16 +154,21 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
       const href = el.getAttribute('href') || '';
       if (href.length < 80) line += ' href="' + href + '"';
     }}
-    if (el.tagName === 'H1' || el.tagName === 'H2' || el.tagName === 'H3') {{
-      line += ' [level=' + el.tagName.charAt(1) + ']';
-    }}
+
+    // Add element state (disabled, checked, readonly)
+    const states = getState(el);
+    if (states.length) line += ' [' + states.join(',') + ']';
 
     const cat = getCategory(el);
-    if (cat === 'buttons') buttons.push(line);
-    else if (cat === 'inputs') inputs.push(line);
-    else if (cat === 'links') links.push(line);
-    else {{
-      // Add role label for other category (mixed types need identification)
+    if (cat === 'buttons') {{
+      buttons.push(line);
+    }} else if (cat === 'inputs') {{
+      inputs.push(line);
+    }} else if (cat === 'links') {{
+      // Add nearest heading context for links
+      if (lastHeading) line += ' [' + lastHeading + ']';
+      links.push(line);
+    }} else {{
       const role = el.getAttribute('role') || el.tagName.toLowerCase();
       other.push(refId + ' [' + role + ']' + line.slice(refId.length));
     }}
@@ -137,6 +190,7 @@ fn snapshot_script(interactive_only: bool, compact: bool, depth: Option<i64>) ->
   if (root) walk(root, 0);
 
   let out = 'title: ' + document.title + '\nurl: ' + window.location.href + '\nelements: ' + total + '\n---\n';
+  if (textNodes.length) out += '── text ──\n' + textNodes.join('\n') + '\n';
   if (buttons.length) out += '── buttons ──\n' + buttons.join('\n') + '\n';
   if (inputs.length) out += '── inputs ──\n' + inputs.join('\n') + '\n';
   if (links.length) out += '── links ──\n' + links.join('\n') + '\n';
@@ -246,10 +300,13 @@ mod tests {
         assert!(js.contains("data-zc-ref"));
         assert!(js.contains("@e"));
         assert!(js.contains("getCategory"));
+        assert!(js.contains("getState"));
+        assert!(js.contains("isHeading"));
         // Category labels
         assert!(js.contains("'buttons'"));
         assert!(js.contains("'links'"));
         assert!(js.contains("'inputs'"));
+        assert!(js.contains("textNodes"));
     }
 
     #[test]
@@ -284,6 +341,7 @@ mod tests {
     fn snapshot_script_output_format() {
         let js = snapshot_script(true, true, None);
         // Verify category section headers
+        assert!(js.contains("── text ──"));
         assert!(js.contains("── buttons ──"));
         assert!(js.contains("── inputs ──"));
         assert!(js.contains("── links ──"));
@@ -292,6 +350,22 @@ mod tests {
         assert!(js.contains("title: "));
         assert!(js.contains("url: "));
         assert!(js.contains("elements: "));
+    }
+
+    #[test]
+    fn snapshot_script_includes_state_detection() {
+        let js = snapshot_script(true, true, None);
+        assert!(js.contains("disabled"));
+        assert!(js.contains("checked"));
+        assert!(js.contains("readOnly"));
+        assert!(js.contains("aria-disabled"));
+    }
+
+    #[test]
+    fn snapshot_script_includes_heading_context_for_links() {
+        let js = snapshot_script(true, true, None);
+        assert!(js.contains("lastHeading"));
+        assert!(js.contains("isHeading"));
     }
 
     #[test]
