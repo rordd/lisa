@@ -194,9 +194,9 @@ impl Tool for ScreenInputTool {
             }
             "key" => {
                 let key = args
-                    .get("text")
+                    .get("key")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow::anyhow!("missing 'text' (key name)"))?;
+                    .ok_or_else(|| anyhow::anyhow!("missing 'key'"))?;
                 self.controller.press_key(key).await?;
                 Ok(format!("pressed key: {key}"))
             }
