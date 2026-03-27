@@ -496,11 +496,13 @@ pub fn all_tools_with_runtime(
                     panic!("screen_control backend='linux' is not implemented");
                 }
             };
+        let scale = screen_control::tool::new_scale_handle();
         tool_arcs.push(Arc::new(ScreenSnapshotTool::new(
             controller.clone(),
             root_config.screen_control.resize_width,
+            scale.clone(),
         )));
-        tool_arcs.push(Arc::new(ScreenInputTool::new(controller)));
+        tool_arcs.push(Arc::new(ScreenInputTool::new(controller, scale)));
     } else {
         tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
     }

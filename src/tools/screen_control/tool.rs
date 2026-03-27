@@ -1,23 +1,51 @@
 //! LLM용 Tool 구현 — screen_snapshot + screen_input
+//!
+//! LLM은 이미지 좌표를 그대로 전달하면 tool 내부에서 scale 변환.
 
 use super::ScreenController;
 use crate::tools::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use tokio::sync::RwLock;
+
+/// 마지막 캡처의 scale 정보 (snapshot ↔ input 공유)
+#[derive(Debug, Clone)]
+pub(crate) struct ScaleInfo {
+    scale_x: f64,
+    scale_y: f64,
+}
+
+impl Default for ScaleInfo {
+    fn default() -> Self {
+        Self {
+            scale_x: 1.0,
+            scale_y: 1.0,
+        }
+    }
+}
+
+/// scale 공유를 위한 핸들
+pub type ScaleHandle = Arc<RwLock<ScaleInfo>>;
+
+pub fn new_scale_handle() -> ScaleHandle {
+    Arc::new(RwLock::new(ScaleInfo::default()))
+}
 
 // ── screen_snapshot ──────────────────────────────────────────────
 
 pub struct ScreenSnapshotTool {
     controller: Arc<dyn ScreenController>,
     default_width: u32,
+    scale: ScaleHandle,
 }
 
 impl ScreenSnapshotTool {
-    pub fn new(controller: Arc<dyn ScreenController>, default_width: u32) -> Self {
+    pub fn new(controller: Arc<dyn ScreenController>, default_width: u32, scale: ScaleHandle) -> Self {
         Self {
             controller,
             default_width,
+            scale,
         }
     }
 }
@@ -30,9 +58,9 @@ impl Tool for ScreenSnapshotTool {
 
     fn description(&self) -> &str {
         "화면을 캡처하여 현재 상태를 시각적으로 확인한다. \
-        JPEG 이미지(base64)와 해상도·스케일 정보를 리턴한다. \
+        JPEG 이미지(base64)와 해상도 정보를 리턴한다. \
         좌표 기반 조작 전에 반드시 먼저 호출할 것. \
-        리턴된 scale_x/scale_y를 이미지 좌표에 곱하면 실제 화면 좌표가 된다."
+        screen_input에 전달하는 좌표는 이 이미지에서 보이는 좌표 그대로 사용하면 된다 (자동 변환됨)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -58,16 +86,20 @@ impl Tool for ScreenSnapshotTool {
 
         match self.controller.capture(width).await {
             Ok(result) => {
+                // scale 저장 — screen_input이 자동 변환에 사용
+                {
+                    let mut s = self.scale.write().await;
+                    s.scale_x = result.scale_x;
+                    s.scale_y = result.scale_y;
+                }
                 let text = format!(
-                    "Screenshot: {}x{} (original: {}x{}, scale_x: {:.4}, scale_y: {:.4}, size: {} bytes)\n\
-                    Coordinates in this image × scale = actual screen coordinates.\n\
+                    "Screenshot: {}x{} (original: {}x{}, size: {} bytes)\n\
+                    Use coordinates as seen in this image — they will be automatically converted to screen coordinates.\n\
                     {}",
                     result.resized_width,
                     result.resized_height,
                     result.orig_width,
                     result.orig_height,
-                    result.scale_x,
-                    result.scale_y,
                     result.file_size_bytes,
                     result.data_uri,
                 );
@@ -90,11 +122,18 @@ impl Tool for ScreenSnapshotTool {
 
 pub struct ScreenInputTool {
     controller: Arc<dyn ScreenController>,
+    scale: ScaleHandle,
 }
 
 impl ScreenInputTool {
-    pub fn new(controller: Arc<dyn ScreenController>) -> Self {
-        Self { controller }
+    pub fn new(controller: Arc<dyn ScreenController>, scale: ScaleHandle) -> Self {
+        Self { controller, scale }
+    }
+
+    /// 이미지 좌표 → 실제 화면 좌표
+    async fn to_screen_coords(&self, x: i32, y: i32) -> (i32, i32) {
+        let s = self.scale.read().await;
+        ((x as f64 * s.scale_x).round() as i32, (y as f64 * s.scale_y).round() as i32)
     }
 }
 
@@ -106,7 +145,7 @@ impl Tool for ScreenInputTool {
 
     fn description(&self) -> &str {
         "화면에 입력을 보낸다 (클릭, 텍스트 입력, 키 입력, 스크롤, 드래그). \
-        좌표는 screen_snapshot의 scale_x/scale_y를 곱한 실제 화면 좌표를 사용할 것. \
+        좌표는 screen_snapshot 이미지에서 보이는 좌표를 그대로 사용 (자동으로 실제 화면 좌표로 변환됨). \
         주의: type 액션은 시스템 클립보드를 덮어쓴다."
     }
 
@@ -165,24 +204,28 @@ impl Tool for ScreenInputTool {
 
         let result: anyhow::Result<String> = match action {
             "click" => {
-                let (x, y) = get_xy(&args)?;
+                let (ix, iy) = get_xy(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.click(x, y).await?;
-                Ok(format!("clicked ({x}, {y})"))
+                Ok(format!("clicked image({ix},{iy}) → screen({x},{y})"))
             }
             "double_click" => {
-                let (x, y) = get_xy(&args)?;
+                let (ix, iy) = get_xy(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.double_click(x, y).await?;
-                Ok(format!("double_clicked ({x}, {y})"))
+                Ok(format!("double_clicked image({ix},{iy}) → screen({x},{y})"))
             }
             "right_click" => {
-                let (x, y) = get_xy(&args)?;
+                let (ix, iy) = get_xy(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.right_click(x, y).await?;
-                Ok(format!("right_clicked ({x}, {y})"))
+                Ok(format!("right_clicked image({ix},{iy}) → screen({x},{y})"))
             }
             "move" => {
-                let (x, y) = get_xy(&args)?;
+                let (ix, iy) = get_xy(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.move_cursor(x, y).await?;
-                Ok(format!("moved cursor to ({x}, {y})"))
+                Ok(format!("moved cursor image({ix},{iy}) → screen({x},{y})"))
             }
             "type" => {
                 let text = args
@@ -213,12 +256,14 @@ impl Tool for ScreenInputTool {
                 Ok(format!("scrolled {dir} {amount}"))
             }
             "drag" => {
-                let from_x = args.get("from_x").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'from_x'"))? as i32;
-                let from_y = args.get("from_y").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'from_y'"))? as i32;
-                let to_x = args.get("to_x").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'to_x'"))? as i32;
-                let to_y = args.get("to_y").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'to_y'"))? as i32;
-                self.controller.drag((from_x, from_y), (to_x, to_y)).await?;
-                Ok(format!("dragged ({from_x},{from_y}) → ({to_x},{to_y})"))
+                let ifx = args.get("from_x").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'from_x'"))? as i32;
+                let ify = args.get("from_y").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'from_y'"))? as i32;
+                let itx = args.get("to_x").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'to_x'"))? as i32;
+                let ity = args.get("to_y").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'to_y'"))? as i32;
+                let (fx, fy) = self.to_screen_coords(ifx, ify).await;
+                let (tx, ty) = self.to_screen_coords(itx, ity).await;
+                self.controller.drag((fx, fy), (tx, ty)).await?;
+                Ok(format!("dragged image({ifx},{ify})→({itx},{ity}) screen({fx},{fy})→({tx},{ty})"))
             }
             "wait" => {
                 const MAX_WAIT_MS: u64 = 10_000;
@@ -276,45 +321,63 @@ mod tests {
         fn resolution(&self) -> (u32, u32) { (2560, 1600) }
     }
 
+    fn make_tools() -> (ScreenSnapshotTool, ScreenInputTool) {
+        let ctrl = Arc::new(MockController);
+        let scale = new_scale_handle();
+        (
+            ScreenSnapshotTool::new(ctrl.clone(), 1024, scale.clone()),
+            ScreenInputTool::new(ctrl, scale),
+        )
+    }
+
     #[test]
     fn snapshot_tool_name() {
-        let tool = ScreenSnapshotTool::new(Arc::new(MockController), 1024);
-        assert_eq!(tool.name(), "screen_snapshot");
+        let (snap, _) = make_tools();
+        assert_eq!(snap.name(), "screen_snapshot");
     }
 
     #[test]
     fn input_tool_name() {
-        let tool = ScreenInputTool::new(Arc::new(MockController));
-        assert_eq!(tool.name(), "screen_input");
+        let (_, input) = make_tools();
+        assert_eq!(input.name(), "screen_input");
     }
 
     #[tokio::test]
     async fn snapshot_returns_data_uri() {
-        let tool = ScreenSnapshotTool::new(Arc::new(MockController), 1024);
-        let result = tool.execute(json!({})).await.unwrap();
+        let (snap, _) = make_tools();
+        let result = snap.execute(json!({})).await.unwrap();
         assert!(result.success);
         assert!(result.output.contains("data:image/jpeg;base64,"));
-        assert!(result.output.contains("scale_x"));
+    }
+
+    #[tokio::test]
+    async fn snapshot_updates_scale() {
+        let (snap, input) = make_tools();
+        snap.execute(json!({})).await.unwrap();
+        // MockController returns 2560/1024=2.5 scale
+        let (sx, sy) = input.to_screen_coords(100, 100).await;
+        assert_eq!(sx, 250);
+        assert_eq!(sy, 250);
     }
 
     #[tokio::test]
     async fn input_click_ok() {
-        let tool = ScreenInputTool::new(Arc::new(MockController));
-        let result = tool.execute(json!({"action": "click", "x": 100, "y": 200})).await.unwrap();
+        let (_, input) = make_tools();
+        let result = input.execute(json!({"action": "click", "x": 100, "y": 200})).await.unwrap();
         assert!(result.success);
     }
 
     #[tokio::test]
     async fn input_missing_action_fails() {
-        let tool = ScreenInputTool::new(Arc::new(MockController));
-        let result = tool.execute(json!({})).await.unwrap();
+        let (_, input) = make_tools();
+        let result = input.execute(json!({})).await.unwrap();
         assert!(!result.success);
     }
 
     #[tokio::test]
     async fn input_wait_ok() {
-        let tool = ScreenInputTool::new(Arc::new(MockController));
-        let result = tool.execute(json!({"action": "wait", "ms": 10})).await.unwrap();
+        let (_, input) = make_tools();
+        let result = input.execute(json!({"action": "wait", "ms": 10})).await.unwrap();
         assert!(result.success);
     }
 }
