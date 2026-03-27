@@ -12,9 +12,15 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "link-arg=-static"]
 
+# aarch64 musl: clang + mold for cross-build
 [target.aarch64-unknown-linux-musl]
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "link-arg=-static"]
+rustflags = [
+    "-C", "link-arg=-fuse-ld=mold",
+    "-C", "link-arg=--target=aarch64-linux-musl",
+    "-C", "link-arg=--sysroot=/usr/local/aarch64-linux-musl-cross/aarch64-linux-musl",
+    "-C", "link-arg=-static",
+]
 
 # Android targets (NDK toolchain)
 [target.armv7-linux-androideabi]
