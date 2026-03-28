@@ -18,6 +18,8 @@
 pub mod a2web_render;
 pub mod backup_tool;
 pub mod browser;
+#[cfg(feature = "browser-cdp")]
+pub mod browser_cdp;
 pub mod browser_delegate;
 pub mod browser_open;
 pub mod cli_discovery;
@@ -317,12 +319,9 @@ pub fn all_tools_with_runtime(
     ];
 
     if browser_config.enabled {
-        // Add legacy browser_open tool for simple URL opening
-        tool_arcs.push(Arc::new(BrowserOpenTool::new(
-            security.clone(),
-            browser_config.allowed_domains.clone(),
-        )));
-        // Add full browser automation tool (pluggable backend)
+        // browser tool handles all web browsing including URL opening
+        // browser_open is no longer registered to avoid LLM choosing
+        // the simpler tool over the full-featured one.
         tool_arcs.push(Arc::new(BrowserTool::new_with_backend(
             security.clone(),
             browser_config.allowed_domains.clone(),
@@ -340,6 +339,7 @@ pub fn all_tools_with_runtime(
                 max_coordinate_x: browser_config.computer_use.max_coordinate_x,
                 max_coordinate_y: browser_config.computer_use.max_coordinate_y,
             },
+            browser_config.cdp_direct.clone(),
         )));
     }
 
@@ -782,7 +782,7 @@ mod tests {
             &cfg,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-        assert!(names.contains(&"browser_open"));
+        assert!(names.contains(&"browser"));
         assert!(names.contains(&"content_search"));
         assert!(names.contains(&"model_routing_config"));
         assert!(names.contains(&"pushover"));

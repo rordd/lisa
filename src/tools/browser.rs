@@ -69,6 +69,8 @@ pub struct BrowserTool {
     computer_use: ComputerUseConfig,
     #[cfg(feature = "browser-native")]
     native_state: tokio::sync::Mutex<native_backend::NativeBrowserState>,
+    #[cfg(feature = "browser-cdp")]
+    cdp_state: tokio::sync::Mutex<super::browser_cdp::CdpBackendState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +78,7 @@ enum BrowserBackendKind {
     AgentBrowser,
     RustNative,
     ComputerUse,
+    CdpDirect,
     Auto,
 }
 
@@ -84,6 +87,7 @@ enum ResolvedBackend {
     AgentBrowser,
     RustNative,
     ComputerUse,
+    CdpDirect,
 }
 
 impl BrowserBackendKind {
@@ -93,9 +97,10 @@ impl BrowserBackendKind {
             "agent_browser" | "agentbrowser" => Ok(Self::AgentBrowser),
             "rust_native" | "native" => Ok(Self::RustNative),
             "computer_use" | "computeruse" => Ok(Self::ComputerUse),
+            "cdp_direct" | "cdpdirect" | "cdp" => Ok(Self::CdpDirect),
             "auto" => Ok(Self::Auto),
             _ => anyhow::bail!(
-                "Unsupported browser backend '{raw}'. Use 'agent_browser', 'rust_native', 'computer_use', or 'auto'"
+                "Unsupported browser backend '{raw}'. Use 'agent_browser', 'rust_native', 'computer_use', 'cdp_direct', or 'auto'"
             ),
         }
     }
@@ -105,6 +110,7 @@ impl BrowserBackendKind {
             Self::AgentBrowser => "agent_browser",
             Self::RustNative => "rust_native",
             Self::ComputerUse => "computer_use",
+            Self::CdpDirect => "cdp_direct",
             Self::Auto => "auto",
         }
     }
@@ -211,6 +217,7 @@ impl BrowserTool {
             "http://127.0.0.1:9515".into(),
             None,
             ComputerUseConfig::default(),
+            crate::config::BrowserCdpDirectConfig::default(),
         )
     }
 
@@ -224,6 +231,7 @@ impl BrowserTool {
         native_webdriver_url: String,
         native_chrome_path: Option<String>,
         computer_use: ComputerUseConfig,
+        cdp_direct_config: crate::config::BrowserCdpDirectConfig,
     ) -> Self {
         Self {
             security,
@@ -236,6 +244,10 @@ impl BrowserTool {
             computer_use,
             #[cfg(feature = "browser-native")]
             native_state: tokio::sync::Mutex::new(native_backend::NativeBrowserState::default()),
+            #[cfg(feature = "browser-cdp")]
+            cdp_state: tokio::sync::Mutex::new(super::browser_cdp::CdpBackendState::new(
+                cdp_direct_config,
+            )),
         }
     }
 
@@ -262,6 +274,10 @@ impl BrowserTool {
 
     fn rust_native_compiled() -> bool {
         cfg!(feature = "browser-native")
+    }
+
+    fn cdp_direct_compiled() -> bool {
+        cfg!(feature = "browser-cdp")
     }
 
     fn rust_native_available(&self) -> bool {
@@ -360,7 +376,19 @@ impl BrowserTool {
                 }
                 Ok(ResolvedBackend::ComputerUse)
             }
+            BrowserBackendKind::CdpDirect => {
+                if !Self::cdp_direct_compiled() {
+                    anyhow::bail!(
+                        "browser.backend='cdp_direct' requires build feature 'browser-cdp'"
+                    );
+                }
+                Ok(ResolvedBackend::CdpDirect)
+            }
             BrowserBackendKind::Auto => {
+                // CDP-direct first (only needs Chrome, no external WebDriver)
+                if Self::cdp_direct_compiled() {
+                    return Ok(ResolvedBackend::CdpDirect);
+                }
                 if Self::rust_native_compiled() && self.rust_native_available() {
                     return Ok(ResolvedBackend::RustNative);
                 }
@@ -377,22 +405,22 @@ impl BrowserTool {
                 if Self::rust_native_compiled() {
                     if let Some(err) = computer_use_err {
                         anyhow::bail!(
-                            "browser.backend='auto' found no usable backend (agent-browser missing, rust-native unavailable, computer-use invalid: {err})"
+                            "browser.backend='auto' found no usable backend (cdp-direct/agent-browser missing, rust-native unavailable, computer-use invalid: {err})"
                         );
                     }
                     anyhow::bail!(
-                        "browser.backend='auto' found no usable backend (agent-browser missing, rust-native unavailable, computer-use sidecar unreachable)"
+                        "browser.backend='auto' found no usable backend (cdp-direct/agent-browser missing, rust-native unavailable, computer-use sidecar unreachable)"
                     )
                 }
 
                 if let Some(err) = computer_use_err {
                     anyhow::bail!(
-                        "browser.backend='auto' needs agent-browser CLI, browser-native, or valid computer-use sidecar (error: {err})"
+                        "browser.backend='auto' needs cdp-direct, agent-browser CLI, browser-native, or valid computer-use sidecar (error: {err})"
                     );
                 }
 
                 anyhow::bail!(
-                    "browser.backend='auto' needs agent-browser CLI, browser-native, or computer-use sidecar"
+                    "browser.backend='auto' needs cdp-direct, agent-browser CLI, browser-native, or computer-use sidecar"
                 )
             }
         }
@@ -862,12 +890,40 @@ impl BrowserTool {
         action: BrowserAction,
         backend: ResolvedBackend,
     ) -> anyhow::Result<ToolResult> {
+        // Centralized URL validation for all backends (SSRF/allowlist check)
+        if let BrowserAction::Open { ref url } = action {
+            if let Err(e) = self.validate_url(url) {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(e.to_string()),
+                });
+            }
+        }
+
         match backend {
             ResolvedBackend::AgentBrowser => self.execute_agent_browser_action(action).await,
             ResolvedBackend::RustNative => self.execute_rust_native_action(action).await,
             ResolvedBackend::ComputerUse => anyhow::bail!(
                 "Internal error: computer_use backend must be handled before BrowserAction parsing"
             ),
+            ResolvedBackend::CdpDirect => self.execute_cdp_direct_action(action).await,
+        }
+    }
+
+    #[allow(clippy::unused_async)]
+    async fn execute_cdp_direct_action(&self, action: BrowserAction) -> anyhow::Result<ToolResult> {
+        #[cfg(feature = "browser-cdp")]
+        {
+            let mut state = self.cdp_state.lock().await;
+            state.execute_action(action).await
+        }
+        #[cfg(not(feature = "browser-cdp"))]
+        {
+            let _ = action;
+            anyhow::bail!(
+                "CDP-direct browser backend is not compiled. Rebuild with --features browser-cdp"
+            )
         }
     }
 
@@ -901,10 +957,25 @@ impl Tool for BrowserTool {
 
     fn description(&self) -> &str {
         concat!(
-            "Web/browser automation with pluggable backends (agent-browser, rust-native, computer_use). ",
-            "Supports DOM actions plus optional OS-level actions (mouse_move, mouse_click, mouse_drag, ",
-            "key_type, key_press, screen_capture) through a computer-use sidecar. Use 'snapshot' to map ",
-            "interactive elements to refs (@e1, @e2). Enforces browser.allowed_domains for open actions."
+            "Open and interact with web pages in a real browser. The user can see the same browser window.\n",
+            "\n",
+            "WORKFLOW:\n",
+            "1. open → navigate to URL\n",
+            "2. Read snapshot sections to find elements:\n",
+            "   - 'buttons' → action buttons (add to cart, buy, submit, confirm)\n",
+            "   - 'inputs' → text fields, search boxes, dropdowns\n",
+            "   - 'links' → navigation links (product listings, categories)\n",
+            "   - 'other' → misc interactive elements (tabs, etc.)\n",
+            "3. click/fill/type → interact using @eN refs from snapshot\n",
+            "4. If login needed → ask user to log in via browser window, then continue\n",
+            "\n",
+            "RULES:\n",
+            "- After adding to cart on a detail page → use 'open' to go back to search results for next item\n",
+            "- Do NOT click recommended/related product links — they are irrelevant to the task\n",
+            "- Use 'find' with by='text' to locate buttons by label when ref is unclear\n",
+            "\n",
+            "ACTIONS: open, snapshot, click, fill, type, get_text, get_title, get_url, ",
+            "screenshot, wait, press, hover, scroll, is_visible, close, find."
         )
     }
 
@@ -1834,6 +1905,7 @@ fn parse_browser_action(action_str: &str, args: &Value) -> anyhow::Result<Browse
                 .ok_or_else(|| anyhow::anyhow!("Missing 'selector' for type"))?;
             let text = args
                 .get("text")
+                .or_else(|| args.get("value"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'text' for type"))?;
             Ok(BrowserAction::Type {
@@ -1913,12 +1985,14 @@ fn parse_browser_action(action_str: &str, args: &Value) -> anyhow::Result<Browse
                 .ok_or_else(|| anyhow::anyhow!("Missing 'by' for find"))?;
             let value = args
                 .get("value")
+                .or_else(|| args.get("text"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'value' for find"))?;
             let action = args
                 .get("find_action")
+                .or_else(|| args.get("action_type"))
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'find_action' for find"))?;
+                .unwrap_or("click");
             Ok(BrowserAction::Find {
                 by: by.into(),
                 value: value.into(),
@@ -1975,6 +2049,7 @@ fn backend_name(backend: ResolvedBackend) -> &'static str {
         ResolvedBackend::AgentBrowser => "agent_browser",
         ResolvedBackend::RustNative => "rust_native",
         ResolvedBackend::ComputerUse => "computer_use",
+        ResolvedBackend::CdpDirect => "cdp_direct",
     }
 }
 
@@ -2329,6 +2404,27 @@ mod tests {
     }
 
     #[test]
+    fn browser_backend_parser_accepts_cdp_direct() {
+        assert_eq!(
+            BrowserBackendKind::parse("cdp_direct").unwrap(),
+            BrowserBackendKind::CdpDirect
+        );
+        assert_eq!(
+            BrowserBackendKind::parse("cdp").unwrap(),
+            BrowserBackendKind::CdpDirect
+        );
+        assert_eq!(
+            BrowserBackendKind::parse("cdpdirect").unwrap(),
+            BrowserBackendKind::CdpDirect
+        );
+    }
+
+    #[test]
+    fn browser_backend_cdp_direct_as_str() {
+        assert_eq!(BrowserBackendKind::CdpDirect.as_str(), "cdp_direct");
+    }
+
+    #[test]
     fn browser_tool_default_backend_is_agent_browser() {
         let security = Arc::new(SecurityPolicy::default());
         let tool = BrowserTool::new(security, vec!["example.com".into()], None);
@@ -2350,6 +2446,7 @@ mod tests {
             "http://127.0.0.1:9515".into(),
             None,
             ComputerUseConfig::default(),
+            crate::config::BrowserCdpDirectConfig::default(),
         );
         assert_eq!(tool.configured_backend().unwrap(), BrowserBackendKind::Auto);
     }
@@ -2366,6 +2463,7 @@ mod tests {
             "http://127.0.0.1:9515".into(),
             None,
             ComputerUseConfig::default(),
+            crate::config::BrowserCdpDirectConfig::default(),
         );
         assert_eq!(
             tool.configured_backend().unwrap(),
@@ -2388,6 +2486,7 @@ mod tests {
                 endpoint: "http://computer-use.example.com/v1/actions".into(),
                 ..ComputerUseConfig::default()
             },
+            crate::config::BrowserCdpDirectConfig::default(),
         );
 
         assert!(tool.computer_use_endpoint_url().is_err());
@@ -2409,6 +2508,7 @@ mod tests {
                 allow_remote_endpoint: true,
                 ..ComputerUseConfig::default()
             },
+            crate::config::BrowserCdpDirectConfig::default(),
         );
 
         assert!(tool.computer_use_endpoint_url().is_ok());
@@ -2430,6 +2530,7 @@ mod tests {
                 max_coordinate_y: Some(100),
                 ..ComputerUseConfig::default()
             },
+            crate::config::BrowserCdpDirectConfig::default(),
         );
 
         assert!(tool
