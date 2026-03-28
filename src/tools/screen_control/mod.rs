@@ -11,6 +11,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
+#[cfg(target_os = "macos")]
 pub mod mac;
 pub mod tool;
 

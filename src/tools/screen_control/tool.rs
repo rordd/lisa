@@ -295,8 +295,11 @@ impl Tool for ComputerTool {
                     let (sx, sy) = self.to_screen_coords(ix, iy).await;
                     self.controller.move_cursor(sx, sy).await?;
                 } else {
-                    let (w, h) = self.controller.resolution();
-                    self.controller.move_cursor(w as i32 / 2, h as i32 / 2).await?;
+                    // 이미지 좌표 중앙 → to_screen_coords로 화면 좌표 변환 (Retina 안전)
+                    let cx = self.default_width as i32 / 2;
+                    let cy = self.display_height as i32 / 2;
+                    let (sx, sy) = self.to_screen_coords(cx, cy).await;
+                    self.controller.move_cursor(sx, sy).await?;
                 }
                 self.controller.scroll(dir, amount).await?;
                 Ok(format!("scrolled {dir} {amount}"))

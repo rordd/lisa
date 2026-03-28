@@ -86,20 +86,33 @@ impl MacScreenController {
 
     fn name_to_keycode(name: &str) -> Result<u16> {
         Ok(match name.to_ascii_lowercase().as_str() {
+            // 알파벳 (macOS virtual key codes)
             "a" => 0, "s" => 1, "d" => 2, "f" => 3, "h" => 4, "g" => 5,
             "z" => 6, "x" => 7, "c" => 8, "v" => 9, "b" => 11, "q" => 12,
             "w" => 13, "e" => 14, "r" => 15, "y" => 16, "t" => 17,
             "o" => 31, "u" => 32, "i" => 34, "p" => 35, "l" => 37,
             "j" => 38, "k" => 40, "n" => 45, "m" => 46,
+            // 숫자
             "0" => 29, "1" => 18, "2" => 19, "3" => 20, "4" => 21,
             "5" => 23, "6" => 22, "7" => 26, "8" => 28, "9" => 25,
+            // 특수문자
+            "-" | "minus" => 27, "=" | "equal" => 24,
+            "[" | "leftbracket" => 33, "]" | "rightbracket" => 30,
+            "\\" | "backslash" => 42, ";" | "semicolon" => 41,
+            "'" | "quote" => 39, "," | "comma" => 43,
+            "." | "period" => 47, "/" | "slash" => 44, "`" | "grave" => 50,
+            // 제어 키
             "return" | "enter" => 36, "tab" => 48, "space" => 49,
-            "delete" | "backspace" => 51, "escape" | "esc" => 53,
+            "delete" | "backspace" => 51, "forwarddelete" => 117,
+            "escape" | "esc" => 53,
+            // 방향 / 내비게이션
+            "up" => 126, "down" => 125, "left" => 123, "right" => 124,
+            "home" => 115, "end" => 119,
+            "pageup" | "page_up" => 116, "pagedown" | "page_down" => 121,
+            // F키
             "f1" => 122, "f2" => 120, "f3" => 99, "f4" => 118,
             "f5" => 96, "f6" => 97, "f7" => 98, "f8" => 100,
             "f9" => 101, "f10" => 109, "f11" => 103, "f12" => 111,
-            "up" => 126, "down" => 125, "left" => 123, "right" => 124,
-            "home" => 115, "end" => 119, "pageup" => 116, "pagedown" => 121,
             _ => anyhow::bail!("unsupported key: {name}"),
         })
     }
@@ -174,27 +187,20 @@ impl ScreenController for MacScreenController {
         if key.contains('+') {
             return self.press_combo(key).await;
         }
-        let code: u16 = match key.to_ascii_lowercase().as_str() {
-            "return" | "enter" => 36, "escape" | "esc" => 53,
-            "tab" => 48, "space" => 49,
-            "delete" | "backspace" => 51, "forwarddelete" => 117,
-            "up" => 126, "down" => 125, "left" => 123, "right" => 124,
-            "home" => 115, "end" => 119,
-            "pageup" | "page_up" => 116, "pagedown" | "page_down" => 121,
-            "f1" => 122, "f2" => 120, "f3" => 99, "f4" => 118,
-            "f5" => 96, "f6" => 97, "f7" => 98, "f8" => 100,
-            "f9" => 101, "f10" => 109, "f11" => 103, "f12" => 111,
-            _ => {
+        // name_to_keycode 통합 사용 (중복 매핑 제거)
+        match Self::name_to_keycode(key) {
+            Ok(code) => self.key_code(code).await,
+            Err(_) => {
+                // 단일 ASCII 문자 → unicode 방식
                 let ch = key.chars().next();
                 if key.len() == 1 && ch.map_or(false, |c| c.is_ascii_graphic()) {
-                    let c = ch.unwrap();
-                    self.run(&Self::cgevent_bin(), &["unicode", &(c as u32).to_string()]).await?;
-                    return Ok(());
+                    self.run(&Self::cgevent_bin(), &["unicode", &(ch.unwrap() as u32).to_string()]).await?;
+                    Ok(())
+                } else {
+                    anyhow::bail!("unsupported key: {key}")
                 }
-                anyhow::bail!("unsupported key: {key}");
             }
-        };
-        self.key_code(code).await
+        }
     }
 
     async fn scroll(&self, direction: &str, amount: u32) -> Result<()> {
