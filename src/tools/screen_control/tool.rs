@@ -323,9 +323,8 @@ impl Tool for ComputerTool {
                 let output = if action == "screenshot" {
                     msg
                 } else if needs_auto_screenshot {
-                    // action 후 대기 (UI 반영 시간)
-                    // Anthropic 공식: 2초 (Linux VM 기준). macOS 로컬은 빠르므로 500ms.
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    // action 후 대기 (UI 반영 시간 — Anthropic 공식: 2초)
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     let width = Some(self.default_width).filter(|&w| w > 0);
                     match self.controller.capture(width).await {
                         Ok(capture) => {
