@@ -179,8 +179,12 @@ impl Tool for ComputerTool {
                 }
             }
             "cursor_position" => {
-                // 현재 커서 위치 리턴 (이미지 좌표계로 변환)
-                Ok("cursor_position not yet implemented".into())
+                let (sx, sy) = self.controller.cursor_position().await?;
+                // 화면 좌표 → 이미지 좌표로 역변환
+                let s = self.scale.read().await;
+                let ix = if s.scale_x > 0.0 { (sx as f64 / s.scale_x).round() as i32 } else { sx };
+                let iy = if s.scale_y > 0.0 { (sy as f64 / s.scale_y).round() as i32 } else { sy };
+                Ok(format!("X={ix},Y={iy}"))
             }
 
             // ── 클릭 ──
@@ -211,10 +215,7 @@ impl Tool for ComputerTool {
             "triple_click" => {
                 let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
-                // triple = 3x click
-                self.controller.click(x, y).await?;
-                self.controller.click(x, y).await?;
-                self.controller.click(x, y).await?;
+                self.controller.triple_click(x, y).await?;
                 Ok(format!("triple_clicked ({ix},{iy})→({x},{y})"))
             }
 
@@ -243,11 +244,16 @@ impl Tool for ComputerTool {
                 Ok(format!("dragged ({ifx},{ify})→({itx},{ity}) screen({fx},{fy})→({tx},{ty})"))
             }
             "left_mouse_down" => {
-                // mouse down만 (드래그 시작 등)
-                Ok("left_mouse_down not yet implemented".into())
+                let (ix, iy) = Self::parse_coordinate(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
+                self.controller.mouse_down(x, y).await?;
+                Ok(format!("mouse_down ({ix},{iy})→({x},{y})"))
             }
             "left_mouse_up" => {
-                Ok("left_mouse_up not yet implemented".into())
+                let (ix, iy) = Self::parse_coordinate(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
+                self.controller.mouse_up(x, y).await?;
+                Ok(format!("mouse_up ({ix},{iy})→({x},{y})"))
             }
 
             // ── 키보드 ──
@@ -352,6 +358,10 @@ mod tests {
         async fn scroll(&self, _: &str, _: u32) -> anyhow::Result<()> { Ok(()) }
         async fn drag(&self, _: (i32, i32), _: (i32, i32)) -> anyhow::Result<()> { Ok(()) }
         async fn move_cursor(&self, _: i32, _: i32) -> anyhow::Result<()> { Ok(()) }
+        async fn cursor_position(&self) -> anyhow::Result<(i32, i32)> { Ok((500, 300)) }
+        async fn mouse_down(&self, _: i32, _: i32) -> anyhow::Result<()> { Ok(()) }
+        async fn mouse_up(&self, _: i32, _: i32) -> anyhow::Result<()> { Ok(()) }
+        async fn triple_click(&self, _: i32, _: i32) -> anyhow::Result<()> { Ok(()) }
         fn resolution(&self) -> (u32, u32) { (2560, 1600) }
     }
 

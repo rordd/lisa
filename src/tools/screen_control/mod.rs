@@ -62,6 +62,18 @@ pub trait ScreenController: Send + Sync {
     /// 커서 이동 (클릭 없음)
     async fn move_cursor(&self, x: i32, y: i32) -> Result<()>;
 
+    /// 현재 커서 위치
+    async fn cursor_position(&self) -> Result<(i32, i32)>;
+
+    /// 왼쪽 마우스 버튼 누름 (hold)
+    async fn mouse_down(&self, x: i32, y: i32) -> Result<()>;
+
+    /// 왼쪽 마우스 버튼 놓기
+    async fn mouse_up(&self, x: i32, y: i32) -> Result<()>;
+
+    /// 트리플 클릭
+    async fn triple_click(&self, x: i32, y: i32) -> Result<()>;
+
     /// 화면 해상도
     fn resolution(&self) -> (u32, u32);
 }

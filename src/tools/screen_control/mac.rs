@@ -286,6 +286,36 @@ if let e = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wh
         Ok(())
     }
 
+    async fn cursor_position(&self) -> Result<(i32, i32)> {
+        let text = self.run("cliclick", &["p"]).await?;
+        // cliclick p 출력: "123,456"
+        let parts: Vec<&str> = text.trim().split(',').collect();
+        if parts.len() >= 2 {
+            let x: i32 = parts[0].trim().parse().unwrap_or(0);
+            let y: i32 = parts[1].trim().parse().unwrap_or(0);
+            Ok((x, y))
+        } else {
+            anyhow::bail!("failed to parse cursor position: {text}");
+        }
+    }
+
+    async fn mouse_down(&self, x: i32, y: i32) -> Result<()> {
+        self.run("cliclick", &[&format!("dd:{x},{y}")]).await?;
+        Ok(())
+    }
+
+    async fn mouse_up(&self, x: i32, y: i32) -> Result<()> {
+        self.run("cliclick", &[&format!("du:{x},{y}")]).await?;
+        Ok(())
+    }
+
+    async fn triple_click(&self, x: i32, y: i32) -> Result<()> {
+        self.run("cliclick", &[
+            &format!("tc:{x},{y}"),
+        ]).await?;
+        Ok(())
+    }
+
     fn resolution(&self) -> (u32, u32) {
         // sync 함수이므로 std::process::Command 사용 (tokio 아님)
         // capture 전 대략적 해상도 제공 (힌트용)
