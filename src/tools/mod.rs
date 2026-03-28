@@ -500,6 +500,7 @@ pub fn all_tools_with_runtime(
         tool_arcs.push(Arc::new(ComputerTool::new(
             controller,
             root_config.screen_control.resize_width,
+            root_config.screen_control.screenshot_delay_ms,
             scale,
         )));
     } else {

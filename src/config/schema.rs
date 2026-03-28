@@ -2496,6 +2496,10 @@ pub struct ScreenControlConfig {
     /// 캡처 이미지 리사이즈 폭 (기본 1024, 0이면 원본)
     #[serde(default = "default_screen_control_resize_width")]
     pub resize_width: u32,
+
+    /// action 후 자동 screenshot 전 대기 시간 (밀리초, 기본 2000)
+    #[serde(default = "default_screenshot_delay_ms")]
+    pub screenshot_delay_ms: u64,
 }
 
 /// 지원 플랫폼 백엔드
@@ -2511,12 +2515,17 @@ fn default_screen_control_resize_width() -> u32 {
     1024
 }
 
+fn default_screenshot_delay_ms() -> u64 {
+    2000
+}
+
 impl Default for ScreenControlConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             backend: ScreenControlBackend::default(),
             resize_width: default_screen_control_resize_width(),
+            screenshot_delay_ms: default_screenshot_delay_ms(),
         }
     }
 }

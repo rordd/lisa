@@ -37,12 +37,13 @@ pub fn new_scale_handle() -> ScaleHandle {
 pub struct ComputerTool {
     controller: Arc<dyn ScreenController>,
     default_width: u32,
+    screenshot_delay_ms: u64,
     display_height: u32,
     scale: ScaleHandle,
 }
 
 impl ComputerTool {
-    pub fn new(controller: Arc<dyn ScreenController>, default_width: u32, scale: ScaleHandle) -> Self {
+    pub fn new(controller: Arc<dyn ScreenController>, default_width: u32, screenshot_delay_ms: u64, scale: ScaleHandle) -> Self {
         let (res_w, res_h) = controller.resolution();
         let display_height = if default_width > 0 && res_w > 0 {
             (default_width as f64 * res_h as f64 / res_w as f64).round() as u32
@@ -52,6 +53,7 @@ impl ComputerTool {
         Self {
             controller,
             default_width,
+            screenshot_delay_ms,
             display_height,
             scale,
         }
@@ -323,8 +325,8 @@ impl Tool for ComputerTool {
                 let output = if action == "screenshot" {
                     msg
                 } else if needs_auto_screenshot {
-                    // action 후 대기 (UI 반영 시간 — Anthropic 공식: 2초)
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    // action 후 대기 (UI 반영 시간, config: screenshot_delay_ms)
+                    tokio::time::sleep(std::time::Duration::from_millis(self.screenshot_delay_ms)).await;
                     let width = Some(self.default_width).filter(|&w| w > 0);
                     match self.controller.capture(width).await {
                         Ok(capture) => {
@@ -398,7 +400,7 @@ mod tests {
     fn make_tool() -> ComputerTool {
         let ctrl = Arc::new(MockController);
         let scale = new_scale_handle();
-        ComputerTool::new(ctrl, 1024, scale)
+        ComputerTool::new(ctrl, 1024, 2000, scale)
     }
 
     #[test]
