@@ -103,42 +103,41 @@ impl Tool for ComputerTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["screenshot", "click", "left_click", "double_click",
-                             "right_click", "middle_click", "mouse_move",
-                             "type", "key", "scroll", "drag", "left_click_drag", "wait"],
-                    "description": "수행할 액션"
+                    "enum": ["screenshot", "cursor_position",
+                             "left_click", "right_click", "middle_click",
+                             "double_click", "triple_click",
+                             "mouse_move", "left_click_drag",
+                             "left_mouse_down", "left_mouse_up",
+                             "type", "key", "hold_key",
+                             "scroll", "wait"],
+                    "description": "수행할 액션 (Anthropic Computer Use 호환)"
                 },
                 "coordinate": {
                     "type": "array",
                     "items": { "type": "integer" },
-                    "description": "[x, y] 좌표 (click/double_click/right_click/mouse_move/scroll 시, 이미지 좌표)"
+                    "description": "[x, y] 좌표 (click/mouse_move/scroll 시, 이미지 좌표)"
                 },
                 "text": {
                     "type": "string",
-                    "description": "입력 텍스트 (type 시) 또는 키 이름 (key 시, 예: Return, Escape)"
+                    "description": "입력 텍스트 (type 시) 또는 키 이름 (key/hold_key 시, 예: Return, Escape, ctrl+c)"
                 },
-                "direction": {
+                "scroll_direction": {
                     "type": "string",
                     "enum": ["up", "down", "left", "right"],
                     "description": "스크롤 방향 (scroll 시)"
                 },
-                "amount": {
+                "scroll_amount": {
                     "type": "integer",
                     "description": "스크롤 클릭 수 (scroll 시, 기본 3)"
                 },
                 "start_coordinate": {
                     "type": "array",
                     "items": { "type": "integer" },
-                    "description": "드래그 시작 [x, y] (drag 시)"
-                },
-                "end_coordinate": {
-                    "type": "array",
-                    "items": { "type": "integer" },
-                    "description": "드래그 끝 [x, y] (drag 시)"
+                    "description": "드래그 시작 [x, y] (left_click_drag 시)"
                 },
                 "duration": {
-                    "type": "integer",
-                    "description": "대기 시간 밀리초 (wait 시)"
+                    "type": "number",
+                    "description": "초 단위 (wait/hold_key 시, 최대 10)"
                 }
             }
         })
@@ -157,132 +156,151 @@ impl Tool for ComputerTool {
         };
 
         let result: anyhow::Result<String> = match action {
+            // ── 캡처 ──
             "screenshot" => {
                 let width = Some(self.default_width).filter(|&w| w > 0);
                 match self.controller.capture(width).await {
                     Ok(capture) => {
-                        // scale 저장 — 좌표 action에서 자동 변환에 사용
                         {
                             let mut s = self.scale.write().await;
                             s.scale_x = capture.scale_x;
                             s.scale_y = capture.scale_y;
                         }
-                        let text = format!(
-                            "Screenshot: {}x{} (original: {}x{}, size: {} bytes)\n\
-                            Use coordinates as seen in this image — they will be automatically converted to screen coordinates.\n\
-                            {}",
-                            capture.resized_width,
-                            capture.resized_height,
-                            capture.orig_width,
-                            capture.orig_height,
+                        Ok(format!(
+                            "Screenshot: {}x{} (original: {}x{}, size: {} bytes)\n{}\n{}",
+                            capture.resized_width, capture.resized_height,
+                            capture.orig_width, capture.orig_height,
                             capture.file_size_bytes,
+                            "Use coordinates as seen in this image.",
                             capture.data_uri,
-                        );
-                        Ok(text)
+                        ))
                     }
                     Err(e) => Err(e),
                 }
             }
-            "click" | "left_click" => {
+            "cursor_position" => {
+                // 현재 커서 위치 리턴 (이미지 좌표계로 변환)
+                Ok("cursor_position not yet implemented".into())
+            }
+
+            // ── 클릭 ──
+            "left_click" => {
                 let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.click(x, y).await?;
-                Ok(format!("clicked image({ix},{iy}) → screen({x},{y})"))
-            }
-            "middle_click" => {
-                // middle click → 일반 click으로 폴백 (cliclick에 middle 없음)
-                let (ix, iy) = Self::parse_coordinate(&args)?;
-                let (x, y) = self.to_screen_coords(ix, iy).await;
-                self.controller.click(x, y).await?;
-                Ok(format!("middle_clicked(→click) image({ix},{iy}) → screen({x},{y})"))
-            }
-            "double_click" => {
-                let (ix, iy) = Self::parse_coordinate(&args)?;
-                let (x, y) = self.to_screen_coords(ix, iy).await;
-                self.controller.double_click(x, y).await?;
-                Ok(format!("double_clicked image({ix},{iy}) → screen({x},{y})"))
+                Ok(format!("left_clicked ({ix},{iy})→({x},{y})"))
             }
             "right_click" => {
                 let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.right_click(x, y).await?;
-                Ok(format!("right_clicked image({ix},{iy}) → screen({x},{y})"))
+                Ok(format!("right_clicked ({ix},{iy})→({x},{y})"))
             }
+            "middle_click" => {
+                let (ix, iy) = Self::parse_coordinate(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
+                self.controller.click(x, y).await?; // fallback to left click
+                Ok(format!("middle_clicked→left ({ix},{iy})→({x},{y})"))
+            }
+            "double_click" => {
+                let (ix, iy) = Self::parse_coordinate(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
+                self.controller.double_click(x, y).await?;
+                Ok(format!("double_clicked ({ix},{iy})→({x},{y})"))
+            }
+            "triple_click" => {
+                let (ix, iy) = Self::parse_coordinate(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
+                // triple = 3x click
+                self.controller.click(x, y).await?;
+                self.controller.click(x, y).await?;
+                self.controller.click(x, y).await?;
+                Ok(format!("triple_clicked ({ix},{iy})→({x},{y})"))
+            }
+
+            // ── 마우스 이동/드래그 ──
             "mouse_move" => {
                 let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.move_cursor(x, y).await?;
-                Ok(format!("moved cursor image({ix},{iy}) → screen({x},{y})"))
+                Ok(format!("mouse_moved ({ix},{iy})→({x},{y})"))
             }
+            "left_click_drag" => {
+                let parse_coord = |key: &str| -> anyhow::Result<(i32, i32)> {
+                    let coord = args.get(key).and_then(Value::as_array)
+                        .ok_or_else(|| anyhow::anyhow!("missing '{key}'"))?;
+                    if coord.len() != 2 { anyhow::bail!("'{key}' must be [x, y]"); }
+                    Ok((
+                        coord[0].as_i64().ok_or_else(|| anyhow::anyhow!("int"))? as i32,
+                        coord[1].as_i64().ok_or_else(|| anyhow::anyhow!("int"))? as i32,
+                    ))
+                };
+                let (ifx, ify) = parse_coord("start_coordinate")?;
+                let (itx, ity) = parse_coord("coordinate")?;
+                let (fx, fy) = self.to_screen_coords(ifx, ify).await;
+                let (tx, ty) = self.to_screen_coords(itx, ity).await;
+                self.controller.drag((fx, fy), (tx, ty)).await?;
+                Ok(format!("dragged ({ifx},{ify})→({itx},{ity}) screen({fx},{fy})→({tx},{ty})"))
+            }
+            "left_mouse_down" => {
+                // mouse down만 (드래그 시작 등)
+                Ok("left_mouse_down not yet implemented".into())
+            }
+            "left_mouse_up" => {
+                Ok("left_mouse_up not yet implemented".into())
+            }
+
+            // ── 키보드 ──
             "type" => {
-                let text = args
-                    .get("text")
-                    .and_then(Value::as_str)
+                let text = args.get("text").and_then(Value::as_str)
                     .ok_or_else(|| anyhow::anyhow!("missing 'text'"))?;
                 self.controller.type_text(text).await?;
                 Ok(format!("typed {} chars", text.len()))
             }
             "key" => {
-                let key = args
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow::anyhow!("missing 'text' for key action"))?;
+                let key = args.get("text").and_then(Value::as_str)
+                    .ok_or_else(|| anyhow::anyhow!("missing 'text'"))?;
                 self.controller.press_key(key).await?;
                 Ok(format!("pressed key: {key}"))
             }
+            "hold_key" => {
+                let key = args.get("text").and_then(Value::as_str)
+                    .ok_or_else(|| anyhow::anyhow!("missing 'text'"))?;
+                let duration_secs = args.get("duration").and_then(Value::as_f64).unwrap_or(1.0).min(10.0);
+                self.controller.press_key(key).await?;
+                tokio::time::sleep(std::time::Duration::from_secs_f64(duration_secs)).await;
+                Ok(format!("held key: {key} for {duration_secs}s"))
+            }
+
+            // ── 스크롤 ──
             "scroll" => {
-                let dir = args
-                    .get("direction")
-                    .and_then(Value::as_str)
+                // Anthropic: scroll_direction + scroll_amount
+                // 폴백: direction + amount (기존 호환)
+                let dir = args.get("scroll_direction").and_then(Value::as_str)
+                    .or_else(|| args.get("direction").and_then(Value::as_str))
                     .unwrap_or("down");
-                let amount = args
-                    .get("amount")
-                    .and_then(Value::as_u64)
+                let amount = args.get("scroll_amount").and_then(Value::as_u64)
+                    .or_else(|| args.get("amount").and_then(Value::as_u64))
                     .unwrap_or(3) as u32;
-                // coordinate 지정 시 해당 위치로 먼저 이동
                 if let Ok((ix, iy)) = Self::parse_coordinate(&args) {
                     let (sx, sy) = self.to_screen_coords(ix, iy).await;
                     self.controller.move_cursor(sx, sy).await?;
                 } else {
-                    // 화면 중앙으로 이동
                     let (w, h) = self.controller.resolution();
                     self.controller.move_cursor(w as i32 / 2, h as i32 / 2).await?;
                 }
                 self.controller.scroll(dir, amount).await?;
                 Ok(format!("scrolled {dir} {amount}"))
             }
-            "drag" | "left_click_drag" => {
-                let parse_coord = |key: &str| -> anyhow::Result<(i32, i32)> {
-                    let coord = args
-                        .get(key)
-                        .and_then(Value::as_array)
-                        .ok_or_else(|| anyhow::anyhow!("missing '{key}' array"))?;
-                    if coord.len() != 2 {
-                        anyhow::bail!("'{key}' must be [x, y]");
-                    }
-                    let x = coord[0].as_i64().ok_or_else(|| anyhow::anyhow!("{key}[0] must be integer"))? as i32;
-                    let y = coord[1].as_i64().ok_or_else(|| anyhow::anyhow!("{key}[1] must be integer"))? as i32;
-                    Ok((x, y))
-                };
-                // Anthropic: start_coordinate + coordinate, 기존: start_coordinate + end_coordinate
-                let (ifx, ify) = parse_coord("start_coordinate")?;
-                let (itx, ity) = parse_coord("coordinate")
-                    .or_else(|_| parse_coord("end_coordinate"))?;
-                let (fx, fy) = self.to_screen_coords(ifx, ify).await;
-                let (tx, ty) = self.to_screen_coords(itx, ity).await;
-                self.controller.drag((fx, fy), (tx, ty)).await?;
-                Ok(format!("dragged image({ifx},{ify})→({itx},{ity}) screen({fx},{fy})→({tx},{ty})"))
-            }
+
+            // ── 대기 ──
             "wait" => {
-                const MAX_WAIT_MS: u64 = 10_000;
-                let ms = args
-                    .get("duration")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(500)
-                    .min(MAX_WAIT_MS);
+                let duration_secs = args.get("duration").and_then(Value::as_f64).unwrap_or(1.0).min(10.0);
+                let ms = (duration_secs * 1000.0) as u64;
                 tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-                Ok(format!("waited {ms}ms"))
+                Ok(format!("waited {duration_secs}s"))
             }
+
             other => Err(anyhow::anyhow!("unknown action: {other}")),
         };
 
@@ -370,7 +388,7 @@ mod tests {
     #[tokio::test]
     async fn click_ok() {
         let tool = make_tool();
-        let result = tool.execute(json!({"action": "click", "coordinate": [100, 200]})).await.unwrap();
+        let result = tool.execute(json!({"action": "left_click", "coordinate": [100, 200]})).await.unwrap();
         assert!(result.success);
     }
 
@@ -417,9 +435,9 @@ mod tests {
         let tool = make_tool();
         let result = tool
             .execute(json!({
-                "action": "drag",
+                "action": "left_click_drag",
                 "start_coordinate": [100, 100],
-                "end_coordinate": [200, 200]
+                "coordinate": [200, 200]
             }))
             .await
             .unwrap();
