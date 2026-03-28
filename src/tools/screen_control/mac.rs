@@ -51,17 +51,11 @@ impl MacScreenController {
         Ok((w, h))
     }
 
+    /// CGEvent binary path (precompiled for speed: ~15ms vs swift -e ~150ms)
+    const CGEVENT_BIN: &'static str = concat!(env!("HOME"), "/.zeroclaw/bin/cgevent");
+
     async fn key_code(&self, code: u16) -> Result<()> {
-        let swift_code = format!(
-            r#"import CoreGraphics
-let src = CGEventSource(stateID: .hidSystemState)
-if let down = CGEvent(keyboardEventSource: src, virtualKey: {code}, keyDown: true),
-   let up = CGEvent(keyboardEventSource: src, virtualKey: {code}, keyDown: false) {{
-    down.post(tap: .cghidEventTap)
-    up.post(tap: .cghidEventTap)
-}}"#
-        );
-        self.run("swift", &["-e", &swift_code]).await?;
+        self.run(Self::CGEVENT_BIN, &["key", &code.to_string()]).await?;
         Ok(())
     }
 
@@ -83,18 +77,7 @@ if let down = CGEvent(keyboardEventSource: src, virtualKey: {code}, keyDown: tru
         }
         let key_part = parts.last().unwrap();
         let key_code: u16 = Self::name_to_keycode(key_part)?;
-        let swift_code = format!(
-            r#"import CoreGraphics
-let src = CGEventSource(stateID: .hidSystemState)
-if let down = CGEvent(keyboardEventSource: src, virtualKey: {key_code}, keyDown: true),
-   let up = CGEvent(keyboardEventSource: src, virtualKey: {key_code}, keyDown: false) {{
-    down.flags = CGEventFlags(rawValue: {flags})
-    up.flags = CGEventFlags(rawValue: {flags})
-    down.post(tap: .cghidEventTap)
-    up.post(tap: .cghidEventTap)
-}}"#
-        );
-        self.run("swift", &["-e", &swift_code]).await?;
+        self.run(Self::CGEVENT_BIN, &["key", &key_code.to_string(), &flags.to_string()]).await?;
         Ok(())
     }
 
@@ -202,18 +185,7 @@ impl ScreenController for MacScreenController {
                 let ch = key.chars().next();
                 if key.len() == 1 && ch.map_or(false, |c| c.is_ascii_graphic()) {
                     let c = ch.unwrap();
-                    let swift_code = format!(
-                        r#"import CoreGraphics
-let src = CGEventSource(stateID: .hidSystemState)
-if let d = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
-   let u = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false) {{
-    let ch: UniChar = {u32}
-    d.keyboardSetUnicodeString(stringLength: 1, unicodeString: [ch])
-    u.keyboardSetUnicodeString(stringLength: 1, unicodeString: [ch])
-    d.post(tap: .cghidEventTap)
-    u.post(tap: .cghidEventTap)
-}}"#, u32 = c as u32);
-                    self.run("swift", &["-e", &swift_code]).await?;
+                    self.run(Self::CGEVENT_BIN, &["unicode", &(c as u32).to_string()]).await?;
                     return Ok(());
                 }
                 anyhow::bail!("unsupported key: {key}");
@@ -230,12 +202,7 @@ if let d = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
             "right" => (0, -(amount as i32)),
             _ => anyhow::bail!("unknown scroll direction: {direction}"),
         };
-        let swift_code = format!(
-            r#"import CoreGraphics
-if let e = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: {wheel1}, wheel2: {wheel2}, wheel3: 0) {{
-    e.post(tap: .cghidEventTap)
-}}"#);
-        self.run("swift", &["-e", &swift_code]).await?;
+        self.run(Self::CGEVENT_BIN, &["scroll", &wheel1.to_string(), &wheel2.to_string()]).await?;
         Ok(())
     }
 
