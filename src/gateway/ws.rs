@@ -20,7 +20,6 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
-use std::sync::Arc;
 use tracing::debug;
 
 /// Optional connection parameters sent as the first WebSocket message.

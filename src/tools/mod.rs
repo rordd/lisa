@@ -85,7 +85,6 @@ pub use backup_tool::BackupTool;
 pub use browser::{BrowserTool, ComputerUseConfig};
 #[allow(unused_imports)]
 pub use browser_delegate::{BrowserDelegateConfig, BrowserDelegateTool};
-pub use browser_open::BrowserOpenTool;
 pub use cloud_ops::CloudOpsTool;
 pub use cloud_patterns::CloudPatternsTool;
 pub use composio::ComposioTool;

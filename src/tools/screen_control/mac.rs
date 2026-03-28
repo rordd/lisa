@@ -52,9 +52,12 @@ impl MacScreenController {
     }
 
     /// CGEvent binary path (precompiled for speed: ~15ms vs swift -e ~150ms)
-    fn cgevent_bin() -> String {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.zeroclaw/bin/cgevent")
+    fn cgevent_bin() -> &'static str {
+        static BIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        BIN.get_or_init(|| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            format!("{home}/.zeroclaw/bin/cgevent")
+        })
     }
 
     async fn key_code(&self, code: u16) -> Result<()> {

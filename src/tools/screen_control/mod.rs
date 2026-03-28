@@ -15,7 +15,6 @@ use async_trait::async_trait;
 pub mod mac;
 pub mod tool;
 
-pub use tool::ComputerTool;
 
 /// 캡처 결과
 #[derive(Debug, Clone)]

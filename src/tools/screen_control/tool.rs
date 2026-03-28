@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 
 /// 마지막 캡처의 scale 정보 (screenshot ↔ 다른 action 공유)
 #[derive(Debug, Clone)]
-pub(crate) struct ScaleInfo {
+pub struct ScaleInfo {
     scale_x: f64,
     scale_y: f64,
 }
@@ -62,6 +62,10 @@ impl ComputerTool {
     /// 이미지 좌표 → 실제 화면 좌표
     async fn to_screen_coords(&self, x: i32, y: i32) -> (i32, i32) {
         let s = self.scale.read().await;
+        // scale 미설정(0.0) 시 좌표 그대로 반환 (첫 screenshot 전 action 방어)
+        if s.scale_x == 0.0 || s.scale_y == 0.0 {
+            return (x, y);
+        }
         (
             (x as f64 * s.scale_x).round() as i32,
             (y as f64 * s.scale_y).round() as i32,
