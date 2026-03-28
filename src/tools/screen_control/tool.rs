@@ -315,7 +315,11 @@ impl Tool for ComputerTool {
             Ok(msg) => {
                 // screenshot/cursor_position/wait → 그대로 리턴
                 // 나머지 action → 자동 screenshot 첨부 (모델이 화면 변화를 볼 수 있도록)
-                let needs_auto_screenshot = !matches!(action, "screenshot" | "cursor_position" | "wait");
+                // 화면 변화가 큰 action만 자동 screenshot (토큰 절약)
+                let needs_auto_screenshot = matches!(action,
+                    "left_click" | "right_click" | "double_click" | "triple_click" |
+                    "type" | "key" | "scroll" | "left_click_drag"
+                );
                 let output = if action == "screenshot" {
                     msg
                 } else if needs_auto_screenshot {

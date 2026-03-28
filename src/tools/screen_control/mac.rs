@@ -136,7 +136,7 @@ impl ScreenController for MacScreenController {
         if target_width > 0 && orig_w > target_width {
             self.run("sips", &["--resampleWidth", &target_width.to_string(), &png]).await?;
         }
-        self.run("sips", &["-s", "format", "jpeg", "-s", "formatOptions", "70", &png, "--out", &jpg]).await?;
+        self.run("sips", &["-s", "format", "jpeg", "-s", "formatOptions", "40", &png, "--out", &jpg]).await?;
 
         let (resized_w, resized_h) = self.sips_dimensions(&jpg).await?;
         let bytes = tokio::fs::read(&jpg).await.context("failed to read jpeg")?;
