@@ -1,463 +1,290 @@
-# Snapshot Control — 스크린샷 기반 앱 제어 시스템
+# Snapshot Control — 스크린샷 기반 화면 제어 시스템
 
-> 3계층 앱 제어의 **L3**. 화면을 캡처하고 Vision LLM이 분석하여 좌표 기반으로 제어한다.
-> appMCP(L1)과 CDP(L2)의 보완재로, **아무 앱이나** 제어 가능한 범용 폴백.
->
-> Claude Computer Use 아키텍처를 TV 환경에 적용.
+> 화면을 캡처하고 Vision LLM이 분석하여 좌표 기반으로 제어한다.
+> Anthropic Computer Use API 호환. 아무 앱이나 제어 가능한 범용 시스템.
 
 ---
 
-# 1부. 비교 — OpenClaw / ZeroClaw / Lisa
+# 1부. 구현 현황
 
-## 1.1 왜 비교하는가
-
-스크린샷 기반 제어(Computer Use)는 Anthropic이 개척하고, 이미 여러 프로젝트가 구현하고 있다.
-어디서 뭘 빌려오고 어디서 차별화할지 알려면 비교가 필수.
-
-## 1.2 아키텍처 비교
-
-| | **Claude Computer Use** | **ZeroClaw computer_use** | **ZeroClaw screenshot** | **Lisa (우리)** |
-|---|---|---|---|---|
-| 구조 | API 호출자가 루프 구현 | **HTTP 사이드카 패턴** | 독립 tool (캡처만) | **내장 에이전트 루프** |
-| 캡처 | Xvfb 스크린샷 | 사이드카에 위임 | 플랫폼별 네이티브 명령 | 플랫폼별 네이티브 명령 |
-| 입력 | xdotool / pyautogui | 사이드카에 위임 | — (캡처만) | 플랫폼별 네이티브 명령 |
-| 대상 | 데스크톱 (VM/컨테이너) | 데스크톱 | 데스크톱 | **PC + TV (webOS)** |
-| 루프 | 외부 (API 호출자) | 외부 | — | **내장** |
-| Vision | Claude 전용 | 모델 무관 | 모델 무관 | 모델 무관 |
-
-### ZeroClaw의 2가지 스크린샷 관련 코드
-
-**1) `computer_use` 백엔드** — 브라우저 tool의 하위 백엔드
+## 1.1 아키텍처
 
 ```
-Lisa/ZeroClaw ──HTTP POST──► 사이드카 서버 (localhost:8787)
-                              │
-                              ├── screen_capture (스크린샷)
-                              ├── mouse_move, mouse_click (좌표)
-                              ├── mouse_drag
-                              ├── key_type, key_press
-                              └── open (URL)
+사용자 (텔레그램)
+    ↓ "쿠팡에서 두부 장바구니 담아줘"
+Lisa (ZeroClaw fork)
+    ↓ screen-agent 스킬 로드 (always=true)
+Claude Sonnet 4.6 (Anthropic API)
+    ↓ computer tool 호출
+ComputerTool (tool.rs)
+    ↓ 좌표 변환 (이미지→화면)
+MacScreenController (mac.rs)
+    ↓ 실제 OS 명령 실행
+macOS 화면
 ```
 
-사이드카 서버는 upstream에 **포함되어 있지 않다**. Anthropic Computer Use 서버 등 외부를 쓰라는 구조.
-액션 validate만 ZeroClaw이 하고, 실행은 HTTP로 위임.
+## 1.2 3계층 구조
 
-**2) `screenshot.rs`** — 독립 tool (캡처만)
+```
+┌─────────────────────────────────────────────┐
+│  Layer 1: LLM Tool Interface (tool.rs)      │
+│  - Anthropic Computer Use API 호환           │
+│  - 단일 "computer" tool (computer_20251124)  │
+│  - 좌표 자동 변환 (ScaleHandle)              │
+│  - action 후 자동 screenshot 첨부            │
+├─────────────────────────────────────────────┤
+│  Layer 2: ScreenController Trait (mod.rs)    │
+│  - 플랫폼 독립 인터페이스                     │
+│  - capture, click, type, scroll, key 등      │
+│  - 구현체: MacScreenController (완료)        │
+│  - 미래: LinuxScreenController, WebOS        │
+├─────────────────────────────────────────────┤
+│  Layer 3: OS Native (mac.rs)                │
+│  - screencapture + sips (캡처/리사이즈)      │
+│  - cliclick (마우스 제어)                     │
+│  - cgevent 프리컴파일 바이너리 (키보드/스크롤) │
+│  - pbcopy + Cmd+V (한글 텍스트 입력)         │
+└─────────────────────────────────────────────┘
+```
+
+## 1.3 ScreenController Trait
 
 ```rust
-// macOS
-"screencapture", "-x", output_path
-
-// Linux (우선순위대로)
-"gnome-screenshot" → "scrot" → "import" (ImageMagick)
-```
-
-캡처만 하고 base64로 LLM에 리턴. 입력 실행은 없음. `computer_use`와 별개.
-
-## 1.3 플랫폼 비교
-
-| | **Claude Computer Use** | **ZeroClaw** | **Lisa** |
-|---|---|---|---|
-| macOS | ⚠️ (VM 권장) | ✅ (screencapture) | ✅ |
-| Linux | ✅ (Xvfb) | ✅ (scrot/gnome-screenshot) | ✅ |
-| **webOS TV** | ❌ | ❌ | **✅** |
-| 입력 방식 | 마우스 + 키보드 | 사이드카 위임 | **포인터 + 리모컨 키** |
-| 해상도 | 1024×768 (기본) | 설정 가능 | **1920×1080 (4K 가능)** |
-
-## 1.4 Claude Computer Use와의 비교
-
-Claude Computer Use는 Anthropic이 만든 스크린샷 기반 데스크톱 제어 API. Lisa L3의 직접적인 참고 대상.
-
-### 구조 차이
-
-```
-[Claude Computer Use]
-호출자(개발자) ──API──► Claude API (beta)
-    │                    └── tool_use: { action: "left_click", coordinate: [245, 380] }
-    ▼
-호출자가 직접 실행 + 루프 구현 (while stop_reason == "tool_use")
-
-[Lisa L3]
-사용자 ──텔레그램──► Lisa
-                      └── 내장 에이전트 루프 (capture → LLM → action → repeat)
-```
-
-### 상세 비교
-
-| | **Claude Computer Use** | **Lisa L3** |
-|---|---|---|
-| **루프 주체** | **호출자가 구현** (API 클라이언트) | **Lisa가 내장** |
-| **Tool 정의** | Anthropic 고유 (`computer_20251124`) | 표준 MCP tool (`tv_snapshot`, `tv_input`) |
-| **모델 종속** | **Claude 전용** (beta header 필요) | **모델 무관** (Claude, Gemini, 로컬 등) |
-| **Tool 형태** | 특수 타입 (API가 스크린샷 자동 요청) | 일반 function tool |
-| **보조 tool** | bash, text_editor (내장) | L1(appMCP), L2(CDP) — **3계층 폴백** |
-| **대상 환경** | VM/컨테이너 (데스크톱) | **PC + TV (webOS)** |
-| **스크린샷 전달** | tool_result에 base64 | tool_result에 base64 (동일) |
-| **zoom (영역 확대)** | ✅ (v20251124) | ROI 크롭으로 유사 구현 |
-| **프롬프트 인젝션** | 내장 classifier (자동) | 시스템 프롬프트 방어 (수동) |
-
-### Lisa의 구조적 장점
-
-1. **모델 독립** — Claude CU는 Claude 전용. Lisa는 단순 확인은 Gemini Flash($0.005), 복잡한 건 Sonnet으로 자동 전환
-2. **3계층 폴백** — Claude CU는 항상 스크린샷. Lisa는 L1(API)→L2(DOM)→L3(스크린샷). 대부분 L1/L2에서 해결되니 L3는 최후 수단
-3. **루프 내장** — Claude CU는 호출자가 while 루프 짜야 함. Lisa는 "넷플릭스에서 오징어게임 틀어" 한마디면 끝
-4. **TV 네이티브** — Claude CU는 VM 안 데스크톱 가정. Lisa는 매직 리모컨, 가상 키보드, luna-send API 직접 지원
-
-### Claude CU에서 빌려올 설계
-
-1. **좌표 스케일링** — 1024×768로 리사이즈해서 전송. 토큰 절약 + Anthropic이 이 해상도로 학습
-2. **zoom 패턴** — 작은 요소 → 영역 확대 → 정확도 향상. Lisa의 ROI 크롭과 동일 개념
-3. **프롬프트 인젝션 방어** — 화면 텍스트가 LLM 지시를 오버라이드하는 공격. classifier 또는 격리 프롬프트 필요
-4. **에이전트 루프 구조** — [레퍼런스 구현](https://github.com/anthropics/anthropic-quickstarts/tree/main/computer-use-demo) 참고
-
-## 1.5 Lisa의 차별점
-
-```
-Claude Computer Use:  Claude 전용. 호출자가 루프 구현. VM 데스크톱 대상.
-OpenClaw:             L3 없음. 브라우저 안에서만 동작 (Playwright).
-ZeroClaw:             사이드카 패턴으로 외부 위임, 에이전트 루프 없음.
-Lisa:                 모델 무관. 루프 내장. PC→TV 이식.
-                      L1(appMCP) + L2(CDP) 실패 시 L3 자동 진입.
-                      셋 중 유일하게 Vision 에이전트 루프를 내장 구현.
-```
-
----
-
-# 2부. Lisa 동작 방식 상세
-
-## 2.1 왜 필요한가
-
-```
-L1 appMCP  → appMCP.json 있는 앱만
-L2 CDP     → 웹앱만 (DOM 있는 것)
-L3 Snapshot → 아무거나 (네이티브, 시스템 UI, 팝업 전부)
-```
-
-- 시스템 UI (설정, 홈 런처) → L1/L2 불가 → **L3만 가능**
-- 네이티브 앱 (C++, Qt, Flutter Skia) → DOM 없음 → **L3만 가능**
-- 앱 내 예외 (팝업, 에러 대화상자) → appMCP에 핸들러 없을 수 있음 → **L3 폴백**
-- appMCP.json 없는 3rd party 앱 → **L3만 가능**
-
-## 2.2 플랫폼 추상화 — ScreenController trait
-
-**PC(Mac/Linux)에서 먼저 구현하고, TV로 이식할 때 최소 변경.** 핵심은 플랫폼별 차이를 trait으로 추상화하는 것.
-
-```rust
-trait ScreenController {
-    /// 화면 캡처 → PNG bytes
-    async fn capture(&self) -> Result<Vec<u8>>;
-    
-    /// 좌표 클릭
+#[async_trait]
+trait ScreenController: Send + Sync {
+    async fn capture(&self, resize_width: Option<u32>) -> Result<CaptureResult>;
     async fn click(&self, x: i32, y: i32) -> Result<()>;
-    
-    /// 텍스트 입력
+    async fn double_click(&self, x: i32, y: i32) -> Result<()>;
+    async fn right_click(&self, x: i32, y: i32) -> Result<()>;
+    async fn triple_click(&self, x: i32, y: i32) -> Result<()>;
     async fn type_text(&self, text: &str) -> Result<()>;
-    
-    /// 키 입력 (Enter, Back, Home, 방향키 등)
     async fn press_key(&self, key: &str) -> Result<()>;
-    
-    /// 드래그
+    async fn scroll(&self, direction: &str, amount: u32) -> Result<()>;
     async fn drag(&self, from: (i32, i32), to: (i32, i32)) -> Result<()>;
-    
-    /// 스크롤
-    async fn scroll(&self, direction: &str, amount: i32) -> Result<()>;
-    
-    /// 화면 해상도
+    async fn move_cursor(&self, x: i32, y: i32) -> Result<()>;
+    async fn cursor_position(&self) -> Result<(i32, i32)>;
+    async fn mouse_down(&self, x: i32, y: i32) -> Result<()>;
+    async fn mouse_up(&self, x: i32, y: i32) -> Result<()>;
+    async fn hold_key(&self, key: &str, duration_secs: f64) -> Result<()>;
     fn resolution(&self) -> (u32, u32);
 }
 ```
 
-### 플랫폼별 구현
+## 1.4 MacScreenController 구현
+
+| Action | 구현 | 속도 |
+|--------|------|------|
+| screenshot | `screencapture -x` → `sips resize` → JPEG 40% | ~200ms |
+| click/double/right/triple | `cliclick c/dc/rc/tc` | ~70ms |
+| mouse_down/up | `cliclick dd/du` | ~70ms |
+| move/drag | `cliclick m/dd+du` | ~70ms |
+| key (특수키/콤보) | `cgevent key <code> [flags]` (프리컴파일) | ~15ms |
+| key (ASCII) | `cgevent unicode <charcode>` | ~15ms |
+| scroll | `cgevent scroll <w1> <w2>` | ~15ms |
+| type (텍스트) | `pbcopy` + `osascript Cmd+V` (IME/한글) | ~120ms |
+| hold_key | `cgevent keydown` → sleep → `cgevent keyup` | duration+30ms |
+| cursor_position | `cliclick p` → 파싱 | ~70ms |
+
+### cgevent 프리컴파일 바이너리
+
+`~/.zeroclaw/bin/cgevent` — Swift CGEvent API를 swiftc -O로 미리 컴파일.
+`swift -e` 매번 실행 시 ~150ms → 프리컴파일 ~15ms (10배 향상).
+
+지원 커맨드: `key`, `keydown`, `keyup`, `unicode`, `scroll`
+
+### 한글 입력
+
+macOS IME를 우회하기 위해 클립보드 방식 사용:
+1. `pbcopy`로 텍스트를 클립보드에 복사
+2. `osascript`로 Cmd+V 실행
+3. ⚠️ 클립보드 덮어쓰기 부작용 있음
+
+## 1.5 ComputerTool — Anthropic Computer Use 호환
+
+### Tool 등록
+
+- tool type: `computer_20251124`
+- `display_width_px` / `display_height_px` 자동 설정
+- `screen_control.enabled = true` → computer tool 등록, screenshot tool 비활성화 (exclusive)
+
+### 지원 Action
+
+| Action | 파라미터 |
+|--------|---------|
+| screenshot | — |
+| cursor_position | — |
+| left_click / right_click / middle_click | coordinate |
+| double_click / triple_click | coordinate |
+| mouse_move | coordinate |
+| left_click_drag | start_coordinate, coordinate |
+| left_mouse_down / left_mouse_up | coordinate |
+| type | text |
+| key | text (Return, Escape, cmd+c 등) |
+| hold_key | text, duration |
+| scroll | coordinate, scroll_direction, scroll_amount |
+| wait | duration |
+
+### 좌표 자동 변환
+
+LLM은 리사이즈된 이미지 좌표를 전달 → `ScaleHandle`이 실제 화면 좌표로 자동 변환.
 
 ```
-MacScreenController (개발용)
-├── capture:    screencapture -x /tmp/snap.png
-├── click:      cliclick c:x,y  또는  osascript
-├── type_text:  osascript -e 'tell application "System Events" to keystroke'
-├── press_key:  osascript
-└── 해상도:     system_profiler SPDisplaysDataType
-
-LinuxScreenController (개발용)
-├── capture:    scrot /tmp/snap.png  (또는 gnome-screenshot, import)
-├── click:      xdotool mousemove x y && xdotool click 1
-├── type_text:  xdotool type --delay 50 "text"
-├── press_key:  xdotool key Return
-└── 해상도:     xdpyinfo | grep dimensions
-
-WebOSScreenController (TV — 이식 대상)
-├── capture:    luna-send capture/executeOneShot
-├── click:      luna-send ime/injectCursorEvent (매직 리모컨 포인터)
-├── type_text:  luna-send ime/insertText
-├── press_key:  luna-send ime/injectKeyEvent
-└── 해상도:     1920×1080 (고정) 또는 luna-send로 조회
+LLM: coordinate [384, 240] (768×480 이미지 기준)
+  ↓ scale_x=3.33, scale_y=3.33
+실제: (1280, 800) (2560×1600 화면)
 ```
 
-**PC→TV 이식 시 변경:** `WebOSScreenController` 구현체 하나 추가. 에이전트 루프, Vision 호출, 좌표 파싱, 최적화 — 전부 공통 코드 그대로.
+scale 미설정(0.0) 시 좌표 그대로 반환 (방어 코드).
 
-### ZeroClaw upstream 코드 재활용
+### 자동 Screenshot
 
-`screenshot.rs`의 플랫폼 감지 로직을 `MacScreenController`/`LinuxScreenController`의 `capture()` 구현에 그대로 가져올 수 있다:
+click, type, key, scroll, drag 실행 후:
+1. `screenshot_delay_ms` 대기 (기본 2000ms, config 변경 가능)
+2. 자동 screenshot 캡처
+3. tool result에 이미지 포함
+
+mouse_move, wait, cursor_position은 자동 캡처 안 함.
+
+## 1.6 Anthropic Provider 연동
+
+### anthropic.rs 변경사항
+
+- `NativeToolDef` enum: `Regular(NativeToolSpec)` | `ComputerUse(ComputerUseToolSpec)`
+- `apply_auth()`: computer tool 있으면 `computer-use-2025-11-24` beta 헤더 추가
+- `convert_tools()`: `computer` tool name 감지 → `computer_20251124` 타입 자동 변환
+- `ToolResultContent`: 텍스트+이미지 혼합 블록 지원
+- `token-efficient-tools-2025-02-19` beta 항상 적용
+
+### Setup Token Auth (sk-ant-oat01-*)
+
+`chat_with_system()`에서 `system`을 blocks array `[{"type":"text","text":"..."}]`로 전송 (plain string 아님).
+
+Beta 헤더: `claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,token-efficient-tools-2025-02-19[,computer-use-2025-11-24]`
+
+## 1.7 Prompt Caching
+
+- `cache_control: {"type": "ephemeral"}` on tools + messages
+- 실측: 97-99% cache hit rate
+- cache_read: 19k→28k (턴마다 ~600 증가)
+- cache_creation: ~600/턴 (새 screenshot 1장)
+- **비용 90% 절감** (multi-turn)
+
+## 1.8 Config
+
+```toml
+[screen_control]
+enabled = false              # true → computer tool, false → screenshot tool
+backend = "mac"              # "mac" or "linux"
+resize_width = 768           # 캡처 이미지 리사이즈 폭 (0=원본)
+screenshot_delay_ms = 2000   # action 후 자동 screenshot 전 대기 (ms)
+```
+
+## 1.9 screen-agent 스킬
+
+`~/.zeroclaw/workspace/skills/screen-agent/SKILL.toml` — `always: true`
+
+시스템 프롬프트에 자동 포함:
+- macOS 키보드 단축키 (cmd+r, cmd+l 등)
+- capture→judge→act→verify 루프
+- 스크롤 전략 (amount 10+, 안 보이면 즉시 스크롤)
+- 주소창 입력 패턴 (cmd+l → cmd+a → type URL)
+
+Linux용 프리셋: `SKILL.toml.linux` (cmd→ctrl 전환)
+
+---
+
+# 2부. 비교
+
+## 2.1 아키텍처 비교
+
+| | **Claude Computer Use** | **ZeroClaw upstream** | **Lisa (현재)** |
+|---|---|---|---|
+| 구조 | API 호출자가 루프 구현 | HTTP 사이드카 패턴 | **내장 에이전트 루프** |
+| 캡처 | Xvfb 스크린샷 | 사이드카에 위임 | 플랫폼별 네이티브 |
+| 입력 | xdotool / pyautogui | 사이드카에 위임 | 플랫폼별 네이티브 |
+| Tool 형태 | 특수 `computer_20251124` 타입 | 일반 HTTP 위임 | **Anthropic 호환 네이티브** |
+| Vision | Claude 전용 | 모델 무관 | **Claude 최적화 (캐시)** |
+| 대상 | VM/컨테이너 | 데스크톱 | **PC + TV (webOS 계획)** |
+
+## 2.2 Lisa의 차별점
+
+1. **Anthropic Computer Use API 네이티브 호환** — 사이드카 없이 직접 구현
+2. **프리컴파일 CGEvent** — swift -e 대비 10배 빠른 키/스크롤
+3. **한글 지원** — pbcopy+Cmd+V로 IME 우회
+4. **Prompt caching 97%+** — multi-turn 비용 90% 절감
+5. **플랫폼 추상화** — trait만 구현하면 Linux/webOS 이식 가능
+
+---
+
+# 3부. 플랫폼 이식 계획
+
+## 3.1 Linux (다음 단계)
 
 ```rust
-// upstream screenshot.rs에서 가져온 플랫폼 감지
-if cfg!(target_os = "macos") {
-    // screencapture -x
-} else if cfg!(target_os = "linux") {
-    // gnome-screenshot → scrot → import (우선순위)
-}
+// LinuxScreenController
+capture:    scrot / gnome-screenshot
+click:      xdotool mousemove + click
+type_text:  xdotool type
+press_key:  xdotool key
+scroll:     xdotool click 4/5
 ```
 
-`computer_use`의 사이드카 프로토콜도 호환 가능하지만, Lisa는 사이드카 없이 직접 실행하는 게 낫다 — HTTP 라운드트립 오버헤드 없이 네이티브 명령 직접 호출.
+Config: `backend = "linux"`, SKILL.toml: `cp SKILL.toml.linux SKILL.toml`
 
-## 2.3 에이전트 루프
+## 3.2 webOS TV (장기)
 
-```
-사용자: "넷플릭스에서 오징어게임 틀어줘"
-  │
-  ▼
-┌──────────────────────────────────────────────────────┐
-│ Loop (최대 20회):                                     │
-│                                                      │
-│  1. controller.capture() → PNG bytes                 │
-│  2. 이미지 리사이즈 (토큰 절약)                         │
-│  3. Vision LLM에 전송 (이미지 + 지시 + 이전 행동 기록)  │
-│  4. LLM 응답 파싱: { action, coordinate, text, ... }  │
-│  5. controller.click(x, y) 또는 type_text() 등 실행   │
-│  6. 대기 (화면 전환 시간)                               │
-│  7. 목표 달성? → 완료 / 아니면 Loop 반복               │
-│                                                      │
-│  종료 조건:                                           │
-│  - LLM이 "완료" 판단                                  │
-│  - 최대 반복 횟수 초과 (안전장치, 기본 20회)             │
-│  - 에러 발생                                          │
-│  - 사용자 취소                                        │
-└──────────────────────────────────────────────────────┘
+```rust
+// WebOSScreenController
+capture:    luna-send capture/executeOneShot
+click:      luna-send ime/injectCursorEvent (매직 리모컨 포인터)
+type_text:  luna-send ime/insertText
+press_key:  luna-send ime/injectKeyEvent
 ```
 
-**예시 실행 (7 스텝):**
-
-```
-Step 1: 캡처 → 홈 화면        → LLM: click(850, 600) "넷플릭스 아이콘"
-Step 2: 캡처 → 넷플릭스 로딩   → LLM: wait(2000) "로딩 중"
-Step 3: 캡처 → 넷플릭스 홈     → LLM: click(100, 50) "검색 아이콘"
-Step 4: 캡처 → 검색 + 키보드   → LLM: type("오징어게임")
-Step 5: 캡처 → 검색 결과       → LLM: click(300, 400) "오징어게임 시즌3"
-Step 6: 캡처 → 상세 페이지     → LLM: click(960, 500) "재생 버튼"
-Step 7: 캡처 → 재생 시작       → LLM: "완료"
-```
-
-## 2.4 LLM Tool 인터페이스
-
-LLM에게는 **2개 tool**이 주어진다:
-
-### tv_snapshot — 화면 캡처
-
-```json
-{
-  "name": "tv_snapshot",
-  "description": "화면을 캡처하여 현재 상태를 확인한다. PNG 이미지를 리턴.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "resize": {
-        "type": "object",
-        "properties": {
-          "width": { "type": "number" },
-          "height": { "type": "number" }
-        }
-      }
-    }
-  }
-}
-```
-
-### tv_input — 입력 실행
-
-```json
-{
-  "name": "tv_input",
-  "description": "화면에 입력을 보낸다 (클릭, 키입력, 타이핑, 스크롤)",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "action": {
-        "type": "string",
-        "enum": ["click", "double_click", "right_click", "type", "key",
-                 "scroll", "drag", "move", "wait"]
-      },
-      "coordinate": {
-        "type": "array", "items": { "type": "number" },
-        "description": "[x, y] 좌표"
-      },
-      "text": { "type": "string", "description": "type 시 입력 텍스트" },
-      "key": {
-        "type": "string",
-        "description": "HOME, BACK, ENTER, UP, DOWN, LEFT, RIGHT, VOLUMEUP, VOLUMEDOWN 등"
-      },
-      "duration": { "type": "number", "description": "wait 시 대기 ms" },
-      "scroll_direction": { "type": "string", "enum": ["up", "down", "left", "right"] },
-      "drag_end": { "type": "array", "items": { "type": "number" } }
-    },
-    "required": ["action"]
-  }
-}
-```
-
-## 2.5 L1/L2와의 통합
-
-```
-사용자 요청
-    │
-    ▼
-  L1 appMCP 도구 있나? ──YES──► appMCP 실행 (~1초)
-    │ NO
-    ▼
-  L2 CDP 가능? (웹앱?) ──YES──► CDP 스냅샷+클릭 (~2초)
-    │ NO
-    ▼
-  L3 Snapshot Control ──────► 캡처+Vision+클릭 (~5초/스텝)
-```
-
-L3 진입 후에도:
-- 앱이 MCP 서버 등록하면 → L1으로 전환
-- 웹앱 DOM 접근 가능해지면 → L2로 전환
-- L1/L2 실행 실패 (앱 크래시 등) → L3로 폴백
-
-## 2.6 최적화
-
-### 이미지 리사이즈
-
-```
-원본: 1920×1080 → ~1.5MB PNG → ~1,500 토큰
-리사이즈: 1280×720 → ~500KB (좌표 ×1.5 보정)
-리사이즈: 960×540 → ~250KB (대부분 충분)
-```
-
-좌표 보정: `실제좌표 = LLM좌표 × (원본해상도 / 리사이즈해상도)`
-
-### 변경 감지
-
-```
-캡처 → 이전 프레임과 pixel diff
-  ├── 변경률 < 5% → "아직 로딩 중" (LLM 호출 스킵, 재대기)
-  └── 변경률 ≥ 5% → LLM에 전송
-```
-
-### ROI (Region of Interest)
-
-```
-1회차: 전체 화면 → LLM이 관심 영역 식별
-2회차~: 해당 영역만 크롭 → 토큰 절약 + 정확도 향상
-```
-
-### 모델 선택
-
-| 상황 | 모델 | 이유 |
-|------|------|------|
-| 복잡한 UI 분석 | Claude Sonnet / Opus | 정확한 좌표 추론 |
-| 단순 상태 확인 | Flash / Haiku | 빠르고 저렴 |
-| 텍스트 읽기만 | 로컬 OCR (Tesseract) | 무료, Vision 불필요 |
-
-## 2.7 보안 & 안전장치
-
-| 항목 | 대책 |
-|------|------|
-| 무한 루프 방지 | 최대 반복 횟수 제한 (기본 20회) |
-| 민감 정보 노출 | 스크린샷에 비밀번호 보이면 → LLM에 경고 프롬프트 |
-| 오클릭 방지 | 결제/삭제 등 위험 행동 → 사용자 확인 요청 |
-| 프롬프트 인젝션 | 화면 내 텍스트가 LLM 지시 오버라이드 가능 → 시스템 프롬프트에 방어 |
-| 비용 제어 | 스냅샷당 토큰 비용 추적, 일일 한도 설정 |
-
----
-
-# 3부. 문제점 및 향후 방향
-
-## 3.1 속도 — L3의 근본적 한계
-
-```
-L1 appMCP:  ~1초 (API 한 번)
-L2 CDP:     ~2초 (DOM 스냅샷 + LLM)
-L3 Snapshot: ~5초/스텝 × 7스텝 = ~35초 (넷플릭스 예시)
-```
-
-Vision LLM 호출이 스텝당 ~3초, 캡처+입력이 ~2초. **구조적으로 느리다.**
-
-**완화 방향:**
-- L1/L2가 가능하면 항상 먼저 시도 (자동 라우팅)
-- 변경 감지로 불필요한 LLM 호출 스킵
-- 빠른 모델(Flash/Haiku)로 단순 상태 확인
-- ROI 크롭으로 토큰 줄이기
-
-## 3.2 좌표 정확도
-
-Vision LLM의 좌표 추론은 완벽하지 않다. 특히:
-- 작은 버튼, 밀집된 UI 요소
-- 비슷하게 생긴 반복 요소 (썸네일 그리드)
-- 텍스트가 없는 아이콘 전용 버튼
-
-**완화 방향:**
-- 클릭 후 상태 변화 없으면 → 좌표 미세 조정 후 재시도
-- L2(CDP) 스냅샷으로 보완: 클릭 대상 근처 DOM 정보 참조
-- 리사이즈 시 너무 줄이지 않기 (최소 960px 폭)
-
-## 3.3 비용
-
-스크린샷 이미지 토큰이 비싸다.
-
-```
-1회 스냅샷: ~1,500 토큰 (이미지) + ~500 토큰 (프롬프트) = ~2,000 토큰
-7스텝 작업: ~14,000 토큰 ≈ $0.04 (Sonnet) ~ $0.21 (Opus)
-```
-
-**완화 방향:**
-- L3는 최후 수단 (L1/L2 우선)
-- 단순 확인은 Flash ($0.005/7스텝)
-- 변경 감지 + ROI로 실제 전송량 줄이기
-
-## 3.4 TV 입력의 특수성
-
-TV는 마우스가 아니라 **매직 리모컨 포인터**다:
-
-- 포인터가 화면 위에 항상 보이는 건 아님 (숨겨진 상태 가능)
-- 포인터 활성화가 필요할 수 있음
-- 방향키 네비게이션이 더 자연스러운 UI가 많음 (리스트 포커스)
-- 가상 키보드가 화면 하단에 뜸 (좌표 재계산 필요)
-
-**완화 방향:**
-- 좌표 클릭 전에 포인터 활성화 명령
-- UI에 따라 방향키 네비게이션 전략 자동 선택
+특수 고려사항:
+- 매직 리모컨 포인터 활성화 필요
+- 방향키 네비게이션이 자연스러운 UI 많음
 - 가상 키보드 감지 시 좌표 오프셋 보정
-
-## 3.5 구현 순서
-
-### Phase 1: PC 캡처 + 분석 (Mac/Linux)
-- [ ] `ScreenController` trait 정의
-- [ ] `MacScreenController` 구현 (screencapture + cliclick)
-- [ ] `LinuxScreenController` 구현 (scrot + xdotool)
-- [ ] upstream `screenshot.rs` 플랫폼 감지 로직 재활용
-- [ ] Vision LLM에 스크린샷 전송 + 좌표 파싱
-
-### Phase 2: 에이전트 루프 (PC)
-- [ ] 캡처→분석→행동→반복 루프 구현
-- [ ] 최대 반복 횟수 + 타임아웃 안전장치
-- [ ] 이미지 리사이즈 + 좌표 보정
-- [ ] 변경 감지 (pixel diff)
-
-### Phase 3: TV 이식
-- [ ] `WebOSScreenController` 구현 (luna-send)
-- [ ] 매직 리모컨 포인터 제어
-- [ ] TV 입력 특수성 처리 (가상 키보드, 포인터 활성화)
-- [ ] L1/L2 폴백 연동
-
-### Phase 4: 최적화
-- [ ] ROI 크롭
-- [ ] 모델 자동 선택 (복잡도에 따라 Sonnet/Flash)
-- [ ] 로컬 OCR 보조
+- 해상도: 1920×1080 고정
 
 ---
 
-_v3.0 — 2026-03-27_
-_3부 구성: 비교 / 동작 상세 / 문제점 및 방향_
-_Claude Computer Use + ZeroClaw upstream 분석 기반_
-_ScreenController trait로 PC→TV 이식 최소 변경 설계_
-_Project Elvis L3 계층_
+# 4부. 모델 테스트 결과
+
+| 모델 | Computer Use 지원 | 속도 | 정확도 | 비용 | 결론 |
+|------|---|---|---|---|---|
+| Claude Haiku 4.5 | ❌ (400 에러) | — | — | — | 사용 불가 |
+| Claude Sonnet 4.6 | ✅ | 5-10s/턴 | 양호 | $3/MTok in | **현재 사용** |
+| Claude Opus 4.6 | ✅ | 15-30s/턴 | 양호 | $15/MTok in | 효과 없음 (속도 대비) |
+
+**결론:** Sonnet 4.6이 가성비 최적. Opus는 삽질 감소 효과 미미.
+
+---
+
+# 5부. 성능 프로파일
+
+## Action당 소요 시간
+
+| 구간 | 시간 |
+|------|------|
+| cgevent (key/scroll) | ~15ms |
+| cliclick (click) | ~70ms |
+| screencapture + sips | ~200ms |
+| screenshot delay | 2000ms (config) |
+| **LLM 응답** | **5,000-30,000ms (90%)** |
+
+**병목: LLM 응답 시간.** 로컬 최적화로는 한계. 캐싱으로 비용은 줄이되 속도는 모델 의존.
+
+## Prompt Caching 효과
+
+| 턴 | input | cache_read | cache_creation | hit rate |
+|---|---|---|---|---|
+| 1 | 1 | 19,676 | 103 | 99.5% |
+| 10 | 1 | 23,055 | 595 | 97.5% |
+| 20 | 1 | 28,182 | 625 | 97.8% |
+
+---
+
+_v4.0 — 2026-03-28_
+_구현 완료 기준 갱신. PR #89 머지._
+_설계 문서 → 구현 문서로 전환._
