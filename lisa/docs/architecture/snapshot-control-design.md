@@ -218,34 +218,110 @@ Linux용 프리셋: `SKILL.toml.linux` (cmd→ctrl 전환)
 
 # 3부. 플랫폼 이식 계획
 
-## 3.1 Linux (다음 단계)
+## 3.1 구현체 전략 — 커널 인터페이스 통일
 
-```rust
-// LinuxScreenController
-capture:    scrot / gnome-screenshot
-click:      xdotool mousemove + click
-type_text:  xdotool type
-press_key:  xdotool key
-scroll:     xdotool click 4/5
+macOS만 별도, Linux와 webOS는 **커널 인터페이스 2개**(`/dev/fb0` + `/dev/uinput`)로 통일:
+
+```
+┌─────────────────────────────────────────────────┐
+│  MacScreenController (macOS 전용)               │
+│  ├── capture: screencapture + sips              │
+│  └── input:   cliclick + cgevent (프리컴파일)    │
+├─────────────────────────────────────────────────┤
+│  LinuxScreenController (Linux + webOS 통합)     │
+│  ├── capture: /dev/fb0 → raw → JPEG 변환        │
+│  └── input:   /dev/uinput (가상 입력 장치)       │
+└─────────────────────────────────────────────────┘
 ```
 
-Config: `backend = "linux"`, SKILL.toml: `cp SKILL.toml.linux SKILL.toml`
+### 왜 커널 인터페이스인가
 
-## 3.2 webOS TV (장기)
+| 접근 방식 | X11 | Wayland | webOS | TTY |
+|-----------|-----|---------|-------|-----|
+| xdotool + scrot | ✅ | ❌ | ❌ | ❌ |
+| ydotool + grim | ❌ | ✅ | ❌ | ❌ |
+| luna-send | ❌ | ❌ | ✅ | ❌ |
+| **/dev/uinput + /dev/fb0** | **✅** | **✅** | **✅** | **✅** |
+
+디스플레이 서버에 의존하지 않으므로 **어떤 Linux 환경에서든 동작**.
+권한만 있으면 됨 (`input` 그룹 또는 root).
+
+### /dev/uinput — 입력
+
+커널 레벨 가상 입력 장치. 마우스, 키보드 이벤트를 직접 주입:
+- 마우스 이동/클릭: `EV_REL` / `EV_ABS` + `EV_KEY`
+- 키보드: `EV_KEY` (keycode 기반)
+- 스크롤: `EV_REL` + `REL_WHEEL`
+- X11, Wayland, TTY, webOS 전부 동작
+- ydotool이 내부적으로 uinput 사용하는 구조
+
+### /dev/fb0 — 캡처
+
+리눅스 framebuffer 직접 읽기:
+- raw RGBX 데이터 → JPEG/PNG 인코딩
+- 해상도는 `/sys/class/graphics/fb0/virtual_size` 에서 조회
+- GPU 컴포지팅 환경에서도 webOS TV는 fb0에 최종 합성 화면 출력 (확인됨)
+
+### 구현 예상
 
 ```rust
-// WebOSScreenController
-capture:    luna-send capture/executeOneShot
-click:      luna-send ime/injectCursorEvent (매직 리모컨 포인터)
-type_text:  luna-send ime/insertText
-press_key:  luna-send ime/injectKeyEvent
+struct LinuxScreenController {
+    uinput_fd: File,        // /dev/uinput
+    fb_path: String,        // /dev/fb0
+    width: u32,
+    height: u32,
+}
+
+impl ScreenController for LinuxScreenController {
+    async fn capture(&self, resize_width: Option<u32>) -> Result<CaptureResult> {
+        // /dev/fb0 → raw read → JPEG encode → resize
+    }
+    async fn click(&self, x: i32, y: i32) -> Result<()> {
+        // uinput: EV_ABS(x,y) → EV_KEY(BTN_LEFT) → EV_SYN
+    }
+    async fn type_text(&self, text: &str) -> Result<()> {
+        // uinput: char → keycode 변환 → EV_KEY
+    }
+    // ...
+}
 ```
 
-특수 고려사항:
-- 매직 리모컨 포인터 활성화 필요
-- 방향키 네비게이션이 자연스러운 UI 많음
+## 3.2 Docker 테스트 환경
+
+macOS에서 Linux 환경 테스트:
+
+```dockerfile
+FROM ubuntu:24.04
+RUN apt-get install -y xvfb firefox-esr
+# /dev/uinput + /dev/fb0 사용
+```
+
+```bash
+docker run --device /dev/uinput -e DISPLAY=:99 lisa-test
+```
+
+## 3.3 webOS TV 특수 고려사항
+
+uinput + fb0 기반이지만 TV 고유 사항 존재:
+- 매직 리모컨 포인터 활성화가 필요할 수 있음 (uinput으로 커서 이벤트 시 자동 활성화 여부 확인 필요)
+- 방향키 네비게이션이 자연스러운 UI가 많음 (리스트 포커스)
 - 가상 키보드 감지 시 좌표 오프셋 보정
-- 해상도: 1920×1080 고정
+- 해상도: 1920×1080 고정 (4K TV도 UI는 1080p)
+- luna-send는 **fallback**으로 유지 — uinput 안 되는 특수 케이스 대응
+
+## 3.4 Config
+
+```toml
+# macOS
+[screen_control]
+backend = "mac"
+
+# Linux (PC, Docker, webOS TV 전부)
+[screen_control]
+backend = "linux"
+```
+
+SKILL.toml은 OS별로 교체: `cp SKILL.toml.linux SKILL.toml`
 
 ---
 
