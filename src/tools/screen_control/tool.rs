@@ -103,8 +103,9 @@ impl Tool for ComputerTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["screenshot", "click", "double_click", "right_click",
-                             "mouse_move", "type", "key", "scroll", "drag", "wait"],
+                    "enum": ["screenshot", "click", "left_click", "double_click",
+                             "right_click", "middle_click", "mouse_move",
+                             "type", "key", "scroll", "drag", "left_click_drag", "wait"],
                     "description": "수행할 액션"
                 },
                 "coordinate": {
@@ -182,11 +183,18 @@ impl Tool for ComputerTool {
                     Err(e) => Err(e),
                 }
             }
-            "click" => {
+            "click" | "left_click" => {
                 let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.click(x, y).await?;
                 Ok(format!("clicked image({ix},{iy}) → screen({x},{y})"))
+            }
+            "middle_click" => {
+                // middle click → 일반 click으로 폴백 (cliclick에 middle 없음)
+                let (ix, iy) = Self::parse_coordinate(&args)?;
+                let (x, y) = self.to_screen_coords(ix, iy).await;
+                self.controller.click(x, y).await?;
+                Ok(format!("middle_clicked(→click) image({ix},{iy}) → screen({x},{y})"))
             }
             "double_click" => {
                 let (ix, iy) = Self::parse_coordinate(&args)?;
@@ -243,7 +251,7 @@ impl Tool for ComputerTool {
                 self.controller.scroll(dir, amount).await?;
                 Ok(format!("scrolled {dir} {amount}"))
             }
-            "drag" => {
+            "drag" | "left_click_drag" => {
                 let parse_coord = |key: &str| -> anyhow::Result<(i32, i32)> {
                     let coord = args
                         .get(key)
@@ -256,8 +264,10 @@ impl Tool for ComputerTool {
                     let y = coord[1].as_i64().ok_or_else(|| anyhow::anyhow!("{key}[1] must be integer"))? as i32;
                     Ok((x, y))
                 };
+                // Anthropic: start_coordinate + coordinate, 기존: start_coordinate + end_coordinate
                 let (ifx, ify) = parse_coord("start_coordinate")?;
-                let (itx, ity) = parse_coord("end_coordinate")?;
+                let (itx, ity) = parse_coord("coordinate")
+                    .or_else(|_| parse_coord("end_coordinate"))?;
                 let (fx, fy) = self.to_screen_coords(ifx, ify).await;
                 let (tx, ty) = self.to_screen_coords(itx, ity).await;
                 self.controller.drag((fx, fy), (tx, ty)).await?;
