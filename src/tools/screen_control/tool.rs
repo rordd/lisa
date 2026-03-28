@@ -312,15 +312,40 @@ impl Tool for ComputerTool {
         };
 
         match result {
-            Ok(msg) => Ok(ToolResult {
-                success: true,
-                output: if action == "screenshot" {
+            Ok(msg) => {
+                // screenshot/cursor_position/wait → 그대로 리턴
+                // 나머지 action → 자동 screenshot 첨부 (모델이 화면 변화를 볼 수 있도록)
+                let needs_auto_screenshot = !matches!(action, "screenshot" | "cursor_position" | "wait");
+                let output = if action == "screenshot" {
                     msg
+                } else if needs_auto_screenshot {
+                    // action 후 잠깐 대기 (UI 반영 시간)
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    let width = Some(self.default_width).filter(|&w| w > 0);
+                    match self.controller.capture(width).await {
+                        Ok(capture) => {
+                            {
+                                let mut s = self.scale.write().await;
+                                s.scale_x = capture.scale_x;
+                                s.scale_y = capture.scale_y;
+                            }
+                            let now = chrono::Utc::now().format("%H:%M:%S%.3f");
+                            format!(
+                                "{}\nScreenshot at {now}: {}x{} (auto-capture after {action})\n{}",
+                                msg,
+                                capture.resized_width, capture.resized_height,
+                                capture.data_uri,
+                            )
+                        }
+                        Err(e) => {
+                            format!("{}\n(auto-screenshot failed: {})", msg, e)
+                        }
+                    }
                 } else {
                     json!({ "action": action, "result": msg, "ok": true }).to_string()
-                },
-                error: None,
-            }),
+                };
+                Ok(ToolResult { success: true, output, error: None })
+            }
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
