@@ -281,7 +281,7 @@ impl AnthropicProvider {
         has_computer_tool: bool,
     ) -> reqwest::RequestBuilder {
         if Self::is_setup_token(credential) {
-            let mut beta = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14".to_string();
+            let mut beta = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,token-efficient-tools-2025-02-19".to_string();
             if has_computer_tool {
                 beta.push_str(",computer-use-2025-11-24");
             }
@@ -293,12 +293,14 @@ impl AnthropicProvider {
                     format!("claude-cli/{}", Self::CLAUDE_CODE_VERSION),
                 )
                 .header("x-app", "cli")
-        } else if has_computer_tool {
+        } else {
+            let mut beta = "token-efficient-tools-2025-02-19".to_string();
+            if has_computer_tool {
+                beta.push_str(",computer-use-2025-11-24");
+            }
             request
                 .header("x-api-key", credential)
-                .header("anthropic-beta", "computer-use-2025-11-24")
-        } else {
-            request.header("x-api-key", credential)
+                .header("anthropic-beta", beta)
         }
     }
 
@@ -690,10 +692,19 @@ impl AnthropicProvider {
         let mut reasoning_parts = Vec::new();
         let mut tool_calls = Vec::new();
 
-        let usage = response.usage.map(|u| TokenUsage {
-            input_tokens: u.input_tokens,
-            output_tokens: u.output_tokens,
-            cached_input_tokens: u.cache_read_input_tokens,
+        let usage = response.usage.map(|u| {
+            tracing::info!(
+                input_tokens = ?u.input_tokens,
+                output_tokens = ?u.output_tokens,
+                cache_creation = ?u.cache_creation_input_tokens,
+                cache_read = ?u.cache_read_input_tokens,
+                "Anthropic usage"
+            );
+            TokenUsage {
+                input_tokens: u.input_tokens,
+                output_tokens: u.output_tokens,
+                cached_input_tokens: u.cache_read_input_tokens,
+            }
         });
 
         for block in response.content {
