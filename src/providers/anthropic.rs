@@ -54,7 +54,7 @@ struct NativeChatRequest<'a> {
     messages: Vec<NativeMessage>,
     temperature: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<NativeToolSpec<'a>>>,
+    tools: Option<Vec<NativeToolDef<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,6 +144,26 @@ struct NativeToolSpec<'a> {
     input_schema: &'a serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     cache_control: Option<CacheControl>,
+}
+
+/// Anthropic Computer Use tool spec (computer_20251124)
+#[derive(Debug, Serialize)]
+struct ComputerUseToolSpec {
+    #[serde(rename = "type")]
+    tool_type: String,
+    name: String,
+    display_width_px: u32,
+    display_height_px: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_control: Option<CacheControl>,
+}
+
+/// Tool definition: regular or Computer Use
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum NativeToolDef<'a> {
+    Regular(NativeToolSpec<'a>),
+    ComputerUse(ComputerUseToolSpec),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -258,19 +278,25 @@ impl AnthropicProvider {
         &self,
         request: reqwest::RequestBuilder,
         credential: &str,
+        has_computer_tool: bool,
     ) -> reqwest::RequestBuilder {
         if Self::is_setup_token(credential) {
+            let mut beta = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14".to_string();
+            if has_computer_tool {
+                beta.push_str(",computer-use-2025-11-24");
+            }
             request
                 .header("Authorization", format!("Bearer {credential}"))
-                .header(
-                    "anthropic-beta",
-                    "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
-                )
+                .header("anthropic-beta", beta)
                 .header(
                     "user-agent",
                     format!("claude-cli/{}", Self::CLAUDE_CODE_VERSION),
                 )
                 .header("x-app", "cli")
+        } else if has_computer_tool {
+            request
+                .header("x-api-key", credential)
+                .header("anthropic-beta", "computer-use-2025-11-24")
         } else {
             request.header("x-api-key", credential)
         }
@@ -301,27 +327,54 @@ impl AnthropicProvider {
         }
     }
 
-    fn convert_tools<'a>(tools: Option<&'a [ToolSpec]>) -> Option<Vec<NativeToolSpec<'a>>> {
-        let items = tools?;
-        if items.is_empty() {
-            return None;
-        }
-        let mut native_tools: Vec<NativeToolSpec<'a>> = items
+    fn convert_tools<'a>(tools: Option<&'a [ToolSpec]>) -> (Option<Vec<NativeToolDef<'a>>>, bool) {
+        let items = match tools {
+            Some(t) if !t.is_empty() => t,
+            _ => return (None, false),
+        };
+        let mut has_computer_tool = false;
+        let mut native_tools: Vec<NativeToolDef<'a>> = items
             .iter()
-            .map(|tool| NativeToolSpec {
-                name: &tool.name,
-                description: &tool.description,
-                input_schema: &tool.parameters,
-                cache_control: None,
+            .map(|tool| {
+                if tool.name == "computer" {
+                    has_computer_tool = true;
+                    let w = tool.parameters.get("__display_width_px")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(1024) as u32;
+                    let h = tool.parameters.get("__display_height_px")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(768) as u32;
+                    NativeToolDef::ComputerUse(ComputerUseToolSpec {
+                        tool_type: "computer_20251124".into(),
+                        name: "computer".into(),
+                        display_width_px: w,
+                        display_height_px: h,
+                        cache_control: None,
+                    })
+                } else {
+                    NativeToolDef::Regular(NativeToolSpec {
+                        name: &tool.name,
+                        description: &tool.description,
+                        input_schema: &tool.parameters,
+                        cache_control: None,
+                    })
+                }
             })
             .collect();
 
         // Cache the last tool definition (caches all tools)
         if let Some(last_tool) = native_tools.last_mut() {
-            last_tool.cache_control = Some(CacheControl::ephemeral());
+            match last_tool {
+                NativeToolDef::Regular(ref mut t) => {
+                    t.cache_control = Some(CacheControl::ephemeral());
+                }
+                NativeToolDef::ComputerUse(ref mut t) => {
+                    t.cache_control = Some(CacheControl::ephemeral());
+                }
+            }
         }
 
-        Some(native_tools)
+        (Some(native_tools), has_computer_tool)
     }
 
     fn parse_assistant_tool_call_message(content: &str) -> Option<Vec<NativeContentOut>> {
@@ -752,7 +805,7 @@ impl Provider for AnthropicProvider {
             .header("content-type", "application/json")
             .json(&body);
 
-        request = self.apply_auth(request, credential);
+        request = self.apply_auth(request, credential, false);
 
         let response = request.send().await?;
 
@@ -816,7 +869,7 @@ impl Provider for AnthropicProvider {
             (temperature, 4096)
         };
 
-        let converted_tools = Self::convert_tools(request.tools);
+        let (converted_tools, has_computer_tool) = Self::convert_tools(request.tools);
         let native_request = NativeChatRequest {
             model: model.to_string(),
             max_tokens: max_tok,
@@ -840,7 +893,7 @@ impl Provider for AnthropicProvider {
             .header("content-type", "application/json")
             .json(&native_request);
 
-        let response = self.apply_auth(req, credential).send().await?;
+        let response = self.apply_auth(req, credential, has_computer_tool).send().await?;
         if !response.status().is_success() {
             return Err(super::api_error("Anthropic", response).await);
         }
@@ -915,7 +968,7 @@ impl Provider for AnthropicProvider {
                 .http_client()
                 .post(format!("{}/v1/messages", self.base_url))
                 .header("anthropic-version", "2023-06-01");
-            request = self.apply_auth(request, credential);
+            request = self.apply_auth(request, credential, false);
             // Send a minimal request; the goal is TLS + HTTP/2 setup, not a valid response.
             // Anthropic has no lightweight GET endpoint, so we accept any non-network error.
             let _ = request.send().await?;
@@ -1008,6 +1061,7 @@ mod tests {
                     .http_client()
                     .get("https://api.anthropic.com/v1/models"),
                 "sk-ant-oat01-test-token",
+                false,
             )
             .build()
             .expect("request should build");
@@ -1049,6 +1103,7 @@ mod tests {
                     .http_client()
                     .get("https://api.anthropic.com/v1/models"),
                 "sk-ant-api-key",
+                false,
             )
             .build()
             .expect("request should build");
@@ -1441,11 +1496,19 @@ mod tests {
             },
         ];
 
-        let native_tools = AnthropicProvider::convert_tools(Some(&tools)).unwrap();
+        let (native_tools, has_computer) = AnthropicProvider::convert_tools(Some(&tools));
+        let native_tools = native_tools.unwrap();
+        assert!(!has_computer);
 
         assert_eq!(native_tools.len(), 2);
-        assert!(native_tools[0].cache_control.is_none());
-        assert!(native_tools[1].cache_control.is_some());
+        match &native_tools[0] {
+            NativeToolDef::Regular(t) => assert!(t.cache_control.is_none()),
+            _ => panic!("expected Regular"),
+        }
+        match &native_tools[1] {
+            NativeToolDef::Regular(t) => assert!(t.cache_control.is_some()),
+            _ => panic!("expected Regular"),
+        }
     }
 
     #[test]
@@ -1456,10 +1519,53 @@ mod tests {
             parameters: serde_json::json!({"type": "object"}),
         }];
 
-        let native_tools = AnthropicProvider::convert_tools(Some(&tools)).unwrap();
+        let (native_tools, _) = AnthropicProvider::convert_tools(Some(&tools));
+        let native_tools = native_tools.unwrap();
 
         assert_eq!(native_tools.len(), 1);
-        assert!(native_tools[0].cache_control.is_some());
+        match &native_tools[0] {
+            NativeToolDef::Regular(t) => assert!(t.cache_control.is_some()),
+            _ => panic!("expected Regular"),
+        }
+    }
+
+    #[test]
+    fn convert_tools_computer_tool_uses_special_format() {
+        let tools = vec![
+            ToolSpec {
+                name: "shell".to_string(),
+                description: "Run shell".to_string(),
+                parameters: serde_json::json!({"type": "object"}),
+            },
+            ToolSpec {
+                name: "computer".to_string(),
+                description: "Computer Use".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "__display_width_px": 1024,
+                    "__display_height_px": 640
+                }),
+            },
+        ];
+
+        let (native_tools, has_computer) = AnthropicProvider::convert_tools(Some(&tools));
+        assert!(has_computer);
+        let native_tools = native_tools.unwrap();
+        assert_eq!(native_tools.len(), 2);
+
+        match &native_tools[0] {
+            NativeToolDef::Regular(t) => assert_eq!(t.name, "shell"),
+            _ => panic!("expected Regular"),
+        }
+        match &native_tools[1] {
+            NativeToolDef::ComputerUse(t) => {
+                assert_eq!(t.tool_type, "computer_20251124");
+                assert_eq!(t.display_width_px, 1024);
+                assert_eq!(t.display_height_px, 640);
+                assert!(t.cache_control.is_some());
+            }
+            _ => panic!("expected ComputerUse"),
+        }
     }
 
     #[test]

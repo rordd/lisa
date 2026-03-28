@@ -1,4 +1,4 @@
-//! LLM용 Tool 구현 — screen_snapshot + screen_input
+//! LLM용 Tool 구현 — Anthropic Computer Use 호환 `computer` tool
 //!
 //! LLM은 이미지 좌표를 그대로 전달하면 tool 내부에서 scale 변환.
 
@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// 마지막 캡처의 scale 정보 (snapshot ↔ input 공유)
+/// 마지막 캡처의 scale 정보 (screenshot ↔ 다른 action 공유)
 #[derive(Debug, Clone)]
 pub(crate) struct ScaleInfo {
     scale_x: f64,
@@ -32,148 +32,113 @@ pub fn new_scale_handle() -> ScaleHandle {
     Arc::new(RwLock::new(ScaleInfo::default()))
 }
 
-// ── screen_snapshot ──────────────────────────────────────────────
+// ── computer (Anthropic Computer Use 통합) ──────────────────────
 
-pub struct ScreenSnapshotTool {
+pub struct ComputerTool {
     controller: Arc<dyn ScreenController>,
     default_width: u32,
+    display_height: u32,
     scale: ScaleHandle,
 }
 
-impl ScreenSnapshotTool {
+impl ComputerTool {
     pub fn new(controller: Arc<dyn ScreenController>, default_width: u32, scale: ScaleHandle) -> Self {
+        let (res_w, res_h) = controller.resolution();
+        let display_height = if default_width > 0 && res_w > 0 {
+            (default_width as f64 * res_h as f64 / res_w as f64).round() as u32
+        } else {
+            res_h
+        };
         Self {
             controller,
             default_width,
+            display_height,
             scale,
         }
-    }
-}
-
-#[async_trait]
-impl Tool for ScreenSnapshotTool {
-    fn name(&self) -> &str {
-        "screen_snapshot"
-    }
-
-    fn description(&self) -> &str {
-        "화면을 캡처하여 현재 상태를 시각적으로 확인한다. \
-        JPEG 이미지(base64)와 해상도 정보를 리턴한다. \
-        좌표 기반 조작 전에 반드시 먼저 호출할 것. \
-        screen_input에 전달하는 좌표는 이 이미지에서 보이는 좌표 그대로 사용하면 된다 (자동 변환됨)."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "width": {
-                    "type": "integer",
-                    "description": "리사이즈 폭 (기본 1024). 0이면 원본 크기."
-                }
-            }
-        })
-    }
-
-    async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
-        let width = args
-            .get("width")
-            .and_then(Value::as_u64)
-            .map(|v| v as u32)
-            .or(Some(self.default_width));
-
-        let width = width.filter(|&w| w > 0);
-
-        match self.controller.capture(width).await {
-            Ok(result) => {
-                // scale 저장 — screen_input이 자동 변환에 사용
-                {
-                    let mut s = self.scale.write().await;
-                    s.scale_x = result.scale_x;
-                    s.scale_y = result.scale_y;
-                }
-                let text = format!(
-                    "Screenshot: {}x{} (original: {}x{}, size: {} bytes)\n\
-                    Use coordinates as seen in this image — they will be automatically converted to screen coordinates.\n\
-                    {}",
-                    result.resized_width,
-                    result.resized_height,
-                    result.orig_width,
-                    result.orig_height,
-                    result.file_size_bytes,
-                    result.data_uri,
-                );
-                Ok(ToolResult {
-                    success: true,
-                    output: text,
-                    error: None,
-                })
-            }
-            Err(e) => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(e.to_string()),
-            }),
-        }
-    }
-}
-
-// ── screen_input ─────────────────────────────────────────────────
-
-pub struct ScreenInputTool {
-    controller: Arc<dyn ScreenController>,
-    scale: ScaleHandle,
-}
-
-impl ScreenInputTool {
-    pub fn new(controller: Arc<dyn ScreenController>, scale: ScaleHandle) -> Self {
-        Self { controller, scale }
     }
 
     /// 이미지 좌표 → 실제 화면 좌표
     async fn to_screen_coords(&self, x: i32, y: i32) -> (i32, i32) {
         let s = self.scale.read().await;
-        ((x as f64 * s.scale_x).round() as i32, (y as f64 * s.scale_y).round() as i32)
+        (
+            (x as f64 * s.scale_x).round() as i32,
+            (y as f64 * s.scale_y).round() as i32,
+        )
+    }
+
+    /// coordinate 배열 [x, y] 파싱
+    fn parse_coordinate(args: &Value) -> anyhow::Result<(i32, i32)> {
+        let coord = args
+            .get("coordinate")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("missing 'coordinate' array"))?;
+        if coord.len() != 2 {
+            anyhow::bail!("'coordinate' must be [x, y]");
+        }
+        let x = coord[0].as_i64().ok_or_else(|| anyhow::anyhow!("coordinate[0] must be integer"))? as i32;
+        let y = coord[1].as_i64().ok_or_else(|| anyhow::anyhow!("coordinate[1] must be integer"))? as i32;
+        Ok((x, y))
     }
 }
 
 #[async_trait]
-impl Tool for ScreenInputTool {
+impl Tool for ComputerTool {
     fn name(&self) -> &str {
-        "screen_input"
+        "computer"
     }
 
     fn description(&self) -> &str {
-        "화면에 입력을 보낸다 (클릭, 텍스트 입력, 키 입력, 스크롤, 드래그). \
-        좌표는 screen_snapshot 이미지에서 보이는 좌표를 그대로 사용 (자동으로 실제 화면 좌표로 변환됨). \
-        주의: type 액션은 시스템 클립보드를 덮어쓴다."
+        "화면을 캡처하고, 클릭·타이핑·키입력·스크롤·드래그 등 화면 조작을 수행한다. \
+        Anthropic Computer Use 스펙 호환. \
+        screenshot action으로 먼저 화면을 캡처한 뒤, 좌표 기반 action을 수행할 것. \
+        좌표는 screenshot 이미지에서 보이는 좌표를 [x, y] 배열로 전달 (자동 변환됨)."
     }
 
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "required": ["action"],
+            "__display_width_px": self.default_width,
+            "__display_height_px": self.display_height,
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["click", "double_click", "right_click", "move",
-                             "type", "key", "scroll", "drag", "wait"],
+                    "enum": ["screenshot", "click", "double_click", "right_click",
+                             "mouse_move", "type", "key", "scroll", "drag", "wait"],
                     "description": "수행할 액션"
                 },
-                "x": { "type": "integer", "description": "X 좌표 (click/double_click/right_click/move/scroll 시, 이미지 좌표)" },
-                "y": { "type": "integer", "description": "Y 좌표 (click/double_click/right_click/move/scroll 시, 이미지 좌표)" },
-                "text": { "type": "string", "description": "입력 텍스트 (type 시) 또는 키 이름 (key 시)" },
+                "coordinate": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+                    "description": "[x, y] 좌표 (click/double_click/right_click/mouse_move/scroll 시, 이미지 좌표)"
+                },
+                "text": {
+                    "type": "string",
+                    "description": "입력 텍스트 (type 시) 또는 키 이름 (key 시, 예: Return, Escape)"
+                },
                 "direction": {
                     "type": "string",
                     "enum": ["up", "down", "left", "right"],
                     "description": "스크롤 방향 (scroll 시)"
                 },
-                "amount": { "type": "integer", "description": "스크롤 클릭 수 (기본 3)" },
-                "from_x": { "type": "integer", "description": "드래그 시작 X (drag 시)" },
-                "from_y": { "type": "integer", "description": "드래그 시작 Y (drag 시)" },
-                "to_x": { "type": "integer", "description": "드래그 끝 X (drag 시)" },
-                "to_y": { "type": "integer", "description": "드래그 끝 Y (drag 시)" },
-                "ms": { "type": "integer", "description": "대기 시간 밀리초 (wait 시)" }
+                "amount": {
+                    "type": "integer",
+                    "description": "스크롤 클릭 수 (scroll 시, 기본 3)"
+                },
+                "start_coordinate": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+                    "description": "드래그 시작 [x, y] (drag 시)"
+                },
+                "end_coordinate": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+                    "description": "드래그 끝 [x, y] (drag 시)"
+                },
+                "duration": {
+                    "type": "integer",
+                    "description": "대기 시간 밀리초 (wait 시)"
+                }
             }
         })
     }
@@ -190,39 +155,53 @@ impl Tool for ScreenInputTool {
             }
         };
 
-        let get_xy = |args: &Value| -> anyhow::Result<(i32, i32)> {
-            let x = args
-                .get("x")
-                .and_then(Value::as_i64)
-                .ok_or_else(|| anyhow::anyhow!("missing 'x'"))? as i32;
-            let y = args
-                .get("y")
-                .and_then(Value::as_i64)
-                .ok_or_else(|| anyhow::anyhow!("missing 'y'"))? as i32;
-            Ok((x, y))
-        };
-
         let result: anyhow::Result<String> = match action {
+            "screenshot" => {
+                let width = Some(self.default_width).filter(|&w| w > 0);
+                match self.controller.capture(width).await {
+                    Ok(capture) => {
+                        // scale 저장 — 좌표 action에서 자동 변환에 사용
+                        {
+                            let mut s = self.scale.write().await;
+                            s.scale_x = capture.scale_x;
+                            s.scale_y = capture.scale_y;
+                        }
+                        let text = format!(
+                            "Screenshot: {}x{} (original: {}x{}, size: {} bytes)\n\
+                            Use coordinates as seen in this image — they will be automatically converted to screen coordinates.\n\
+                            {}",
+                            capture.resized_width,
+                            capture.resized_height,
+                            capture.orig_width,
+                            capture.orig_height,
+                            capture.file_size_bytes,
+                            capture.data_uri,
+                        );
+                        Ok(text)
+                    }
+                    Err(e) => Err(e),
+                }
+            }
             "click" => {
-                let (ix, iy) = get_xy(&args)?;
+                let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.click(x, y).await?;
                 Ok(format!("clicked image({ix},{iy}) → screen({x},{y})"))
             }
             "double_click" => {
-                let (ix, iy) = get_xy(&args)?;
+                let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.double_click(x, y).await?;
                 Ok(format!("double_clicked image({ix},{iy}) → screen({x},{y})"))
             }
             "right_click" => {
-                let (ix, iy) = get_xy(&args)?;
+                let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.right_click(x, y).await?;
                 Ok(format!("right_clicked image({ix},{iy}) → screen({x},{y})"))
             }
-            "move" => {
-                let (ix, iy) = get_xy(&args)?;
+            "mouse_move" => {
+                let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
                 self.controller.move_cursor(x, y).await?;
                 Ok(format!("moved cursor image({ix},{iy}) → screen({x},{y})"))
@@ -237,9 +216,9 @@ impl Tool for ScreenInputTool {
             }
             "key" => {
                 let key = args
-                    .get("key")
+                    .get("text")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow::anyhow!("missing 'key'"))?;
+                    .ok_or_else(|| anyhow::anyhow!("missing 'text' for key action"))?;
                 self.controller.press_key(key).await?;
                 Ok(format!("pressed key: {key}"))
             }
@@ -251,13 +230,10 @@ impl Tool for ScreenInputTool {
                 let amount = args
                     .get("amount")
                     .and_then(Value::as_u64)
-                    .unwrap_or(5) as u32;
-                // x,y 지정 시 해당 위치로 먼저 이동 (미지정 시 화면 중앙)
-                if let (Some(ix), Some(iy)) = (
-                    args.get("x").and_then(Value::as_i64),
-                    args.get("y").and_then(Value::as_i64),
-                ) {
-                    let (sx, sy) = self.to_screen_coords(ix as i32, iy as i32).await;
+                    .unwrap_or(3) as u32;
+                // coordinate 지정 시 해당 위치로 먼저 이동
+                if let Ok((ix, iy)) = Self::parse_coordinate(&args) {
+                    let (sx, sy) = self.to_screen_coords(ix, iy).await;
                     self.controller.move_cursor(sx, sy).await?;
                 } else {
                     // 화면 중앙으로 이동
@@ -268,10 +244,20 @@ impl Tool for ScreenInputTool {
                 Ok(format!("scrolled {dir} {amount}"))
             }
             "drag" => {
-                let ifx = args.get("from_x").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'from_x'"))? as i32;
-                let ify = args.get("from_y").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'from_y'"))? as i32;
-                let itx = args.get("to_x").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'to_x'"))? as i32;
-                let ity = args.get("to_y").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing 'to_y'"))? as i32;
+                let parse_coord = |key: &str| -> anyhow::Result<(i32, i32)> {
+                    let coord = args
+                        .get(key)
+                        .and_then(Value::as_array)
+                        .ok_or_else(|| anyhow::anyhow!("missing '{key}' array"))?;
+                    if coord.len() != 2 {
+                        anyhow::bail!("'{key}' must be [x, y]");
+                    }
+                    let x = coord[0].as_i64().ok_or_else(|| anyhow::anyhow!("{key}[0] must be integer"))? as i32;
+                    let y = coord[1].as_i64().ok_or_else(|| anyhow::anyhow!("{key}[1] must be integer"))? as i32;
+                    Ok((x, y))
+                };
+                let (ifx, ify) = parse_coord("start_coordinate")?;
+                let (itx, ity) = parse_coord("end_coordinate")?;
                 let (fx, fy) = self.to_screen_coords(ifx, ify).await;
                 let (tx, ty) = self.to_screen_coords(itx, ity).await;
                 self.controller.drag((fx, fy), (tx, ty)).await?;
@@ -279,7 +265,11 @@ impl Tool for ScreenInputTool {
             }
             "wait" => {
                 const MAX_WAIT_MS: u64 = 10_000;
-                let ms = args.get("ms").and_then(Value::as_u64).unwrap_or(500).min(MAX_WAIT_MS);
+                let ms = args
+                    .get("duration")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(500)
+                    .min(MAX_WAIT_MS);
                 tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
                 Ok(format!("waited {ms}ms"))
             }
@@ -289,7 +279,11 @@ impl Tool for ScreenInputTool {
         match result {
             Ok(msg) => Ok(ToolResult {
                 success: true,
-                output: json!({ "action": action, "result": msg, "ok": true }).to_string(),
+                output: if action == "screenshot" {
+                    msg
+                } else {
+                    json!({ "action": action, "result": msg, "ok": true }).to_string()
+                },
                 error: None,
             }),
             Err(e) => Ok(ToolResult {
@@ -333,63 +327,99 @@ mod tests {
         fn resolution(&self) -> (u32, u32) { (2560, 1600) }
     }
 
-    fn make_tools() -> (ScreenSnapshotTool, ScreenInputTool) {
+    fn make_tool() -> ComputerTool {
         let ctrl = Arc::new(MockController);
         let scale = new_scale_handle();
-        (
-            ScreenSnapshotTool::new(ctrl.clone(), 1024, scale.clone()),
-            ScreenInputTool::new(ctrl, scale),
-        )
+        ComputerTool::new(ctrl, 1024, scale)
     }
 
     #[test]
-    fn snapshot_tool_name() {
-        let (snap, _) = make_tools();
-        assert_eq!(snap.name(), "screen_snapshot");
-    }
-
-    #[test]
-    fn input_tool_name() {
-        let (_, input) = make_tools();
-        assert_eq!(input.name(), "screen_input");
+    fn computer_tool_name() {
+        let tool = make_tool();
+        assert_eq!(tool.name(), "computer");
     }
 
     #[tokio::test]
-    async fn snapshot_returns_data_uri() {
-        let (snap, _) = make_tools();
-        let result = snap.execute(json!({})).await.unwrap();
+    async fn screenshot_returns_data_uri() {
+        let tool = make_tool();
+        let result = tool.execute(json!({"action": "screenshot"})).await.unwrap();
         assert!(result.success);
         assert!(result.output.contains("data:image/jpeg;base64,"));
     }
 
     #[tokio::test]
-    async fn snapshot_updates_scale() {
-        let (snap, input) = make_tools();
-        snap.execute(json!({})).await.unwrap();
+    async fn screenshot_updates_scale() {
+        let tool = make_tool();
+        tool.execute(json!({"action": "screenshot"})).await.unwrap();
         // MockController returns 2560/1024=2.5 scale
-        let (sx, sy) = input.to_screen_coords(100, 100).await;
+        let (sx, sy) = tool.to_screen_coords(100, 100).await;
         assert_eq!(sx, 250);
         assert_eq!(sy, 250);
     }
 
     #[tokio::test]
-    async fn input_click_ok() {
-        let (_, input) = make_tools();
-        let result = input.execute(json!({"action": "click", "x": 100, "y": 200})).await.unwrap();
+    async fn click_ok() {
+        let tool = make_tool();
+        let result = tool.execute(json!({"action": "click", "coordinate": [100, 200]})).await.unwrap();
         assert!(result.success);
     }
 
     #[tokio::test]
-    async fn input_missing_action_fails() {
-        let (_, input) = make_tools();
-        let result = input.execute(json!({})).await.unwrap();
+    async fn missing_action_fails() {
+        let tool = make_tool();
+        let result = tool.execute(json!({})).await.unwrap();
         assert!(!result.success);
     }
 
     #[tokio::test]
-    async fn input_wait_ok() {
-        let (_, input) = make_tools();
-        let result = input.execute(json!({"action": "wait", "ms": 10})).await.unwrap();
+    async fn wait_ok() {
+        let tool = make_tool();
+        let result = tool.execute(json!({"action": "wait", "duration": 10})).await.unwrap();
+        assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn scroll_with_coordinate() {
+        let tool = make_tool();
+        let result = tool
+            .execute(json!({"action": "scroll", "coordinate": [500, 300], "direction": "down", "amount": 3}))
+            .await
+            .unwrap();
+        assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn key_action_uses_text_field() {
+        let tool = make_tool();
+        let result = tool.execute(json!({"action": "key", "text": "Return"})).await.unwrap();
+        assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn type_action() {
+        let tool = make_tool();
+        let result = tool.execute(json!({"action": "type", "text": "hello"})).await.unwrap();
+        assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn drag_action() {
+        let tool = make_tool();
+        let result = tool
+            .execute(json!({
+                "action": "drag",
+                "start_coordinate": [100, 100],
+                "end_coordinate": [200, 200]
+            }))
+            .await
+            .unwrap();
+        assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn mouse_move_action() {
+        let tool = make_tool();
+        let result = tool.execute(json!({"action": "mouse_move", "coordinate": [300, 400]})).await.unwrap();
         assert!(result.success);
     }
 }

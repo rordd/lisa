@@ -5,9 +5,8 @@
 //! - `LinuxScreenController` — Linux (scrot/gnome-screenshot, xdotool) — TODO
 //! - `WebOSScreenController` — webOS TV (luna-send) — TODO
 //!
-//! LLM에는 두 가지 tool로 노출:
-//! - `screen_snapshot` — 화면 캡처 + base64 JPEG 리턴
-//! - `screen_input`    — 클릭/타이핑/키/스크롤/드래그
+//! LLM에는 하나의 tool로 노출:
+//! - `computer` — Anthropic Computer Use 호환 (screenshot + click/type/key/scroll/drag)
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -15,7 +14,7 @@ use async_trait::async_trait;
 pub mod mac;
 pub mod tool;
 
-pub use tool::{ScreenInputTool, ScreenSnapshotTool};
+pub use tool::ComputerTool;
 
 /// 캡처 결과
 #[derive(Debug, Clone)]

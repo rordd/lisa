@@ -473,10 +473,10 @@ pub fn all_tools_with_runtime(
     // PDF extraction (feature-gated at compile time via rag-pdf)
     tool_arcs.push(Arc::new(PdfReadTool::new(security.clone())));
 
-    // screen_control enabled → screen_snapshot + screen_input 등록, screenshot 제외
+    // screen_control enabled → computer tool 등록 (Anthropic Computer Use 호환)
     // screen_control disabled → 기존 screenshot 등록
     if root_config.screen_control.enabled {
-        use screen_control::tool::{ScreenInputTool, ScreenSnapshotTool};
+        use screen_control::tool::ComputerTool;
 
         let controller: std::sync::Arc<dyn screen_control::ScreenController> =
             match root_config.screen_control.backend {
@@ -497,12 +497,11 @@ pub fn all_tools_with_runtime(
                 }
             };
         let scale = screen_control::tool::new_scale_handle();
-        tool_arcs.push(Arc::new(ScreenSnapshotTool::new(
-            controller.clone(),
+        tool_arcs.push(Arc::new(ComputerTool::new(
+            controller,
             root_config.screen_control.resize_width,
-            scale.clone(),
+            scale,
         )));
-        tool_arcs.push(Arc::new(ScreenInputTool::new(controller, scale)));
     } else {
         tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
     }
