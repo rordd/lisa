@@ -4,7 +4,7 @@
 //! - `screencapture` — macOS 내장
 //! - `sips`          — macOS 내장 (리사이즈, JPEG 변환)
 //! - `cliclick`      — brew install cliclick (마우스 제어)
-//! - `osascript`     — macOS 내장 (키보드, 클립보드 paste)
+//! - `swift`         — macOS 내장 (CGEvent 키보드/스크롤)
 //! - `pbcopy`        — macOS 내장 (클립보드)
 
 use super::{CaptureResult, ScreenController};
@@ -14,19 +14,15 @@ use base64::Engine;
 use std::time::Duration;
 use tokio::process::Command;
 
-const DEFAULT_RESIZE_WIDTH: u32 = 1024;
 const COMMAND_TIMEOUT_SECS: u64 = 15;
 
 pub struct MacScreenController {
-    /// 기본 리사이즈 폭
     pub default_resize_width: u32,
 }
 
 impl MacScreenController {
     pub fn new(default_resize_width: u32) -> Self {
-        Self {
-            default_resize_width,
-        }
+        Self { default_resize_width }
     }
 
     async fn run(&self, program: &str, args: &[&str]) -> Result<String> {
@@ -37,7 +33,6 @@ impl MacScreenController {
         .await
         .with_context(|| format!("{program} timed out"))?
         .with_context(|| format!("failed to run {program}"))?;
-
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!("{program} failed: {stderr}");
@@ -45,29 +40,18 @@ impl MacScreenController {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// sips로 픽셀 크기 읽기
     async fn sips_dimensions(&self, path: &str) -> Result<(u32, u32)> {
-        let out = self
-            .run("sips", &["-g", "pixelWidth", "-g", "pixelHeight", path])
-            .await?;
-        let w = out
-            .lines()
-            .find(|l| l.contains("pixelWidth"))
+        let out = self.run("sips", &["-g", "pixelWidth", "-g", "pixelHeight", path]).await?;
+        let w = out.lines().find(|l| l.contains("pixelWidth"))
             .and_then(|l| l.split_whitespace().last())
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
-        let h = out
-            .lines()
-            .find(|l| l.contains("pixelHeight"))
+            .and_then(|v| v.parse().ok()).unwrap_or(0);
+        let h = out.lines().find(|l| l.contains("pixelHeight"))
             .and_then(|l| l.split_whitespace().last())
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
+            .and_then(|v| v.parse().ok()).unwrap_or(0);
         Ok((w, h))
     }
 
-    /// osascript key code 전송
     async fn key_code(&self, code: u16) -> Result<()> {
-        // CGEvent key via swift — accessibility 권한 불필요
         let swift_code = format!(
             r#"import CoreGraphics
 let src = CGEventSource(stateID: .hidSystemState)
@@ -80,167 +64,155 @@ if let down = CGEvent(keyboardEventSource: src, virtualKey: {code}, keyDown: tru
         self.run("swift", &["-e", &swift_code]).await?;
         Ok(())
     }
+
+    /// 콤보 키: "ctrl+c", "cmd+shift+s", "super+l" 등
+    async fn press_combo(&self, combo: &str) -> Result<()> {
+        let parts: Vec<&str> = combo.split('+').map(|s| s.trim()).collect();
+        if parts.len() < 2 {
+            anyhow::bail!("invalid combo: {combo}");
+        }
+        let mut flags: u64 = 0;
+        for part in &parts[..parts.len() - 1] {
+            match part.to_ascii_lowercase().as_str() {
+                "cmd" | "command" | "super" => flags |= 0x100000,
+                "ctrl" | "control" => flags |= 0x40000,
+                "alt" | "option" | "opt" => flags |= 0x80000,
+                "shift" => flags |= 0x20000,
+                _ => anyhow::bail!("unknown modifier: {part}"),
+            }
+        }
+        let key_part = parts.last().unwrap();
+        let key_code: u16 = Self::name_to_keycode(key_part)?;
+        let swift_code = format!(
+            r#"import CoreGraphics
+let src = CGEventSource(stateID: .hidSystemState)
+if let down = CGEvent(keyboardEventSource: src, virtualKey: {key_code}, keyDown: true),
+   let up = CGEvent(keyboardEventSource: src, virtualKey: {key_code}, keyDown: false) {{
+    down.flags = CGEventFlags(rawValue: {flags})
+    up.flags = CGEventFlags(rawValue: {flags})
+    down.post(tap: .cghidEventTap)
+    up.post(tap: .cghidEventTap)
+}}"#
+        );
+        self.run("swift", &["-e", &swift_code]).await?;
+        Ok(())
+    }
+
+    fn name_to_keycode(name: &str) -> Result<u16> {
+        Ok(match name.to_ascii_lowercase().as_str() {
+            "a" => 0, "s" => 1, "d" => 2, "f" => 3, "h" => 4, "g" => 5,
+            "z" => 6, "x" => 7, "c" => 8, "v" => 9, "b" => 11, "q" => 12,
+            "w" => 13, "e" => 14, "r" => 15, "y" => 16, "t" => 17,
+            "o" => 31, "u" => 32, "i" => 34, "p" => 35, "l" => 37,
+            "j" => 38, "k" => 40, "n" => 45, "m" => 46,
+            "0" => 29, "1" => 18, "2" => 19, "3" => 20, "4" => 21,
+            "5" => 23, "6" => 22, "7" => 26, "8" => 28, "9" => 25,
+            "return" | "enter" => 36, "tab" => 48, "space" => 49,
+            "delete" | "backspace" => 51, "escape" | "esc" => 53,
+            "f1" => 122, "f2" => 120, "f3" => 99, "f4" => 118,
+            "f5" => 96, "f6" => 97, "f7" => 98, "f8" => 100,
+            "f9" => 101, "f10" => 109, "f11" => 103, "f12" => 111,
+            "up" => 126, "down" => 125, "left" => 123, "right" => 124,
+            "home" => 115, "end" => 119, "pageup" => 116, "pagedown" => 121,
+            _ => anyhow::bail!("unsupported key: {name}"),
+        })
+    }
 }
 
 #[async_trait]
 impl ScreenController for MacScreenController {
     async fn capture(&self, resize_width: Option<u32>) -> Result<CaptureResult> {
         let target_width = resize_width.unwrap_or(self.default_resize_width);
-        let png_tmp = tempfile::Builder::new()
-            .prefix("lisa_snap_")
-            .suffix(".png")
-            .tempfile()
-            .context("failed to create temp png")?;
-        let jpg_tmp = tempfile::Builder::new()
-            .prefix("lisa_snap_")
-            .suffix(".jpg")
-            .tempfile()
-            .context("failed to create temp jpg")?;
+        let png_tmp = tempfile::Builder::new().prefix("lisa_snap_").suffix(".png")
+            .tempfile().context("failed to create temp png")?;
+        let jpg_tmp = tempfile::Builder::new().prefix("lisa_snap_").suffix(".jpg")
+            .tempfile().context("failed to create temp jpg")?;
         let png = png_tmp.path().to_string_lossy().to_string();
         let jpg = jpg_tmp.path().to_string_lossy().to_string();
 
-        // 1. 캡처 (-x: 소리 없음)
         self.run("screencapture", &["-x", &png]).await?;
-
-        // 2. 원본 해상도
         let (orig_w, orig_h) = self.sips_dimensions(&png).await?;
 
-        // 3. 리사이즈 (원본보다 클 때만)
         if target_width > 0 && orig_w > target_width {
-            self.run(
-                "sips",
-                &["--resampleWidth", &target_width.to_string(), &png],
-            )
-            .await?;
+            self.run("sips", &["--resampleWidth", &target_width.to_string(), &png]).await?;
         }
+        self.run("sips", &["-s", "format", "jpeg", "-s", "formatOptions", "70", &png, "--out", &jpg]).await?;
 
-        // 4. PNG → JPEG (크기 대폭 감소)
-        self.run(
-            "sips",
-            &[
-                "-s", "format", "jpeg",
-                "-s", "formatOptions", "70",
-                &png, "--out", &jpg,
-            ],
-        )
-        .await?;
-
-        // 5. 리사이즈 후 해상도
         let (resized_w, resized_h) = self.sips_dimensions(&jpg).await?;
-
-        // 6. base64
-        let bytes = tokio::fs::read(&jpg)
-            .await
-            .context("failed to read screenshot jpeg")?;
+        let bytes = tokio::fs::read(&jpg).await.context("failed to read jpeg")?;
         let file_size = bytes.len() as u64;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-
-        // 7. 정리 — tempfile이 drop 시 자동 삭제, 명시적으로도 해둠
         drop(png_tmp);
         drop(jpg_tmp);
 
-        let scale_x = if resized_w > 0 {
-            orig_w as f64 / resized_w as f64
-        } else {
-            1.0
-        };
-        let scale_y = if resized_h > 0 {
-            orig_h as f64 / resized_h as f64
-        } else {
-            1.0
-        };
+        let scale_x = if resized_w > 0 { orig_w as f64 / resized_w as f64 } else { 1.0 };
+        let scale_y = if resized_h > 0 { orig_h as f64 / resized_h as f64 } else { 1.0 };
 
         Ok(CaptureResult {
             data_uri: format!("data:image/jpeg;base64,{b64}"),
-            orig_width: orig_w,
-            orig_height: orig_h,
-            resized_width: resized_w,
-            resized_height: resized_h,
-            scale_x,
-            scale_y,
-            file_size_bytes: file_size,
+            orig_width: orig_w, orig_height: orig_h,
+            resized_width: resized_w, resized_height: resized_h,
+            scale_x, scale_y, file_size_bytes: file_size,
         })
     }
 
     async fn click(&self, x: i32, y: i32) -> Result<()> {
-        self.run("cliclick", &[&format!("c:{x},{y}")]).await?;
-        Ok(())
+        self.run("cliclick", &[&format!("c:{x},{y}")]).await?; Ok(())
     }
-
     async fn double_click(&self, x: i32, y: i32) -> Result<()> {
-        self.run("cliclick", &[&format!("dc:{x},{y}")]).await?;
-        Ok(())
+        self.run("cliclick", &[&format!("dc:{x},{y}")]).await?; Ok(())
     }
-
     async fn right_click(&self, x: i32, y: i32) -> Result<()> {
-        self.run("cliclick", &[&format!("rc:{x},{y}")]).await?;
-        Ok(())
+        self.run("cliclick", &[&format!("rc:{x},{y}")]).await?; Ok(())
+    }
+    async fn triple_click(&self, x: i32, y: i32) -> Result<()> {
+        self.run("cliclick", &[&format!("tc:{x},{y}")]).await?; Ok(())
     }
 
     async fn type_text(&self, text: &str) -> Result<()> {
-        // ⚠️ 사이드이펙트: 시스템 클립보드를 덮어씀
-        // 클립보드에 넣고 Cmd+V — IME 없이 한글 포함 모든 텍스트 입력 가능
+        // ⚠️ 클립보드 덮어씀 — pbcopy + Cmd+V (IME/한글 지원)
         let mut child = tokio::process::Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
-            .spawn()
-            .context("failed to spawn pbcopy")?;
-
+            .spawn().context("failed to spawn pbcopy")?;
         if let Some(stdin) = child.stdin.take() {
             use tokio::io::AsyncWriteExt;
             let mut stdin = stdin;
-            stdin
-                .write_all(text.as_bytes())
-                .await
-                .context("failed to write to pbcopy")?;
+            stdin.write_all(text.as_bytes()).await.context("pbcopy write")?;
         }
         child.wait().await.context("pbcopy failed")?;
-
-        // Cmd+V
-        self.run(
-            "osascript",
-            &[
-                "-e",
-                "tell application \"System Events\" to keystroke \"v\" using command down",
-            ],
-        )
-        .await?;
+        self.run("osascript", &["-e", "tell application \"System Events\" to keystroke \"v\" using command down"]).await?;
         Ok(())
     }
 
     async fn press_key(&self, key: &str) -> Result<()> {
+        if key.contains('+') {
+            return self.press_combo(key).await;
+        }
         let code: u16 = match key.to_ascii_lowercase().as_str() {
-            "return" | "enter" => 36,
-            "escape" | "esc" => 53,
-            "tab" => 48,
-            "space" => 49,
-            "delete" | "backspace" => 51,
-            "up" => 126,
-            "down" => 125,
-            "left" => 123,
-            "right" => 124,
-            "home" => 115,
-            "end" => 119,
-            "pageup" => 116,
-            "pagedown" => 121,
+            "return" | "enter" => 36, "escape" | "esc" => 53,
+            "tab" => 48, "space" => 49,
+            "delete" | "backspace" => 51, "forwarddelete" => 117,
+            "up" => 126, "down" => 125, "left" => 123, "right" => 124,
+            "home" => 115, "end" => 119,
+            "pageup" | "page_up" => 116, "pagedown" | "page_down" => 121,
+            "f1" => 122, "f2" => 120, "f3" => 99, "f4" => 118,
+            "f5" => 96, "f6" => 97, "f7" => 98, "f8" => 100,
+            "f9" => 101, "f10" => 109, "f11" => 103, "f12" => 111,
             _ => {
-                // 단일 ASCII 영숫자/기호만 허용 — injection 방지
                 let ch = key.chars().next();
                 if key.len() == 1 && ch.map_or(false, |c| c.is_ascii_graphic()) {
                     let c = ch.unwrap();
-                    // swift CGEvent keystroke — accessibility 권한 불필요
                     let swift_code = format!(
                         r#"import CoreGraphics
 let src = CGEventSource(stateID: .hidSystemState)
-if let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
-   let up = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false) {{
+if let d = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
+   let u = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false) {{
     let ch: UniChar = {u32}
-    down.keyboardSetUnicodeString(stringLength: 1, unicodeString: [ch])
-    up.keyboardSetUnicodeString(stringLength: 1, unicodeString: [ch])
-    down.post(tap: .cghidEventTap)
-    up.post(tap: .cghidEventTap)
-}}"#,
-                        u32 = c as u32
-                    );
+    d.keyboardSetUnicodeString(stringLength: 1, unicodeString: [ch])
+    u.keyboardSetUnicodeString(stringLength: 1, unicodeString: [ch])
+    d.post(tap: .cghidEventTap)
+    u.post(tap: .cghidEventTap)
+}}"#, u32 = c as u32);
                     self.run("swift", &["-e", &swift_code]).await?;
                     return Ok(());
                 }
@@ -251,7 +223,6 @@ if let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
     }
 
     async fn scroll(&self, direction: &str, amount: u32) -> Result<()> {
-        // CGEvent scroll via swift CLI — accessibility 권한 불필요
         let (wheel1, wheel2) = match direction.to_ascii_lowercase().as_str() {
             "down" => (-(amount as i32), 0),
             "up" => (amount as i32, 0),
@@ -263,98 +234,57 @@ if let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
             r#"import CoreGraphics
 if let e = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: {wheel1}, wheel2: {wheel2}, wheel3: 0) {{
     e.post(tap: .cghidEventTap)
-}}"#
-        );
+}}"#);
         self.run("swift", &["-e", &swift_code]).await?;
         Ok(())
     }
 
     async fn drag(&self, from: (i32, i32), to: (i32, i32)) -> Result<()> {
-        self.run(
-            "cliclick",
-            &[
-                &format!("dd:{},{}", from.0, from.1),
-                &format!("du:{},{}", to.0, to.1),
-            ],
-        )
-        .await?;
+        self.run("cliclick", &[&format!("dd:{},{}", from.0, from.1), &format!("du:{},{}", to.0, to.1)]).await?;
         Ok(())
     }
 
     async fn move_cursor(&self, x: i32, y: i32) -> Result<()> {
-        self.run("cliclick", &[&format!("m:{x},{y}")]).await?;
-        Ok(())
+        self.run("cliclick", &[&format!("m:{x},{y}")]).await?; Ok(())
     }
 
     async fn cursor_position(&self) -> Result<(i32, i32)> {
         let text = self.run("cliclick", &["p"]).await?;
-        // cliclick p 출력: "123,456"
         let parts: Vec<&str> = text.trim().split(',').collect();
         if parts.len() >= 2 {
-            let x: i32 = parts[0].trim().parse().unwrap_or(0);
-            let y: i32 = parts[1].trim().parse().unwrap_or(0);
-            Ok((x, y))
+            Ok((parts[0].trim().parse().unwrap_or(0), parts[1].trim().parse().unwrap_or(0)))
         } else {
             anyhow::bail!("failed to parse cursor position: {text}");
         }
     }
 
     async fn mouse_down(&self, x: i32, y: i32) -> Result<()> {
-        self.run("cliclick", &[&format!("dd:{x},{y}")]).await?;
-        Ok(())
+        self.run("cliclick", &[&format!("dd:{x},{y}")]).await?; Ok(())
     }
-
     async fn mouse_up(&self, x: i32, y: i32) -> Result<()> {
-        self.run("cliclick", &[&format!("du:{x},{y}")]).await?;
-        Ok(())
-    }
-
-    async fn triple_click(&self, x: i32, y: i32) -> Result<()> {
-        self.run("cliclick", &[
-            &format!("tc:{x},{y}"),
-        ]).await?;
-        Ok(())
+        self.run("cliclick", &[&format!("du:{x},{y}")]).await?; Ok(())
     }
 
     fn resolution(&self) -> (u32, u32) {
-        // sync 함수이므로 std::process::Command 사용 (tokio 아님)
-        // capture 전 대략적 해상도 제공 (힌트용)
-        let tmp = match tempfile::Builder::new()
-            .prefix("lisa_res_")
-            .suffix(".png")
-            .tempfile()
-        {
-            Ok(t) => t,
-            Err(_) => return (2560, 1600),
+        let tmp = match tempfile::Builder::new().prefix("lisa_res_").suffix(".png").tempfile() {
+            Ok(t) => t, Err(_) => return (2560, 1600),
         };
         let path = tmp.path().to_string_lossy().to_string();
-        let ok = std::process::Command::new("screencapture")
-            .args(["-x", &path])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if !ok {
-            return (2560, 1600);
-        }
-        // sips로 크기 읽기 (sync)
+        let ok = std::process::Command::new("screencapture").args(["-x", &path])
+            .output().map(|o| o.status.success()).unwrap_or(false);
+        if !ok { return (2560, 1600); }
         if let Ok(output) = std::process::Command::new("sips")
-            .args(["-g", "pixelWidth", "-g", "pixelHeight", &path])
-            .output()
+            .args(["-g", "pixelWidth", "-g", "pixelHeight", &path]).output()
         {
             let text = String::from_utf8_lossy(&output.stdout);
             let mut w = 0u32;
             let mut h = 0u32;
             for line in text.lines() {
-                if let Some(val) = line.strip_prefix("  pixelWidth: ") {
-                    w = val.trim().parse().unwrap_or(0);
-                } else if let Some(val) = line.strip_prefix("  pixelHeight: ") {
-                    h = val.trim().parse().unwrap_or(0);
-                }
+                if let Some(val) = line.strip_prefix("  pixelWidth: ") { w = val.trim().parse().unwrap_or(0); }
+                else if let Some(val) = line.strip_prefix("  pixelHeight: ") { h = val.trim().parse().unwrap_or(0); }
             }
-            if w > 0 && h > 0 {
-                return (w, h);
-            }
+            if w > 0 && h > 0 { return (w, h); }
         }
-        (2560, 1600) // fallback
+        (2560, 1600)
     }
 }

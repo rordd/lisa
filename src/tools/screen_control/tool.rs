@@ -166,12 +166,13 @@ impl Tool for ComputerTool {
                             s.scale_x = capture.scale_x;
                             s.scale_y = capture.scale_y;
                         }
+                        let now = chrono::Utc::now().format("%H:%M:%S%.3f");
                         Ok(format!(
-                            "Screenshot: {}x{} (original: {}x{}, size: {} bytes)\n{}\n{}",
+                            "Screenshot at {now}: {}x{} (original: {}x{}, size: {} bytes)\n\
+                            This is a FRESH capture of the current screen state.\n{}",
                             capture.resized_width, capture.resized_height,
                             capture.orig_width, capture.orig_height,
                             capture.file_size_bytes,
-                            "Use coordinates as seen in this image.",
                             capture.data_uri,
                         ))
                     }
