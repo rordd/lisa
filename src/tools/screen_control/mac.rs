@@ -287,23 +287,42 @@ if let e = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wh
     }
 
     fn resolution(&self) -> (u32, u32) {
-        // capture() 결과의 orig_width/orig_height가 실제 해상도이므로
-        // 이 함수는 힌트용 — capture 전 대략적 해상도 제공
-        // system_profiler 파싱은 느리고 복잡하므로 screencapture로 직접 측정
-        if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            if let Ok(result) = rt.block_on(async {
-                let tmp = tempfile::Builder::new()
-                    .prefix("lisa_res_")
-                    .suffix(".png")
-                    .tempfile()?;
-                let path = tmp.path().to_string_lossy().to_string();
-                tokio::process::Command::new("screencapture")
-                    .args(&["-x", &path])
-                    .output()
-                    .await?;
-                self.sips_dimensions(&path).await
-            }) {
-                return result;
+        // sync 함수이므로 std::process::Command 사용 (tokio 아님)
+        // capture 전 대략적 해상도 제공 (힌트용)
+        let tmp = match tempfile::Builder::new()
+            .prefix("lisa_res_")
+            .suffix(".png")
+            .tempfile()
+        {
+            Ok(t) => t,
+            Err(_) => return (2560, 1600),
+        };
+        let path = tmp.path().to_string_lossy().to_string();
+        let ok = std::process::Command::new("screencapture")
+            .args(["-x", &path])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !ok {
+            return (2560, 1600);
+        }
+        // sips로 크기 읽기 (sync)
+        if let Ok(output) = std::process::Command::new("sips")
+            .args(["-g", "pixelWidth", "-g", "pixelHeight", &path])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut w = 0u32;
+            let mut h = 0u32;
+            for line in text.lines() {
+                if let Some(val) = line.strip_prefix("  pixelWidth: ") {
+                    w = val.trim().parse().unwrap_or(0);
+                } else if let Some(val) = line.strip_prefix("  pixelHeight: ") {
+                    h = val.trim().parse().unwrap_or(0);
+                }
+            }
+            if w > 0 && h > 0 {
+                return (w, h);
             }
         }
         (2560, 1600) // fallback
