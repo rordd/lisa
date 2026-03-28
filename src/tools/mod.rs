@@ -73,6 +73,7 @@ pub mod respond;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
+pub mod screen_control;
 pub mod security_ops;
 pub mod shell;
 pub mod swarm;
@@ -84,9 +85,9 @@ pub mod workspace_tool;
 
 pub use backup_tool::BackupTool;
 pub use browser::{BrowserTool, ComputerUseConfig};
+pub use browser_open::BrowserOpenTool;
 #[allow(unused_imports)]
 pub use browser_delegate::{BrowserDelegateConfig, BrowserDelegateTool};
-pub use browser_open::BrowserOpenTool;
 pub use cloud_ops::CloudOpsTool;
 pub use cloud_patterns::CloudPatternsTool;
 pub use composio::ComposioTool;
@@ -472,8 +473,39 @@ pub fn all_tools_with_runtime(
     // PDF extraction (feature-gated at compile time via rag-pdf)
     tool_arcs.push(Arc::new(PdfReadTool::new(security.clone())));
 
-    // Vision tools are always available
-    tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
+    // screen_control enabled → computer tool 등록 (Anthropic Computer Use 호환)
+    // screen_control disabled → 기존 screenshot 등록
+    if root_config.screen_control.enabled {
+        use screen_control::tool::ComputerTool;
+
+        let controller: std::sync::Arc<dyn screen_control::ScreenController> =
+            match root_config.screen_control.backend {
+                crate::config::ScreenControlBackend::Mac => {
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        tracing::error!("screen_control backend='mac' is only available on macOS");
+                        panic!("screen_control backend='mac' requires macOS");
+                    }
+                    #[cfg(target_os = "macos")]
+                    std::sync::Arc::new(screen_control::mac::MacScreenController::new(
+                        root_config.screen_control.resize_width,
+                    ))
+                }
+                crate::config::ScreenControlBackend::Linux => {
+                    tracing::error!("screen_control backend='linux' is not implemented yet");
+                    panic!("screen_control backend='linux' is not implemented");
+                }
+            };
+        let scale = screen_control::tool::new_scale_handle();
+        tool_arcs.push(Arc::new(ComputerTool::new(
+            controller,
+            root_config.screen_control.resize_width,
+            root_config.screen_control.screenshot_delay_ms,
+            scale,
+        )));
+    } else {
+        tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
+    }
     tool_arcs.push(Arc::new(ImageInfoTool::new(security.clone())));
 
     // LinkedIn integration (config-gated)

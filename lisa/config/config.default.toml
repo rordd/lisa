@@ -114,3 +114,12 @@ enabled = true
 #   "(app|server).*(create|build|develop)",
 # ]
 # priority = 80
+
+# ── Screen Control ──
+# Anthropic Computer Use 호환 화면 제어.
+# enabled=true 시 computer tool 등록, screenshot tool 비활성화 (exclusive).
+[screen_control]
+enabled = false
+backend = "mac"
+resize_width = 768
+screenshot_delay_ms = 2000

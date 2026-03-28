@@ -22,9 +22,10 @@ pub use schema::{
     OtpConfig, OtpMethod, PeripheralBoardConfig, PeripheralsConfig, ProjectIntelConfig,
     ProxyConfig, ProxyScope, QdrantConfig, QueryClassificationConfig, ReliabilityConfig,
     ResourceLimitsConfig, RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig,
-    SecretsConfig, SecurityConfig, SecurityOpsConfig, SkillsConfig, SkillsPromptInjectionMode,
-    SlackConfig, StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode,
-    SwarmConfig, SwarmStrategy, TelegramConfig, ToolFilterGroup, ToolFilterGroupMode,
+    ScreenControlBackend, ScreenControlConfig, SecretsConfig, SecurityConfig, SecurityOpsConfig,
+    SkillsConfig, SkillsPromptInjectionMode, SlackConfig, StorageConfig, StorageProviderConfig,
+    StorageProviderSection, StreamMode, SwarmConfig, SwarmStrategy, TelegramConfig,
+    ToolFilterGroup, ToolFilterGroupMode,
     TranscriptionConfig, TtsConfig, TunnelConfig, WasmConfig, WebFetchConfig, WebSearchConfig,
     WebhookConfig, WorkspaceConfig,
 };
