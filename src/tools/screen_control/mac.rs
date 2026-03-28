@@ -253,7 +253,21 @@ impl ScreenController for MacScreenController {
             }
             (Self::name_to_keycode(parts.last().unwrap())?, f)
         } else {
-            (Self::name_to_keycode(key)?, 0u64)
+            match Self::name_to_keycode(key) {
+                Ok(code) => (code, 0u64),
+                Err(_) => {
+                    // 단일 ASCII 문자 fallback — press_key와 동일 패턴
+                    let ch = key.chars().next();
+                    if key.len() == 1 && ch.map_or(false, |c| c.is_ascii_graphic()) {
+                        // unicode는 keydown/keyup 분리 미지원 → 그냥 press + sleep
+                        let bin = Self::cgevent_bin();
+                        self.run(bin, &["unicode", &(ch.unwrap() as u32).to_string()]).await?;
+                        tokio::time::sleep(std::time::Duration::from_secs_f64(duration_secs.min(10.0))).await;
+                        return Ok(());
+                    }
+                    anyhow::bail!("unsupported key for hold_key: {key}");
+                }
+            }
         };
 
         let bin = Self::cgevent_bin();

@@ -83,6 +83,7 @@ pub mod workspace_tool;
 
 pub use backup_tool::BackupTool;
 pub use browser::{BrowserTool, ComputerUseConfig};
+pub use browser_open::BrowserOpenTool;
 #[allow(unused_imports)]
 pub use browser_delegate::{BrowserDelegateConfig, BrowserDelegateTool};
 pub use cloud_ops::CloudOpsTool;
