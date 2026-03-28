@@ -204,10 +204,11 @@ impl Tool for ComputerTool {
                 Ok(format!("right_clicked ({ix},{iy})→({x},{y})"))
             }
             "middle_click" => {
+                // macOS cliclick은 middle click 미지원 — left click으로 대체하고 경고
                 let (ix, iy) = Self::parse_coordinate(&args)?;
                 let (x, y) = self.to_screen_coords(ix, iy).await;
-                self.controller.click(x, y).await?; // fallback to left click
-                Ok(format!("middle_clicked→left ({ix},{iy})→({x},{y})"))
+                self.controller.click(x, y).await?;
+                Ok(format!("⚠️ middle_click unsupported, used left_click instead at ({ix},{iy})→({x},{y})"))
             }
             "double_click" => {
                 let (ix, iy) = Self::parse_coordinate(&args)?;
@@ -276,8 +277,7 @@ impl Tool for ComputerTool {
                 let key = args.get("text").and_then(Value::as_str)
                     .ok_or_else(|| anyhow::anyhow!("missing 'text'"))?;
                 let duration_secs = args.get("duration").and_then(Value::as_f64).unwrap_or(1.0).min(10.0);
-                self.controller.press_key(key).await?;
-                tokio::time::sleep(std::time::Duration::from_secs_f64(duration_secs)).await;
+                self.controller.hold_key(key, duration_secs).await?;
                 Ok(format!("held key: {key} for {duration_secs}s"))
             }
 
@@ -394,6 +394,7 @@ mod tests {
         async fn mouse_down(&self, _: i32, _: i32) -> anyhow::Result<()> { Ok(()) }
         async fn mouse_up(&self, _: i32, _: i32) -> anyhow::Result<()> { Ok(()) }
         async fn triple_click(&self, _: i32, _: i32) -> anyhow::Result<()> { Ok(()) }
+        async fn hold_key(&self, _: &str, _: f64) -> anyhow::Result<()> { Ok(()) }
         fn resolution(&self) -> (u32, u32) { (2560, 1600) }
     }
 
@@ -444,7 +445,7 @@ mod tests {
     #[tokio::test]
     async fn wait_ok() {
         let tool = make_tool();
-        let result = tool.execute(json!({"action": "wait", "duration": 10})).await.unwrap();
+        let result = tool.execute(json!({"action": "wait", "duration": 0.01})).await.unwrap();
         assert!(result.success);
     }
 

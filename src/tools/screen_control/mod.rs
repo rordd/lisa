@@ -74,6 +74,9 @@ pub trait ScreenController: Send + Sync {
     /// 트리플 클릭
     async fn triple_click(&self, x: i32, y: i32) -> Result<()>;
 
+    /// 키 누르고 유지 (keydown → sleep → keyup)
+    async fn hold_key(&self, key: &str, duration_secs: f64) -> Result<()>;
+
     /// 화면 해상도
     fn resolution(&self) -> (u32, u32);
 }

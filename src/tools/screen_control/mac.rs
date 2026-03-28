@@ -52,10 +52,13 @@ impl MacScreenController {
     }
 
     /// CGEvent binary path (precompiled for speed: ~15ms vs swift -e ~150ms)
-    const CGEVENT_BIN: &'static str = concat!(env!("HOME"), "/.zeroclaw/bin/cgevent");
+    fn cgevent_bin() -> String {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        format!("{home}/.zeroclaw/bin/cgevent")
+    }
 
     async fn key_code(&self, code: u16) -> Result<()> {
-        self.run(Self::CGEVENT_BIN, &["key", &code.to_string()]).await?;
+        self.run(&Self::cgevent_bin(), &["key", &code.to_string()]).await?;
         Ok(())
     }
 
@@ -77,7 +80,7 @@ impl MacScreenController {
         }
         let key_part = parts.last().unwrap();
         let key_code: u16 = Self::name_to_keycode(key_part)?;
-        self.run(Self::CGEVENT_BIN, &["key", &key_code.to_string(), &flags.to_string()]).await?;
+        self.run(&Self::cgevent_bin(), &["key", &key_code.to_string(), &flags.to_string()]).await?;
         Ok(())
     }
 
@@ -185,7 +188,7 @@ impl ScreenController for MacScreenController {
                 let ch = key.chars().next();
                 if key.len() == 1 && ch.map_or(false, |c| c.is_ascii_graphic()) {
                     let c = ch.unwrap();
-                    self.run(Self::CGEVENT_BIN, &["unicode", &(c as u32).to_string()]).await?;
+                    self.run(&Self::cgevent_bin(), &["unicode", &(c as u32).to_string()]).await?;
                     return Ok(());
                 }
                 anyhow::bail!("unsupported key: {key}");
@@ -202,7 +205,7 @@ impl ScreenController for MacScreenController {
             "right" => (0, -(amount as i32)),
             _ => anyhow::bail!("unknown scroll direction: {direction}"),
         };
-        self.run(Self::CGEVENT_BIN, &["scroll", &wheel1.to_string(), &wheel2.to_string()]).await?;
+        self.run(&Self::cgevent_bin(), &["scroll", &wheel1.to_string(), &wheel2.to_string()]).await?;
         Ok(())
     }
 
@@ -225,6 +228,43 @@ impl ScreenController for MacScreenController {
         }
     }
 
+    async fn hold_key(&self, key: &str, duration_secs: f64) -> Result<()> {
+        // 콤보 키 or 단일 키 → keycode 결정
+        let (code, flags) = if key.contains('+') {
+            let parts: Vec<&str> = key.split('+').map(|s| s.trim()).collect();
+            let mut f: u64 = 0;
+            for part in &parts[..parts.len() - 1] {
+                match part.to_ascii_lowercase().as_str() {
+                    "cmd" | "command" | "super" => f |= 0x100000,
+                    "ctrl" | "control" => f |= 0x40000,
+                    "alt" | "option" | "opt" => f |= 0x80000,
+                    "shift" => f |= 0x20000,
+                    _ => anyhow::bail!("unknown modifier: {part}"),
+                }
+            }
+            (Self::name_to_keycode(parts.last().unwrap())?, f)
+        } else {
+            (Self::name_to_keycode(key)?, 0u64)
+        };
+
+        let bin = Self::cgevent_bin();
+        // keydown
+        if flags > 0 {
+            self.run(&bin, &["keydown", &code.to_string(), &flags.to_string()]).await?;
+        } else {
+            self.run(&bin, &["keydown", &code.to_string()]).await?;
+        }
+        // hold
+        tokio::time::sleep(std::time::Duration::from_secs_f64(duration_secs.min(10.0))).await;
+        // keyup
+        if flags > 0 {
+            self.run(&bin, &["keyup", &code.to_string(), &flags.to_string()]).await?;
+        } else {
+            self.run(&bin, &["keyup", &code.to_string()]).await?;
+        }
+        Ok(())
+    }
+
     async fn mouse_down(&self, x: i32, y: i32) -> Result<()> {
         self.run("cliclick", &[&format!("dd:{x},{y}")]).await?; Ok(())
     }
@@ -233,25 +273,29 @@ impl ScreenController for MacScreenController {
     }
 
     fn resolution(&self) -> (u32, u32) {
-        let tmp = match tempfile::Builder::new().prefix("lisa_res_").suffix(".png").tempfile() {
-            Ok(t) => t, Err(_) => return (2560, 1600),
-        };
-        let path = tmp.path().to_string_lossy().to_string();
-        let ok = std::process::Command::new("screencapture").args(["-x", &path])
-            .output().map(|o| o.status.success()).unwrap_or(false);
-        if !ok { return (2560, 1600); }
-        if let Ok(output) = std::process::Command::new("sips")
-            .args(["-g", "pixelWidth", "-g", "pixelHeight", &path]).output()
+        // sync blocking — ComputerTool::new()에서 초기화 시 1회만 호출.
+        // tokio 런타임 시작 전 or tool 등록 시점이라 blocking OK.
         {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut w = 0u32;
-            let mut h = 0u32;
-            for line in text.lines() {
-                if let Some(val) = line.strip_prefix("  pixelWidth: ") { w = val.trim().parse().unwrap_or(0); }
-                else if let Some(val) = line.strip_prefix("  pixelHeight: ") { h = val.trim().parse().unwrap_or(0); }
+            let tmp = match tempfile::Builder::new().prefix("lisa_res_").suffix(".png").tempfile() {
+                Ok(t) => t, Err(_) => return (2560, 1600),
+            };
+            let path = tmp.path().to_string_lossy().to_string();
+            let ok = std::process::Command::new("screencapture").args(["-x", &path])
+                .output().map(|o| o.status.success()).unwrap_or(false);
+            if !ok { return (2560, 1600); }
+            if let Ok(output) = std::process::Command::new("sips")
+                .args(["-g", "pixelWidth", "-g", "pixelHeight", &path]).output()
+            {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let mut w = 0u32;
+                let mut h = 0u32;
+                for line in text.lines() {
+                    if let Some(val) = line.strip_prefix("  pixelWidth: ") { w = val.trim().parse().unwrap_or(0); }
+                    else if let Some(val) = line.strip_prefix("  pixelHeight: ") { h = val.trim().parse().unwrap_or(0); }
+                }
+                if w > 0 && h > 0 { return (w, h); }
             }
-            if w > 0 && h > 0 { return (w, h); }
+            (2560, 1600)
         }
-        (2560, 1600)
     }
 }
